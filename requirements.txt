@@ -1,0 +1,81 @@
+# ============================================================
+# Autonomous Agentic Biomedical Research Environment
+# Requirements — Apple Silicon (M4 Max / MPS backend)
+# ============================================================
+
+# ------------------------------------------------------------
+# Single-Cell Genomics
+# ------------------------------------------------------------
+scanpy
+anndata
+scvelo
+loompy                  # loom file support for scVelo velocity
+
+# ------------------------------------------------------------
+# Deep Learning (Apple Silicon / MPS)
+# torch must be installed via the Apple-specific wheel:
+#   pip install torch torchvision torchaudio
+# ------------------------------------------------------------
+torch
+torchvision
+torchaudio
+pytorch-lightning
+scvi-tools
+huggingface-hub         # scvi-hub model pulling
+
+# ------------------------------------------------------------
+# Large-Scale / Out-of-Core Data
+# ------------------------------------------------------------
+cellxgene-census        # CZI CELLxGENE Discover Census access
+h5py                    # H5AD / HDF5 file I/O
+
+# ------------------------------------------------------------
+# Proteomics & Mass Spectrometry
+# ------------------------------------------------------------
+alphapept
+numba                   # JIT compilation backend for AlphaPept
+bioservices             # UniProt, STRING, PRIDE API access
+
+# ------------------------------------------------------------
+# Workflow Management
+# ------------------------------------------------------------
+snakemake
+
+# ------------------------------------------------------------
+# Reactive Notebooks & Interactive Experimentation
+# ------------------------------------------------------------
+marimo
+duckdb                  # SQL queries within Marimo notebooks
+
+# ------------------------------------------------------------
+# Core Scientific Stack
+# ------------------------------------------------------------
+numpy
+pandas
+scipy
+matplotlib
+seaborn
+
+# ------------------------------------------------------------
+# Lab Automation
+# ------------------------------------------------------------
+pylabrobot
+
+# ------------------------------------------------------------
+# Agentic / API Clients
+# ------------------------------------------------------------
+anthropic               # Claude API / Claude Code SDK
+
+# ------------------------------------------------------------
+# Nerve Cell Heterogeneity Analysis
+# ------------------------------------------------------------
+infercnvpy              # CNV inference for malignancy classification
+gseapy                  # Gene set enrichment analysis (GO, MSigDB)
+leidenalg               # Leiden community detection
+igraph                  # Graph utilities (dependency of leidenalg)
+requests                # GDC REST API queries
+
+# ------------------------------------------------------------
+# Provenance & Metadata (FAIR compliance)
+# ------------------------------------------------------------
+gitpython               # Git-based atomic state management

@@ -1,0 +1,173 @@
+# =============================================================
+# Project Configuration
+# Autonomous Agentic Biomedical Research Environment
+# All scripts must reference keys here — no hard-coded paths.
+# =============================================================
+
+project:
+  name: "biomedical_agentic_lab"
+  version: "0.1.0"
+  description: "Autonomous agentic biomedical research environment on Apple M4 Max"
+  license_data: "CC-BY-4.0"
+  license_code: "MIT"
+  pi: "Jarrett Evans"
+  contact: "jevans2532@gmail.com"
+
+# -------------------------------------------------------------
+# Directory layout (relative to project root)
+# -------------------------------------------------------------
+dirs:
+  data_raw:       "data/raw"
+  data_processed: "data/processed"
+  data_external:  "data/external"
+  results:        "results"
+  figures:        "results/figures"
+  tables:         "results/tables"
+  models:         "results/models"
+  logs:           "logs"
+  provenance:     "provenance"
+
+# -------------------------------------------------------------
+# Hardware / Compute
+# -------------------------------------------------------------
+hardware:
+  device: "mps"                  # mps | cpu | cuda
+  precision: "float32"           # float32 preferred on MPS
+  max_memory_gb: 120             # leave headroom below 128GB
+  mps_watermark_ratio: 0.0       # PYTORCH_MPS_HIGH_WATERMARK_RATIO
+
+resources:
+  default_threads: 8
+  default_mem_mb: 32000
+  gpu_threads: 1                 # MPS is single-device
+
+# -------------------------------------------------------------
+# Single-Cell RNA-seq defaults
+# -------------------------------------------------------------
+scrna:
+  min_genes: 200
+  max_genes: 6000
+  min_cells: 3
+  max_pct_mito: 20
+  n_top_genes: 3000              # highly variable genes
+  n_latent: 30                   # scVI latent dimensions
+  n_layers: 2
+  batch_key: "batch"
+  random_seed: 0
+
+# -------------------------------------------------------------
+# Proteomics defaults
+# -------------------------------------------------------------
+proteomics:
+  fdr_threshold: 0.01
+  min_peptides: 2
+  enzyme: "trypsin"
+  missed_cleavages: 2
+  mass_tolerance_ppm: 20
+
+# -------------------------------------------------------------
+# FAIR metadata defaults
+# These are written into every artifact's metadata block
+# -------------------------------------------------------------
+fair:
+  ontology_gene: "ensembl"       # gene ID namespace
+  ontology_protein: "uniprot_ac"
+  ontology_operation: "EDAM"
+  metadata_schema: "bioschemas"
+  provenance_format: "prov-json"
+
+# -------------------------------------------------------------
+# External databases
+# -------------------------------------------------------------
+databases:
+  cellxgene_census_version: "stable"
+  ensembl_release: 113
+  uniprot_release: "2024_06"
+
+# -------------------------------------------------------------
+# GDC loom data (TCGA GBM)
+# -------------------------------------------------------------
+loom_manifest: "data/raw/gdc_extract/MANIFEST.txt"
+loom_dir:      "data/raw/gdc_extract"
+
+samples:
+  - 06820e2c-9eb7-4e71-a1c3-976d561e659d
+  - 08418175-0464-4b33-86e3-416c30189bd2
+  - 18d92af9-a7d0-47f2-84e2-6f4cc0dee298
+  - 20e86156-cdd7-4bea-8b17-2e630720df44
+  - 21521784-3a62-4989-bd29-0f920e1eaa2b
+  - 44dcf3b7-977a-410f-8901-412697377924
+  - 4a0d48cd-1c46-4d59-b4b0-ae842bf1323c
+  - 5212fe36-192c-44a3-88f4-4c6e696b583c
+  - 7eac574d-04fa-435d-8b4d-35da0100ecb9
+  - 8c0685b3-521e-45a6-9677-f8e3f186e09b
+  - 903b7af4-a936-4c0e-8cff-87085c3faa31
+  - 9079231e-6906-4548-9f4f-684a86ed9b16
+  - 9f0f5520-2bc4-47ba-9966-0831f11ae5fd
+  - ae4dc06f-fc6d-4557-9a22-ab81504c2953
+  - c8ea9c15-368d-460c-9775-5037a5f1790a
+  - da98ea54-62c1-4b95-acaa-1dcd98e53c12
+  - f8b54be7-f58e-4881-9147-40df9cef487b
+
+# -------------------------------------------------------------
+# Nerve cell heterogeneity analysis
+# -------------------------------------------------------------
+nerve_cells:
+  leiden_resolution: 1.0
+  include_astrocytes: true
+  cell_types:
+    - "excitatory neuron"
+    - "inhibitory neuron"
+    - "oligodendrocyte precursor cell"
+    - "oligodendrocyte"
+    - "astrocyte"
+  markers:
+    neuron:
+      - "SYN1"
+      - "SNAP25"
+      - "STMN2"
+      - "RBFOX3"
+      - "MAP2"
+      - "SYT1"
+    excitatory_neuron:
+      - "SLC17A7"
+      - "CAMK2A"
+      - "GRIN2B"
+    inhibitory_neuron:
+      - "GAD1"
+      - "GAD2"
+      - "SLC32A1"
+    opc:
+      - "PDGFRA"
+      - "CSPG4"
+      - "SOX10"
+      - "OLIG1"
+    oligodendrocyte:
+      - "MBP"
+      - "MOG"
+      - "PLP1"
+      - "OLIG2"
+    astrocyte:
+      - "GFAP"
+      - "S100B"
+      - "AQP4"
+      - "VIM"
+  reference_dataset: "cellxgene_census"
+
+# -------------------------------------------------------------
+# GDC REST API configuration
+# -------------------------------------------------------------
+gdc_api:
+  base_url: "https://api.gdc.cancer.gov"
+  fields:
+    - "file_id"
+    - "cases.case_id"
+    - "cases.project.project_id"
+    - "cases.diagnoses.primary_diagnosis"
+    - "cases.diagnoses.tumor_grade"
+    - "cases.diagnoses.prior_malignancy"
+    - "cases.diagnoses.treatments.treatment_outcome"
+    - "cases.samples.tissue_type"
+    - "cases.demographic.gender"
+    - "cases.demographic.race"
+    - "cases.demographic.age_at_index"

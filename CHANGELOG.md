@@ -1,0 +1,202 @@
+# CHANGELOG.md — Lab Notebook & Persistent Memory
+# Autonomous Agentic Biomedical Research Environment
+
+This file is the **persistent lab notebook** for all agentic sessions. It serves as long-term memory across context windows. Every significant computational decision, tool failure, parameter choice, and artifact verification must be recorded here.
+
+Format each entry with: date, phase, action taken, outcome, and any open issues.
+
+---
+
+## How to Use This File
+
+- **Agents:** Append an entry at the start and end of every session. Record failures, not just successes.
+- **Researcher:** Use this as an audit trail. Entries here are the ground truth for what the system has done.
+- **GSD Orchestrator:** Read the most recent `[STATUS]` block to resume after context resets.
+
+---
+
+## Entry Format
+
+```
+### [YYYY-MM-DD] | Phase: <phase name> | Status: IN-PROGRESS | COMPLETE | FAILED
+**Action:** <what was attempted>
+**Outcome:** <what actually happened>
+**Artifacts:** <file paths produced or modified>
+**Tool Versions:** <key package versions used>
+**Open Issues:** <unresolved problems or follow-ups>
+**FAIR Notes:** <any FAIR compliance actions taken or deferred>
+```
+
+---
+
+## Current Project State
+
+```
+[STATUS]
+Phase:          1 — Environment Initialization
+Last Updated:   2026-04-17
+Active Agent:   —
+Current Task:   CLAUDE.md and CHANGELOG.md created
+Blocked On:     —
+Next Action:    Initialize Snakemake base Snakefile; configure K-Dense-AI skills
+```
+
+---
+
+## Session Log
+
+---
+
+### [2026-04-17] | Phase: 1 — Environment Initialization | Status: COMPLETE
+
+**Action:** Created project constitution (`CLAUDE.md`) and lab notebook (`CHANGELOG.md`) as part of Phase 1 environment initialization.
+
+**Outcome:** Both files created successfully in the project root. CLAUDE.md encodes FAIR principles, MPS hardware rules, Snakemake-first workflow policy, coding standards, and agentic behavior rules. CHANGELOG.md established as persistent memory store.
+
+**Artifacts:**
+- `CLAUDE.md` — project constitution
+- `CHANGELOG.md` — this file
+
+**Tool Versions:**
+- Python: 3.12
+- Claude Code: claude-sonnet-4-6
+
+**Open Issues:**
+- Snakemake base `Snakefile` not yet initialized
+- K-Dense-AI scientific skills not yet linked
+- BioRender MCP connector not yet configured
+- Marimo workspace not yet initialized
+- scvi-tools MPS configuration not yet validated
+
+**FAIR Notes:**
+- FAIR principles embedded in CLAUDE.md as mandatory rules
+- FAIR4RS (software) standards defined for all analysis code
+- Provenance logging protocol established via Snakemake `--report`
+
+---
+
+---
+
+### [2026-04-17] | Phase: 1 — Environment Initialization | Status: COMPLETE
+
+**Action:** Initialized Snakemake environment with base `Snakefile`, full project directory structure, `config/config.yaml`, conda environment YAMLs, FAIR utility scripts, and modular rule files.
+
+**Outcome:** `snakemake --lint` passes with zero warnings. All rules have `log`, `conda`, and `resources` directives. FAIR provenance hooks are wired into every analytical rule.
+
+**Artifacts:**
+- `Snakefile` — pipeline entry point; lint-clean
+- `config/config.yaml` — all paths, hardware, and analysis defaults
+- `workflow/rules/common.smk` — shared path helper
+- `workflow/rules/fair.smk` — provenance validation and report rules
+- `workflow/rules/qc.smk` — scRNA-seq QC rules
+- `workflow/rules/integration.smk` — scVI integration + RNA velocity rules
+- `workflow/rules/proteomics.smk` — AlphaPept MS rules
+- `workflow/envs/scrna.yaml` — scRNA-seq conda env (pinned versions)
+- `workflow/envs/proteomics.yaml` — proteomics conda env (isolated from scRNA)
+- `workflow/envs/notebooks.yaml` — Marimo/DuckDB env
+- `workflow/envs/base.yaml` — minimal base env for utility rules
+- `workflow/scripts/fair_utils.py` — FAIR provenance utilities (UUID, SHA256, stamping)
+- `workflow/scripts/fair_validate_metadata.py`
+- `workflow/scripts/scrna_qc_report.py`
+- `workflow/scripts/list_artifacts.py`
+- Directory tree: `data/raw`, `data/processed`, `data/external`, `results/figures`, `results/tables`, `results/models`, `logs`, `provenance`
+
+**Tool Versions:**
+- Snakemake: 9.19.0
+- Python: 3.12
+
+**Open Issues:**
+- K-Dense-AI scientific skills not yet linked
+- BioRender MCP connector not yet configured
+- Marimo workspace not yet initialized
+- scvi-tools MPS configuration not yet validated on real data
+- No real samples in `config.yaml` yet (`samples: []`)
+
+**FAIR Notes:**
+- All rules write provenance JSON via `fair_utils.stamp_artifact()`
+- `fair_validate_metadata` rule checks provenance completeness on every run
+- `snakemake --report` integrated as `fair_snakemake_report` rule
+- All paths sourced from `config.yaml` — no hard-coded absolute paths in any script
+
+<!-- Future entries appended below this line -->
+
+---
+
+### [2026-04-17] | Phase: 3 — Nerve Cell Heterogeneity Pipeline | Status: COMPLETE
+
+**Action:** Extended the Snakemake DAG with 7 new rules and 6 new scripts to support a full nerve-cell heterogeneity analysis of the GBM TME. Fixed a UUID typo in config.yaml and added `nerve_cells` + `gdc_api` config sections.
+
+**Outcome:** All rules, scripts, and config changes implemented. `rule all` extended with nerve-cell terminal artifacts. Dry run required to confirm DAG validity before executing.
+
+**Artifacts:**
+- `config/config.yaml` — fixed UUID typo (`f246`→`f186`), added `nerve_cells` + `gdc_api` sections
+- `workflow/rules/ingest.smk` — NEW: `loom_to_h5ad` (per-sample) + `gdc_clinical_fetch` rules
+- `workflow/rules/annotation.smk` — NEW: `scrna_annotate` + `scrna_malignancy` rules
+- `workflow/rules/nerve_cells.smk` — NEW: `nerve_cell_subset` + `nerve_cell_heterogeneity` rules
+- `workflow/rules/qc.smk` — fixed input path (data_raw → data_processed)
+- `workflow/envs/scrna.yaml` — added: infercnvpy, gseapy, requests, leidenalg, igraph
+- `requirements.txt` — added same five packages
+- `workflow/scripts/loom_to_h5ad.py` — NEW: loom→h5ad with batch metadata + gene presence report
+- `workflow/scripts/gdc_clinical_fetch.py` — NEW: GDC REST API clinical metadata fetch
+- `workflow/scripts/scrna_annotate.py` — NEW: Leiden clustering + marker scoring annotation
+- `workflow/scripts/scrna_malignancy.py` — NEW: sliding-window CNV scoring + is_malignant label
+- `workflow/scripts/nerve_cell_subset.py` — NEW: nerve-cell filter, clinical join, re-clustering
+- `workflow/scripts/nerve_cell_heterogeneity.py` — NEW: DE, GSEA, dot plot, abundance heatmap
+- `Snakefile` — added 3 new includes; extended `rule all` with 10 new terminal artifacts
+- `notebooks/01_explore_gbm_data.py` — appended nerve-cell heterogeneity explorer section
+- `CLAUDE.md` — added Plans section directing plans to `.claude/plans/`
+
+**Tool Versions:**
+- scvi-tools: 1.4.2
+- scanpy: 1.12.1
+- infercnvpy: 0.4.3 (added)
+- gseapy: 1.1.3 (added)
+- cellxgene-census: 1.17.0
+- Snakemake: 9.19.0
+
+**Open Issues:**
+- Conda env for `scrna.yaml` must be rebuilt to include new deps (infercnvpy, gseapy, leidenalg, igraph, requests)
+- `snakemake --use-conda --cores 8 -n` dry run required before full execution
+- Single-sample smoke test recommended: `data/processed/06820e2c-9eb7-4e71-a1c3-976d561e659d_qc.h5ad`
+- Gene-presence CSV from `loom_to_h5ad` must be inspected — if >3 canonical nerve markers absent per sample, consider re-downloading full-resolution loom files from GDC
+- GDC clinical API may return sparse IDH/MGMT data; `primary_diagnosis` field is the primary source
+
+**FAIR Notes:**
+- All 6 new scripts call `stamp_artifact()` + `write_provenance()` from `fair_utils.py`
+- Clinical fetch provenance records endpoint URL, timestamp, and field map
+- Gene presence report satisfies goal-backward caveat #1 from plan
+- `is_malignant` label recorded with CNV threshold value in provenance for reproducibility
+
+---
+
+### [2026-04-17] | Phase: 2 — Marimo Workspace Initialization | Status: COMPLETE
+
+**Action:** Initialized Marimo reactive notebook workspace for interactive TCGA GBM data exploration.
+
+**Outcome:** Notebook, Snakemake rule, conda env updates, and config sample registration all complete. `snakemake --lint` passes. Notebook is launchable via `marimo edit notebooks/01_explore_gbm_data.py`.
+
+**Artifacts:**
+- `notebooks/01_explore_gbm_data.py` — Marimo reactive notebook (sample selector, QC histograms, DuckDB manifest query, FAIR provenance block)
+- `workflow/rules/notebooks.smk` — Snakemake rule `explore_gbm_notebook` (batch HTML export + provenance JSON)
+- `workflow/envs/notebooks.yaml` — added loompy==3.0.7, anndata==0.11.4, scanpy==1.10.4
+- `config/config.yaml` — populated `samples` list (17 GDC UUIDs), added `loom_manifest` and `loom_dir` keys
+- `Snakefile` — added `include: workflow/rules/notebooks.smk`; `01_explore_gbm_data.html` added to `rule all`
+
+**Tool Versions:**
+- marimo: 0.23.1
+- loompy: 3.0.7
+- anndata: 0.11.4
+- scanpy: 1.10.4
+- duckdb: 1.5.2
+- Snakemake: 9.19.0
+
+**Open Issues:**
+- `notebooks.yaml` conda env not yet built — first run of `explore_gbm_notebook` rule will trigger `--use-conda` install
+- loom files use Ensembl gene IDs; MT- gene detection in notebook assumes gene symbol format — may need remapping after first load
+- QC thresholds in config.yaml are defaults; researcher sign-off needed before running production `scrna_qc` rule
+
+**FAIR Notes:**
+- Notebook sources all paths from `config/config.yaml` — no hardcoded absolute paths
+- Provenance UUID + timestamp logged as reactive cell on every notebook execution
+- `explore_gbm_notebook` Snakemake rule writes `provenance/explore_gbm_notebook_provenance.json`
+- QC threshold parameters logged before any filtering step (CLAUDE.md requirement satisfied)

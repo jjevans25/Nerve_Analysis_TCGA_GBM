@@ -1,0 +1,22 @@
+# workflow/rules/notebooks.smk
+# Snakemake rules for Marimo reactive notebook execution.
+# Notebooks run in batch (export) mode to produce FAIR HTML artifacts.
+
+
+rule explore_gbm_notebook:
+    """Export interactive GBM exploration notebook to HTML artifact."""
+    input:
+        notebook  = "notebooks/01_explore_gbm_data.py",
+        manifest  = config["loom_manifest"],
+    output:
+        html       = os.path.join(config["dirs"]["figures"],    "01_explore_gbm_data.html"),
+        provenance = os.path.join(config["dirs"]["provenance"], "explore_gbm_notebook_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "explore_gbm_notebook.log"),
+    conda:
+        "../envs/notebooks.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = 1,
+    script:
+        "../scripts/run_notebook_export.py"
