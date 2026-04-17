@@ -261,3 +261,4 @@ This project implements FAIR (Findable, Accessible, Interoperable, Reusable) pri
 2. **Malignancy classification** — uses sliding-window CNV scoring with T cells and endothelial cells as a reference. Confidence is proportional to the number of reference cells available per sample.
 3. **GDC clinical metadata** — IDH and MGMT status are not consistently curated in TCGA-GBM. Expect `NA` values; all plots include an "unknown" category.
 4. **GSEA** — requires internet access to query the Enrichr API. If offline, enrichment CSV will be empty but the pipeline continues without error.
+# Claude_TCGA_GBM
