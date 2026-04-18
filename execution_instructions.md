@@ -9,7 +9,7 @@ All commands must be run from the project root:
 
 The virtual environment at `claude_science/` provides Python 3.12 and Snakemake. Use it in place of the system Python for all commands below.
 
-Activate it by running: source claude_science/bin/activate
+Activate it by running: source claude_science/bin/activate 
 
 ---
 
