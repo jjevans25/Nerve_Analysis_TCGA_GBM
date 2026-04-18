@@ -1,5 +1,6 @@
 # ── Data (too large for GitHub) ──────────────────────────────────────────────
 data/
+rename_data/
 
 # ── Python virtual environment ───────────────────────────────────────────────
 claude_science/
