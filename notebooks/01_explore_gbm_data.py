@@ -26,9 +26,7 @@ def _imports():
     import scanpy as sc
     import yaml
 
-    return (
-        Path, ad, datetime, duckdb, loompy, mo, np, pd, plt, sc, sys, uuid, yaml,
-    )
+    return Path, ad, datetime, duckdb, loompy, mo, np, pd, plt, sc, uuid, yaml
 
 
 @app.cell
@@ -46,14 +44,12 @@ def _load_config(Path, yaml):
 
 @app.cell
 def _header(mo):
-    mo.md(
-        """
-        # TCGA GBM — Interactive Sample Explorer
-        **Project:** TCGA Glioblastoma Multiforme | Single-Cell RNA-seq
-        **Format:** Seurat 1000×1000 sparse loom files
-        **Purpose:** Exploratory QC prior to Snakemake pipeline execution
-        """
-    )
+    mo.md("""
+    # TCGA GBM — Interactive Sample Explorer
+    **Project:** TCGA Glioblastoma Multiforme | Single-Cell RNA-seq
+    **Format:** Seurat 1000×1000 sparse loom files
+    **Purpose:** Exploratory QC prior to Snakemake pipeline execution
+    """)
     return
 
 
@@ -85,7 +81,7 @@ def _show_manifest(manifest_df, mo):
 
 
 @app.cell
-def _sample_selector(mo, sample_ids):
+def _sample_selector(mo, sample_ids: list[str]):
     sample_dropdown = mo.ui.dropdown(
         options=sample_ids,
         value=sample_ids[0],
@@ -129,14 +125,12 @@ def _load_loom(loom_dir, loompy, mo, sample_dropdown):
 
 
 @app.cell
-def _loom_summary(mo, loom_path, n_cells, n_genes, sample_dropdown):
-    mo.md(
-        f"""
-        ## Sample: `{sample_dropdown.value}`
-        **File:** `{loom_path.name}`
-        **Dimensions:** {n_genes:,} genes × {n_cells:,} cells
-        """
-    )
+def _loom_summary(loom_path, mo, n_cells, n_genes, sample_dropdown):
+    mo.md(f"""
+    ## Sample: `{sample_dropdown.value}`
+    **File:** `{loom_path.name}`
+    **Dimensions:** {n_genes:,} genes × {n_cells:,} cells
+    """)
     return
 
 
@@ -165,7 +159,7 @@ def _qc_metrics(adata, sc):
 
 
 @app.cell
-def _qc_plots(adata, mo, plt, qc_params):
+def _qc_plots(adata, plt, qc_params):
     """Reactive QC histograms — updates when sample selection changes."""
     _fig, _axes = plt.subplots(1, 3, figsize=(14, 4))
 
@@ -192,8 +186,7 @@ def _qc_plots(adata, mo, plt, qc_params):
 
     _fig.suptitle("QC Distributions — thresholds from config.yaml", fontsize=11)
     _fig.tight_layout()
-
-    return mo.as_html(_fig)
+    return
 
 
 @app.cell
@@ -232,7 +225,7 @@ def _qc_summary_table(adata, mo, pd, qc_params):
 
 
 @app.cell
-def _provenance(Path, datetime, mo, sample_dropdown, uuid):
+def _provenance(datetime, mo, sample_dropdown, uuid):
     """FAIR provenance record for this notebook execution."""
     _run_id    = str(uuid.uuid4())
     _timestamp = datetime.utcnow().isoformat() + "Z"
@@ -257,14 +250,12 @@ def _provenance(Path, datetime, mo, sample_dropdown, uuid):
 
 @app.cell
 def _nerve_cell_header(mo):
-    mo.md(
-        """
-        ---
-        ## Nerve Cell Heterogeneity Explorer
-        Visualizes results from the nerve-cell subset and heterogeneity Snakemake rules.
-        Requires the pipeline to have been run through the `nerve_cell_heterogeneity` rule.
-        """
-    )
+    mo.md("""
+    ---
+    ## Nerve Cell Heterogeneity Explorer
+    Visualizes results from the nerve-cell subset and heterogeneity Snakemake rules.
+    Requires the pipeline to have been run through the `nerve_cell_heterogeneity` rule.
+    """)
     return
 
 
@@ -329,7 +320,7 @@ def _nerve_markers_table(duckdb, mo, nerve_artifacts):
         mo.md("### Top Differential Markers per Nerve-Cell Cluster"),
         mo.ui.table(nerve_markers_df, selection=None),
     ])
-    return (nerve_markers_df,)
+    return
 
 
 @app.cell
