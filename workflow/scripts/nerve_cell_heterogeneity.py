@@ -202,7 +202,7 @@ prov = stamp_artifact(
     description="Nerve cell DE markers, GSEA enrichment, marker dot plot, and sample abundance heatmap",
     ontology_operation="operation:3223",  # EDAM: Differential gene expression profiling
 )
-write_provenance(prov, "provenance")
+write_provenance(prov, snakemake.output.provenance)
 
 log_transformation(log, "nerve_cell_heterogeneity", "Complete", status="SUCCESS",
                    artifact_paths=[

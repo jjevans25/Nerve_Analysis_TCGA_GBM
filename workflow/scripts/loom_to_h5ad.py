@@ -108,7 +108,7 @@ prov = stamp_artifact(
     description="GDC loom converted to AnnData h5ad with batch metadata and nerve-marker annotation",
     ontology_operation="operation:2409",  # EDAM: Format conversion
 )
-write_provenance(prov, "provenance")
+write_provenance(prov, snakemake.output.provenance)
 
 log_transformation(log, "loom_to_h5ad", "Complete", status="SUCCESS",
                    artifact_paths=[snakemake.output.h5ad, snakemake.output.gene_presence])

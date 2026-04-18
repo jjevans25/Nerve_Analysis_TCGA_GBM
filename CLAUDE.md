@@ -6,7 +6,7 @@ This file is the authoritative "constitution" for all agentic work in this proje
 
 **Project root:** `/Users/jarrettevans/Documents/Biomedical Data Science/Projects/CLAUDE_TCGA_GBM/`
 
-> **Path correction rule:** If any file, script, shebang, or config references `/Users/jarrettevans/Documents/Biomedical Data Science/Projects/CLAUDE_SETUP/`, or `/Users/jarrettevans/Documents/Biomedical Data Science/Projects/CLAUDE_TCGA_GBM` replace that segment with `NERVE_ANALYSIS_TVGA_GBM`. The `CLAUDE_SETUP` path is stale and incorrect for this project.
+> **Path correction rule:** If any file, script, shebang, or config references `/Users/jarrettevans/Documents/Biomedical Data Science/Projects/CLAUDE_SETUP/`, or `/Users/jarrettevans/Documents/Biomedical Data Science/Projects/CLAUDE_TCGA_GBM` replace that segment with `NERVE_ANALYSIS_TCGA_GBM`. The `CLAUDE_SETUP` path is stale and incorrect for this project.
 
 ---
 

@@ -62,7 +62,7 @@ prov = stamp_artifact(
     description="Per-sample QC-filtered AnnData; raw counts preserved in .X",
     ontology_operation="operation:3435",  # EDAM: Gene expression data filtering
 )
-write_provenance(prov, "provenance")
+write_provenance(prov, snakemake.output.provenance)
 
 log_transformation(log, "scrna_qc", "Complete", status="SUCCESS",
                    artifact_paths=[snakemake.output.h5ad, snakemake.output.qc_metrics])

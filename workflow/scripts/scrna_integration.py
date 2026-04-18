@@ -96,7 +96,7 @@ prov = stamp_artifact(
     description="scVI VAE latent representation of batch-corrected scRNA-seq data",
     ontology_operation="data:3917",  # EDAM: Gene expression matrix
 )
-write_provenance(prov, "provenance")
+write_provenance(prov, snakemake.output.provenance)
 
 log_transformation(snakemake.log[0], "scrna_integration",
                    f"Model saved to {snakemake.output.model_dir}", status="SUCCESS",

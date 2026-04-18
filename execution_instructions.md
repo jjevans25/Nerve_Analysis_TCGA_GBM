@@ -4,7 +4,7 @@
 
 All commands must be run from the project root:
 ```
-/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Claude_TCGA_GBM/
+/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/
 ```
 
 The virtual environment at `claude_science/` provides Python 3.12 and Snakemake. Use it in place of the system Python for all commands below.

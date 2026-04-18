@@ -43,7 +43,7 @@ prov = stamp_artifact(
     description="Protein-level quantification matrix across all MS samples",
     ontology_operation="operation:3630",  # EDAM: Protein quantification
 )
-write_provenance(prov, "provenance")
+write_provenance(prov, snakemake.output.provenance)
 
 log_transformation(log, "proteomics_quantification", "Complete", status="SUCCESS",
                    artifact_paths=[snakemake.output.quant_matrix])

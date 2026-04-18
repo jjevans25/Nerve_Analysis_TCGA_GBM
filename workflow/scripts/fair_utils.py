@@ -58,17 +58,14 @@ def stamp_artifact(
 
 def write_provenance(
     provenance: dict,
-    provenance_dir: Path | str,
+    output_path: Path | str,
 ) -> Path:
-    """Write provenance record to the provenance directory as JSON."""
-    provenance_dir = Path(provenance_dir)
-    provenance_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    rule = provenance.get("snakemake_rule", "unknown")
-    out_file = provenance_dir / f"{rule}_{ts}_{provenance['artifact_id'][:8]}.json"
-    with open(out_file, "w") as f:
+    """Write provenance record to the Snakemake-declared output path."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
         json.dump(provenance, f, indent=2)
-    return out_file
+    return output_path
 
 
 def log_transformation(

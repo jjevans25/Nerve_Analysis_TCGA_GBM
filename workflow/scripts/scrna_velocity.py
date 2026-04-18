@@ -53,7 +53,7 @@ prov = stamp_artifact(
     description="RNA velocity estimates (dynamical model) on scVI latent space",
     ontology_operation="operation:0430",  # EDAM: Gene expression analysis
 )
-write_provenance(prov, "provenance")
+write_provenance(prov, snakemake.output.provenance)
 
 log_transformation(log, "scrna_velocity", "Complete", status="SUCCESS",
                    artifact_paths=[snakemake.output.velocity_h5ad, snakemake.output.velocity_plot])

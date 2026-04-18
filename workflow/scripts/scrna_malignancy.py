@@ -169,7 +169,7 @@ prov = stamp_artifact(
     description="CNV-scored AnnData with is_malignant label; sliding-window expression smoothing",
     ontology_operation="operation:3225",  # EDAM: Copy number variation detection
 )
-write_provenance(prov, "provenance")
+write_provenance(prov, snakemake.output.provenance)
 
 log_transformation(log, "scrna_malignancy", "Complete", status="SUCCESS",
                    artifact_paths=[snakemake.output.h5ad, snakemake.output.cnv_plot])

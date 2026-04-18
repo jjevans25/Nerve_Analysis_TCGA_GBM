@@ -148,7 +148,7 @@ prov = stamp_artifact(
     description="Non-malignant nerve-cell AnnData subspace with clinical metadata and re-clustering",
     ontology_operation="operation:3432",
 )
-write_provenance(prov, "provenance")
+write_provenance(prov, snakemake.output.provenance)
 
 log_transformation(log, "nerve_cell_subset", "Complete", status="SUCCESS",
                    artifact_paths=[snakemake.output.h5ad, snakemake.output.umap,

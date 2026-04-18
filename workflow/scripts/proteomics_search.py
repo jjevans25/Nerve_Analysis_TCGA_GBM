@@ -58,7 +58,7 @@ prov = stamp_artifact(
     description="AlphaPept peptide identification from raw MS data",
     ontology_operation="operation:3767",  # EDAM: Protein identification
 )
-write_provenance(prov, "provenance")
+write_provenance(prov, snakemake.output.provenance)
 
 log_transformation(log, "proteomics_search",
     f"Identified {len(peptide_df)} peptides", status="SUCCESS",
