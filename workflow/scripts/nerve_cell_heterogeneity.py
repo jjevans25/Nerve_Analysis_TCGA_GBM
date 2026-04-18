@@ -23,9 +23,35 @@ os.environ["PYTHONHASHSEED"] = str(snakemake.params.random_seed)
 log_transformation(log, "nerve_cell_heterogeneity", f"Loading {snakemake.input.h5ad}")
 adata = ad.read_h5ad(snakemake.input.h5ad)
 
-n_clusters = adata.obs["nerve_leiden"].nunique()
+n_clusters = adata.obs["nerve_leiden"].nunique() if "nerve_leiden" in adata.obs else 0
 log_transformation(log, "nerve_cell_heterogeneity",
     f"{adata.n_obs} cells across {n_clusters} nerve-cell clusters")
+
+if adata.n_obs == 0 or n_clusters == 0:
+    log_transformation(log, "nerve_cell_heterogeneity",
+        "[FAIR-ALERT] Empty nerve-cell AnnData — writing placeholder outputs.",
+        status="WARNING")
+    pd.DataFrame(columns=["cluster", "names", "scores", "logfoldchanges", "pvals", "pvals_adj"]).to_csv(
+        snakemake.output.markers, index=False)
+    pd.DataFrame().to_csv(snakemake.output.enrichment, index=False)
+    for fig_path in [snakemake.output.dotplot, snakemake.output.abundance]:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.text(0.5, 0.5, "[FAIR-ALERT] No nerve cells found in subsampled data",
+                ha="center", va="center", transform=ax.transAxes, fontsize=11)
+        ax.set_axis_off()
+        fig.savefig(fig_path, dpi=100, bbox_inches="tight")
+        plt.close(fig)
+    prov = stamp_artifact(
+        output_path=snakemake.output.markers,
+        rule_name="nerve_cell_heterogeneity",
+        input_paths=[snakemake.input.h5ad],
+        tool_versions={"scanpy": sc.__version__, "anndata": ad.__version__},
+        parameters={"n_clusters": 0, "n_cells": 0, "note": "no nerve cells found"},
+        description="Placeholder: no nerve cells available for heterogeneity analysis",
+        ontology_operation="operation:3223",
+    )
+    write_provenance(prov, snakemake.output.provenance)
+    raise SystemExit(0)
 
 # ---------------------------------------------------------------------------
 # Step 1: Differential expression (Wilcoxon) per nerve cluster

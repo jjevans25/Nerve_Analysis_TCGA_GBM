@@ -83,25 +83,35 @@ if n_ref < 10:
 gene_order_idx = np.argsort(adata.var["gene_order"].values)
 X_ordered = adata.X[:, gene_order_idx]
 if hasattr(X_ordered, "toarray"):
-    X_ordered = X_ordered.toarray()
+    X_ordered = X_ordered.toarray().astype(np.float32)
+else:
+    X_ordered = np.asarray(X_ordered, dtype=np.float32)
 
-# Log-normalize for CNV baseline subtraction
-X_norm = np.log1p(X_ordered)
+# Log-normalize in-place to avoid a second full-matrix copy
+np.log1p(X_ordered, out=X_ordered)
 
-# Subtract per-gene mean of reference cells
+# Subtract per-gene mean of reference cells in-place
 if n_ref >= 1:
     ref_mask = adata.obs["is_reference"].values
-    ref_mean = X_norm[ref_mask, :].mean(axis=0, keepdims=True)
-    X_centered = X_norm - ref_mean
+    ref_mean = X_ordered[ref_mask, :].mean(axis=0, keepdims=True)
 else:
-    X_centered = X_norm - X_norm.mean(axis=0, keepdims=True)
+    ref_mean = X_ordered.mean(axis=0, keepdims=True)
+X_ordered -= ref_mean
+del ref_mean
 
-# Sliding window smoothing (window = 100 genes)
-window = min(100, X_centered.shape[1])
-kernel = np.ones(window) / window
-X_smoothed = np.apply_along_axis(
-    lambda row: np.convolve(row, kernel, mode="same"), axis=1, arr=X_centered
-)
+# Memory-efficient sliding window via cumsum (no per-row convolution copies)
+# Standard trick: prepend zero column so that sum[i] = cs[i+w] - cs[i]
+window = min(100, X_ordered.shape[1])
+n_genes_ord = X_ordered.shape[1]
+pad_l, pad_r = window // 2, window - window // 2 - 1
+padded = np.pad(X_ordered, ((0, 0), (pad_l, pad_r)), mode="edge")
+del X_ordered
+cs = np.empty((padded.shape[0], padded.shape[1] + 1), dtype=np.float32)
+cs[:, 0] = 0.0
+np.cumsum(padded, axis=1, out=cs[:, 1:])
+del padded
+X_smoothed = (cs[:, window : window + n_genes_ord] - cs[:, :n_genes_ord]) / window
+del cs
 
 # CNV score = variance of smoothed signal per cell
 cnv_scores = X_smoothed.var(axis=1).astype(np.float32)

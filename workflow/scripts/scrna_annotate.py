@@ -27,7 +27,8 @@ log_transformation(log, "scrna_annotate",
 
 # --- Leiden clustering -------------------------------------------------------
 res = snakemake.params.leiden_resolution
-sc.tl.leiden(adata, resolution=res, random_state=snakemake.params.random_seed, key_added="leiden")
+sc.tl.leiden(adata, resolution=res, random_state=snakemake.params.random_seed,
+             key_added="leiden", flavor="igraph", directed=False, n_iterations=2)
 n_clusters = adata.obs["leiden"].nunique()
 log_transformation(log, "scrna_annotate",
     f"Leiden clustering (resolution={res}) → {n_clusters} clusters")
@@ -65,16 +66,22 @@ log_transformation(log, "scrna_annotate",
 
 # --- Assign cell type per cluster by max mean score -------------------------
 score_cols = [f"score_{s}" for s in scored_sets]
-cluster_means = (
-    adata.obs[["leiden"] + score_cols]
-    .groupby("leiden")[score_cols]
-    .mean()
-)
 
 label_map: dict[str, str] = {}
-for cluster in cluster_means.index:
-    top_score_col = cluster_means.loc[cluster].idxmax()
-    label_map[cluster] = top_score_col.replace("score_", "")
+if score_cols:
+    cluster_means = (
+        adata.obs[["leiden"] + score_cols]
+        .groupby("leiden", observed=True)[score_cols]
+        .mean()
+    )
+    for cluster in cluster_means.index:
+        row = cluster_means.loc[cluster]
+        label_map[cluster] = row.idxmax().replace("score_", "") if not row.empty else "unscored"
+else:
+    log_transformation(log, "scrna_annotate",
+        "WARNING: no marker gene sets scored — all clusters labeled 'unscored'", status="WARNING")
+    for cluster in adata.obs["leiden"].unique():
+        label_map[cluster] = "unscored"
 
 adata.obs["cell_type_predicted"] = adata.obs["leiden"].map(label_map).astype(str)
 

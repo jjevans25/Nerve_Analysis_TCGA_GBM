@@ -52,6 +52,43 @@ log_transformation(log, "nerve_cell_subset",
 log_transformation(log, "nerve_cell_subset",
     f"Cell-type breakdown: {adata_nerve.obs['cell_type_predicted'].value_counts().to_dict()}")
 
+if n_nerve < 2:
+    log_transformation(log, "nerve_cell_subset",
+        f"[FAIR-ALERT] 0 nerve cells selected — all cells labeled 'unscored' or malignant. "
+        "This occurs with 1000-gene subsampled loom files that lack canonical markers. "
+        "Writing placeholder outputs so the pipeline can complete.",
+        status="WARNING")
+    # Write placeholder outputs so downstream rules and rule-all targets exist
+    adata_nerve = adata[:0].copy()  # empty AnnData, correct var schema
+    adata_nerve.obs["nerve_leiden"] = pd.Series(dtype="category")
+    adata_nerve.write_h5ad(snakemake.output.h5ad)
+    # Placeholder UMAP
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.text(0.5, 0.5, "[FAIR-ALERT] No nerve cells found in subsampled data",
+            ha="center", va="center", transform=ax.transAxes, fontsize=11)
+    ax.set_axis_off()
+    fig.savefig(snakemake.output.umap, dpi=100, bbox_inches="tight")
+    plt.close(fig)
+    pd.DataFrame(columns=["nerve_leiden", "cell_type_predicted", "sample_id", "n_cells"]).to_csv(
+        snakemake.output.composition, index=False
+    )
+    prov = stamp_artifact(
+        output_path=snakemake.output.h5ad,
+        rule_name="nerve_cell_subset",
+        input_paths=[snakemake.input.h5ad, snakemake.input.clinical],
+        tool_versions={"scanpy": sc.__version__, "anndata": ad.__version__},
+        parameters={"n_cells_total": n_total, "n_cells_nerve": 0, "note": "no nerve cells found"},
+        description="Placeholder: no non-malignant nerve cells found in subsampled data",
+        ontology_operation="operation:3432",
+    )
+    write_provenance(prov, snakemake.output.provenance)
+    log_transformation(log, "nerve_cell_subset", "Placeholder outputs written", status="WARNING",
+                       artifact_paths=[snakemake.output.h5ad, snakemake.output.umap])
+    raise SystemExit(0)
+
 if n_nerve < 20:
     log_transformation(log, "nerve_cell_subset",
         f"WARNING: only {n_nerve} nerve cells — downstream analysis may be underpowered",
