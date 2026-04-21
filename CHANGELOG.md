@@ -33,12 +33,12 @@ Format each entry with: date, phase, action taken, outcome, and any open issues.
 
 ```
 [STATUS]
-Phase:          1 — Environment Initialization
-Last Updated:   2026-04-17
-Active Agent:   —
-Current Task:   CLAUDE.md and CHANGELOG.md created
+Phase:          Annotation — Gene ID Namespace Fix
+Last Updated:   2026-04-20
+Active Agent:   lead-researcher
+Current Task:   MyGene.info Ensembl→symbol cache wired into loom_to_h5ad and scrna_annotate
 Blocked On:     —
-Next Action:    Initialize Snakemake base Snakefile; configure K-Dense-AI skills
+Next Action:    Re-run pipeline end-to-end (requires network for first MyGene.info fetch); verify nerve_cell_subset now returns neurons/astrocytes/oligodendrocytes
 ```
 
 ---
@@ -200,3 +200,39 @@ Next Action:    Initialize Snakemake base Snakefile; configure K-Dense-AI skills
 - Provenance UUID + timestamp logged as reactive cell on every notebook execution
 - `explore_gbm_notebook` Snakemake rule writes `provenance/explore_gbm_notebook_provenance.json`
 - QC threshold parameters logged before any filtering step (CLAUDE.md requirement satisfied)
+
+---
+
+### [2026-04-20] | Phase: Annotation — Gene ID Namespace Fix | Status: COMPLETE
+**Action:** Diagnosed why `nerve_cell_subset` returned 0 cells across all samples and implemented the MyGene.info mapping pattern from `scVI_GBM_analysis.ipynb`.
+
+**Root cause:** GDC TCGA loom files store versioned Ensembl IDs (e.g. `ENSG00000136492.9`) as gene identifiers, but `scrna_annotate.py` and `config.yaml` nerve-marker sets use HGNC symbols (SYN1, GFAP, MBP, …). `set(adata.var_names)` membership checks returned zero → every cluster labeled `unscored` → placeholder nerve-cell output triggered. Same bug broke MT-gene QC (`startswith("MT-")` never matches Ensembl IDs).
+
+**Outcome:**
+- New Snakemake rule `build_gene_symbol_map` queries MyGene.info once per pipeline run using the loom union of Ensembl IDs (1000-ID POST batches, scope `ensembl.gene`, species human, fields `symbol,genomic_pos.chr`) and caches the result as `data/external/mygene_ensembl_to_symbol.tsv`.
+- `loom_to_h5ad.py` now joins the cache into `adata.var` (`ensembl_id`, `ensembl_id_no_version`, `gene_symbol`, `chromosome`), flags `mt` via `chromosome == "MT"` instead of `MT-` prefix, and marks `is_nerve_marker` against `gene_symbol`. `var_names` remain versioned Ensembl IDs (canonical per `config.fair.ontology_gene`).
+- `scrna_annotate.py` builds a symbol→Ensembl lookup from `adata.var` and scores marker sets against mapped Ensembl IDs (matches notebook cell-34 pattern).
+- `nerve_cell_subset.py` label matcher normalizes `_↔space` so `excitatory_neuron` (annotate output) matches `"excitatory neuron"` (config `cell_types`).
+- Config: added `gene_symbol_map` block (cache path, chunk size, timeout); Ensembl release pinned via existing `databases.ensembl_release: 113`.
+
+**Artifacts:**
+- `workflow/scripts/build_gene_symbol_map.py` (new)
+- `workflow/rules/ingest.smk` (new rule + cache dependency on `loom_to_h5ad`)
+- `workflow/scripts/loom_to_h5ad.py` (symbol-map join, MT fix)
+- `workflow/scripts/scrna_annotate.py` (symbol→Ensembl scoring)
+- `workflow/scripts/nerve_cell_subset.py` (label normalization)
+- `config/config.yaml` (`gene_symbol_map` section)
+- Runtime outputs: `data/external/mygene_ensembl_to_symbol.tsv`, `.meta.json` sidecar, `provenance/gene_symbol_map_provenance.json`
+
+**Tool Versions:** requests==2.32.3, pandas==2.3.3, loompy==3.0.8, anndata==0.12.10, scanpy==1.12.1.
+
+**Open Issues:**
+- First pipeline run must be online (MyGene.info network call). Cache is reusable thereafter; deleting the TSV forces a refresh.
+- MyGene symbol coverage depends on Ensembl version alignment; cache `.meta.json` records retrieval date + pinned release 113 for audit.
+- Downstream reruns (`scrna_qc`, `scrna_integration`, `scrna_malignancy`) need `--forceall` or targeted re-execution of `loom_to_h5ad` since input signature changed.
+
+**FAIR Notes:**
+- Findable: cache has UUID5 provenance + SHA256 via `fair_utils.stamp_artifact`; sidecar JSON records Ensembl release, query date, ID counts.
+- Accessible: TSV format, no vendor lock-in; MyGene.info is a public REST API.
+- Interoperable: preserves Ensembl IDs as canonical `var_names`; attaches HGNC symbols via standard `gene_symbol` column; EDAM `operation:2497` (Gene ID conversion).
+- Reusable: Ensembl release pinned (113) in config + sidecar; deterministic single source of truth for every downstream rule.

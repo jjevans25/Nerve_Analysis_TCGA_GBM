@@ -48,18 +48,43 @@ MARKER_SETS: dict[str, list[str]] = {
     "tumor_gbm":         ["SOX2", "NES", "CD44", "PROM1", "MKI67"],
 }
 
-# Score only markers present in this dataset (1000-gene subsampled loom)
-present_genes = set(adata.var_names)
+# --- Build HGNC-symbol → Ensembl-ID lookup ----------------------------------
+# Markers above are HGNC symbols; adata.var_names are versioned Ensembl IDs.
+# The loom_to_h5ad rule attached gene_symbol via the MyGene.info cache; use it
+# to translate markers into the var_name namespace that score_genes expects.
+if "gene_symbol" not in adata.var.columns:
+    raise RuntimeError(
+        "[FAIR-ALERT] adata.var lacks 'gene_symbol' — re-run loom_to_h5ad with "
+        "the MyGene.info symbol cache wired in."
+    )
+
+symbol_to_ensembl: dict[str, str] = (
+    adata.var.dropna(subset=["gene_symbol"])
+    .reset_index()
+    .drop_duplicates(subset="gene_symbol", keep="first")
+    .set_index("gene_symbol")["index"]
+    .to_dict()
+)
+log_transformation(log, "scrna_annotate",
+    f"Built symbol→Ensembl lookup: {len(symbol_to_ensembl)} unique symbols "
+    f"({adata.var['gene_symbol'].notna().sum()}/{adata.n_vars} genes mapped)")
+
 scored_sets: list[str] = []
 for label, genes in MARKER_SETS.items():
-    available = [g for g in genes if g in present_genes]
-    if len(available) >= 1:
-        sc.tl.score_genes(adata, gene_list=available, score_name=f"score_{label}",
+    available_ensembl = [symbol_to_ensembl[s] for s in genes if s in symbol_to_ensembl]
+    available_ensembl = [e for e in available_ensembl if e in adata.var_names]
+    unmapped = [s for s in genes if s not in symbol_to_ensembl]
+    if len(available_ensembl) >= 1:
+        sc.tl.score_genes(adata, gene_list=available_ensembl, score_name=f"score_{label}",
                           random_state=snakemake.params.random_seed)
         scored_sets.append(label)
+        log_transformation(log, "scrna_annotate",
+            f"Scored '{label}': {len(available_ensembl)}/{len(genes)} markers mapped"
+            + (f"; unmapped: {unmapped}" if unmapped else ""))
     else:
         log_transformation(log, "scrna_annotate",
-            f"WARNING: no markers for '{label}' present in dataset", status="WARNING")
+            f"WARNING: no markers for '{label}' mapped to dataset (symbols tried: {genes})",
+            status="WARNING")
 
 log_transformation(log, "scrna_annotate",
     f"Scored {len(scored_sets)} cell-type gene sets: {scored_sets}")

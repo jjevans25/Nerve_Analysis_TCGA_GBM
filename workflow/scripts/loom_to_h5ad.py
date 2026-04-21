@@ -42,7 +42,7 @@ log_transformation(log, "loom_to_h5ad",
 
 # --- Build AnnData ------------------------------------------------------------
 adata = ad.AnnData(X=matrix)
-adata.var_names = gene_names
+adata.var_names = gene_names  # canonical ID is versioned Ensembl (per config.fair.ontology_gene)
 adata.obs_names = [f"{sample_id}_{c}" for c in cell_ids]
 
 # Batch / sample metadata (required for scVI batch correction)
@@ -53,27 +53,51 @@ for key, vals in extra_ca.items():
     if len(vals) == n_cells:
         adata.obs[key] = vals
 
-# Flag mitochondrial genes for downstream QC
-adata.var["mt"] = pd.Index(gene_names).str.upper().str.startswith("MT-")
+# --- Join MyGene.info symbol/chromosome cache --------------------------------
+# GDC looms store versioned Ensembl IDs (ENSG00000136492.9). Marker scoring needs
+# HGNC symbols, and MT detection needs chromosome. The cache is built once by
+# build_gene_symbol_map and contains every Ensembl ID in the loom gene universe.
+symbol_map = pd.read_csv(snakemake.input.symbol_map, sep="\t", dtype=str)
+adata.var["ensembl_id"]            = adata.var_names
+adata.var["ensembl_id_no_version"] = adata.var_names.str.split(".").str[0]
 
-# Mark gene set membership for nerve-cell markers
+var_joined = adata.var.merge(
+    symbol_map[["ensembl_id", "gene_symbol", "chromosome"]],
+    on="ensembl_id",
+    how="left",
+)
+var_joined.index = adata.var.index
+adata.var = var_joined
+
+n_mapped = adata.var["gene_symbol"].notna().sum()
+log_transformation(log, "loom_to_h5ad",
+    f"Joined symbol map: {n_mapped}/{adata.n_vars} genes mapped to HGNC symbol "
+    f"({100 * n_mapped / adata.n_vars:.1f}%)")
+
+# Flag mitochondrial genes by chromosome (authoritative) — the old MT- prefix
+# check never matched because var_names are Ensembl IDs, not symbols.
+adata.var["mt"] = adata.var["chromosome"].fillna("").astype(str).str.upper() == "MT"
+log_transformation(log, "loom_to_h5ad",
+    f"Flagged {int(adata.var['mt'].sum())} mitochondrial genes (chromosome == 'MT')")
+
+# Mark gene set membership for nerve-cell markers (symbol-based)
 all_nerve_markers: list[str] = [
     g for genes in nerve_markers.values() for g in genes
 ]
-adata.var["is_nerve_marker"] = adata.var_names.isin(all_nerve_markers)
+adata.var["is_nerve_marker"] = adata.var["gene_symbol"].isin(all_nerve_markers).fillna(False)
 
 log_transformation(log, "loom_to_h5ad",
-    f"batch='{sample_id}' assigned; {adata.var['is_nerve_marker'].sum()} nerve markers present")
+    f"batch='{sample_id}' assigned; {int(adata.var['is_nerve_marker'].sum())} nerve markers present")
 
 # --- Gene presence report -----------------------------------------------------
-gene_set = set(adata.var_names)
+symbol_set = set(adata.var["gene_symbol"].dropna().tolist())
 rows = []
 for cell_type, markers in nerve_markers.items():
     for gene in markers:
         rows.append({
             "cell_type":  cell_type,
             "gene":       gene,
-            "present":    gene in gene_set,
+            "present":    gene in symbol_set,
             "sample_id":  sample_id,
         })
 
@@ -96,16 +120,18 @@ verify_artifact(snakemake.output.h5ad, min_size_bytes=1024)
 prov = stamp_artifact(
     output_path=snakemake.output.h5ad,
     rule_name="loom_to_h5ad",
-    input_paths=[snakemake.input.loom],
+    input_paths=[snakemake.input.loom, snakemake.input.symbol_map],
     tool_versions={"anndata": ad.__version__, "loompy": loompy.__version__},
     parameters={
         "sample_id":           sample_id,
         "n_cells":             n_cells,
         "n_genes":             n_genes,
+        "n_genes_mapped":      int(n_mapped),
+        "n_mt_genes":          int(adata.var["mt"].sum()),
         "nerve_markers_found": int(adata.var["is_nerve_marker"].sum()),
         "nerve_markers_total": len(all_nerve_markers),
     },
-    description="GDC loom converted to AnnData h5ad with batch metadata and nerve-marker annotation",
+    description="GDC loom converted to AnnData h5ad with batch metadata, MyGene symbol map, and nerve-marker annotation",
     ontology_operation="operation:2409",  # EDAM: Format conversion
 )
 write_provenance(prov, snakemake.output.provenance)

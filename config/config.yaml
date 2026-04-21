@@ -90,6 +90,16 @@ databases:
 loom_manifest: "data/raw/gdc_extract/MANIFEST.txt"
 loom_dir:      "data/raw/gdc_extract"
 
+# -------------------------------------------------------------
+# Gene-ID → symbol cache (MyGene.info)
+# Loom files use versioned Ensembl IDs; marker scoring uses HGNC symbols.
+# Cache is built once per Ensembl release and reused across all samples.
+# -------------------------------------------------------------
+gene_symbol_map:
+  cache_tsv:       "data/external/mygene_ensembl_to_symbol.tsv"
+  chunk_size:      1000              # MyGene recommends ≤1000 per POST
+  request_timeout: 60                # seconds
+
 samples:
   - 06820e2c-9eb7-4e71-a1c3-976d561e659d
   - 08418175-0464-4b33-86e3-416c30189bd2

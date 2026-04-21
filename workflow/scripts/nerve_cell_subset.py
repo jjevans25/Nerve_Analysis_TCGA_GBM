@@ -27,13 +27,18 @@ n_total = adata.n_obs
 # ---------------------------------------------------------------------------
 cell_types: list[str] = snakemake.params.cell_types
 
-# Normalize type strings for comparison (lower, strip)
-adata.obs["_ctype_norm"] = adata.obs["cell_type_predicted"].str.lower().str.strip()
-type_targets = {t.lower().strip() for t in cell_types}
+# Normalize type strings for comparison: lowercase, strip, collapse _↔space.
+# scrna_annotate emits labels like "excitatory_neuron"; config lists them as
+# "excitatory neuron" — both should match.
+def _norm(s: str) -> str:
+    return s.lower().strip().replace("_", " ")
+
+adata.obs["_ctype_norm"] = adata.obs["cell_type_predicted"].astype(str).map(_norm)
+type_targets = {_norm(t) for t in cell_types}
 
 # Also accept partial matches for flexibility (e.g., "excitatory neuron" matches "neuron")
 def _is_nerve(label: str) -> bool:
-    label = label.lower().strip()
+    label = _norm(label)
     if label in type_targets:
         return True
     # partial: scored as "neuron" covers both excitatory and inhibitory

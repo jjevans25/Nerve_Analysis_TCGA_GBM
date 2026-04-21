@@ -14,12 +14,40 @@ def _find_loom(wildcards) -> str:
     return matches[0]
 
 
+def _all_looms(_wildcards=None) -> list[str]:
+    """Resolve every sample's loom path — used to build the gene-symbol map once."""
+    return [_find_loom(type("W", (), {"sample": s})) for s in config.get("samples", [])]
+
+
+rule build_gene_symbol_map:
+    """Query MyGene.info once for all loom Ensembl IDs; write a TSV cache reused by every sample."""
+    input:
+        looms = _all_looms,
+    output:
+        cache      = config["gene_symbol_map"]["cache_tsv"],
+        provenance = os.path.join(config["dirs"]["provenance"], "gene_symbol_map_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "build_gene_symbol_map.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = 4000,
+        threads = 1,
+    params:
+        ensembl_release = config["databases"]["ensembl_release"],
+        chunk_size      = config["gene_symbol_map"]["chunk_size"],
+        request_timeout = config["gene_symbol_map"]["request_timeout"],
+    script:
+        "../scripts/build_gene_symbol_map.py"
+
+
 rule loom_to_h5ad:
     """Convert GDC loom to AnnData h5ad; assigns batch metadata and emits gene presence report."""
     wildcard_constraints:
         sample = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
     input:
-        loom = _find_loom,
+        loom       = _find_loom,
+        symbol_map = config["gene_symbol_map"]["cache_tsv"],
     output:
         h5ad          = os.path.join(config["dirs"]["data_processed"], "{sample}.h5ad"),
         gene_presence = os.path.join(config["dirs"]["tables"],         "{sample}_gene_presence.csv"),
