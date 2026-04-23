@@ -106,15 +106,23 @@ clinical_df = pd.read_csv(snakemake.input.clinical, sep="\t", dtype=str)
 clinical_df = clinical_df.set_index("file_uuid")
 
 # sample_id in obs corresponds to file UUID
+_clinical_cols = ["primary_diagnosis", "tumor_grade", "prior_malignancy",
+                  "tissue_type", "gender", "race", "age_at_index"]
 adata_nerve.obs = adata_nerve.obs.join(
-    clinical_df[["primary_diagnosis", "tumor_grade", "prior_malignancy",
-                 "tissue_type", "gender", "race", "age_at_index"]],
+    clinical_df[_clinical_cols],
     on="sample_id",
     how="left",
 )
+# h5py cannot serialize object columns mixing strings and float NaN. Coerce the
+# joined clinical metadata to plain strings with "unknown" sentinel (e.g.,
+# prior_malignancy and age_at_index are empty in the source TSV).
+for _col in _clinical_cols:
+    adata_nerve.obs[_col] = adata_nerve.obs[_col].fillna("unknown").astype(str)
+
+_n_with_dx = (adata_nerve.obs["primary_diagnosis"] != "unknown").sum()
 log_transformation(log, "nerve_cell_subset",
-    f"Joined clinical metadata; "
-    f"{adata_nerve.obs['primary_diagnosis'].notna().sum()} cells have primary_diagnosis")
+    f"Joined clinical metadata; {_n_with_dx} cells have primary_diagnosis "
+    f"(clinical columns coerced to str with 'unknown' fill)")
 
 # ---------------------------------------------------------------------------
 # Step 3: Re-cluster in nerve-cell subspace

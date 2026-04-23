@@ -50,13 +50,23 @@ MARKER_SETS: dict[str, list[str]] = {
 
 # --- Build HGNC-symbol → Ensembl-ID lookup ----------------------------------
 # Markers above are HGNC symbols; adata.var_names are versioned Ensembl IDs.
-# The loom_to_h5ad rule attached gene_symbol via the MyGene.info cache; use it
-# to translate markers into the var_name namespace that score_genes expects.
+# The loom_to_h5ad rule attaches gene_symbol via the MyGene.info cache, but
+# ad.concat(merge="same") in scrna_integration silently drops the column when
+# NaN handling diverges across samples. Re-join from the same cache here.
 if "gene_symbol" not in adata.var.columns:
-    raise RuntimeError(
-        "[FAIR-ALERT] adata.var lacks 'gene_symbol' — re-run loom_to_h5ad with "
-        "the MyGene.info symbol cache wired in."
+    log_transformation(log, "scrna_annotate",
+        "gene_symbol missing from integrated var — re-joining from MyGene cache",
+        status="WARNING")
+    _symbol_map = pd.read_csv(snakemake.input.symbol_map, sep="\t", dtype=str)
+    if "ensembl_id" not in adata.var.columns:
+        adata.var["ensembl_id"] = adata.var_names
+    _var_joined = adata.var.merge(
+        _symbol_map[["ensembl_id", "gene_symbol", "chromosome"]],
+        on="ensembl_id",
+        how="left",
     )
+    _var_joined.index = adata.var.index
+    adata.var = _var_joined
 
 symbol_to_ensembl: dict[str, str] = (
     adata.var.dropna(subset=["gene_symbol"])

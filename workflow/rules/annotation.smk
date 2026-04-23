@@ -9,6 +9,7 @@ rule scrna_annotate:
     input:
         latent_h5ad = os.path.join(config["dirs"]["data_processed"], "integrated_latent.h5ad"),
         model_dir   = os.path.join(config["dirs"]["models"], "scvi_model"),
+        symbol_map  = config["gene_symbol_map"]["cache_tsv"],
     output:
         h5ad       = os.path.join(config["dirs"]["data_processed"], "annotated.h5ad"),
         summary    = os.path.join(config["dirs"]["tables"],         "annotation_summary.csv"),

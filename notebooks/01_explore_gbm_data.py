@@ -297,8 +297,13 @@ def _nerve_umap(mo, nerve_artifacts):
 def _nerve_markers_table(duckdb, mo, nerve_artifacts):
     """Top DE markers per nerve-cell cluster via DuckDB."""
     _path = nerve_artifacts["nerve_cluster_markers.csv"]
-    if not _path.exists():
-        mo.stop(True, mo.callout(mo.md("Marker CSV not yet generated."), kind="warn"))
+    _has_data = _path.exists() and sum(
+        1 for line in _path.read_text().splitlines() if line.strip()
+    ) > 1
+    if not _has_data:
+        mo.stop(True, mo.callout(
+            mo.md("Marker CSV not yet generated or contains no data rows."), kind="warn",
+        ))
 
     _conn = duckdb.connect()
     nerve_markers_df = _conn.execute(
@@ -316,6 +321,12 @@ def _nerve_markers_table(duckdb, mo, nerve_artifacts):
     ).df()
     _conn.close()
 
+    if nerve_markers_df.empty:
+        mo.stop(True, mo.callout(
+            mo.md("No nerve-cell markers available yet — upstream heterogeneity step found 0 cells."),
+            kind="warn",
+        ))
+
     mo.vstack([
         mo.md("### Top Differential Markers per Nerve-Cell Cluster"),
         mo.ui.table(nerve_markers_df, selection=None),
@@ -327,8 +338,13 @@ def _nerve_markers_table(duckdb, mo, nerve_artifacts):
 def _nerve_enrichment_table(duckdb, mo, nerve_artifacts):
     """Top GSEA enrichment terms per nerve cluster."""
     _path = nerve_artifacts["nerve_enrichment.csv"]
-    if not _path.exists():
-        mo.stop(True, mo.callout(mo.md("Enrichment CSV not yet generated."), kind="warn"))
+    _has_data = _path.exists() and sum(
+        1 for line in _path.read_text().splitlines() if line.strip()
+    ) > 1
+    if not _has_data:
+        mo.stop(True, mo.callout(
+            mo.md("Enrichment CSV not yet generated or contains no data rows."), kind="warn",
+        ))
 
     _conn = duckdb.connect()
     enr_df = _conn.execute(
@@ -345,6 +361,11 @@ def _nerve_enrichment_table(duckdb, mo, nerve_artifacts):
         """
     ).df()
     _conn.close()
+
+    if enr_df.empty:
+        mo.stop(True, mo.callout(
+            mo.md("No GSEA enrichment results available yet."), kind="warn",
+        ))
 
     mo.vstack([
         mo.md("### GSEA Enrichment — Top Terms per Nerve-Cell Cluster"),
