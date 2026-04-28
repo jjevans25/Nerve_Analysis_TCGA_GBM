@@ -51,3 +51,5 @@ provenance/
 Next_Steps.txt
 Test_nerve_cell_fix.py
 markdowns/next_steps_interpretation.md
+markdowns/fix_3.1_and_3.3_step_by_step.md
+.claude/scheduled_tasks.lock
