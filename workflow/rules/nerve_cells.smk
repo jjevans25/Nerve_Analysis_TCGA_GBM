@@ -34,7 +34,8 @@ rule nerve_cell_subset:
 rule nerve_cell_heterogeneity:
     """Differential expression, GSEA, marker dot plot, and per-sample cluster abundance."""
     input:
-        h5ad = os.path.join(config["dirs"]["data_processed"], "nerve_cells.h5ad"),
+        h5ad       = os.path.join(config["dirs"]["data_processed"], "nerve_cells.h5ad"),
+        symbol_map = config["gene_symbol_map"]["cache_tsv"],
     output:
         markers    = os.path.join(config["dirs"]["tables"],  "nerve_cluster_markers.csv"),
         enrichment = os.path.join(config["dirs"]["tables"],  "nerve_enrichment.csv"),
