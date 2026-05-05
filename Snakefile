@@ -56,6 +56,9 @@ rule all:
         *([p(config["dirs"]["tables"],         "nerve_enrichment.csv")]             if SAMPLES    else []),
         *([p(config["dirs"]["figures"],        "nerve_dotplot.png")]                if SAMPLES    else []),
         *([p(config["dirs"]["figures"],        "nerve_abundance_heatmap.png")]      if SAMPLES    else []),
+        *([p(config["dirs"]["tables"],         "nerve_cluster_annotations.csv")]    if SAMPLES    else []),
+        *([p(config["dirs"]["tables"],         "nerve_clinical_association.csv")]   if SAMPLES    else []),
+        *([p(config["dirs"]["tables"],         "nerve_tumor_interactions.csv")]     if SAMPLES    else []),
         *([p(config["dirs"]["tables"],         "protein_quant_matrix.csv")]         if MS_SAMPLES else []),
         *([p(config["dirs"]["figures"],        "01_explore_gbm_data.html")]         if SAMPLES    else []),
 

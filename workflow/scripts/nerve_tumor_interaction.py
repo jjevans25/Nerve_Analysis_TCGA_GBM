@@ -1,0 +1,358 @@
+"""Tumor-nerve cell-cell communication analysis (LIANA+ consensus rank).
+
+Implements §4 / Recommended Next Analysis #4 of
+``markdowns/next_steps_interpretation.md``: surface candidate cancer-neuron
+and cancer-glia ligand-receptor axes between the malignant compartment and
+each non-malignant nerve-cell Leiden cluster.
+
+Approach
+--------
+1. Pull `is_malignant == True` cells from ``malignancy_labeled.h5ad``
+   (single "malignant" group) and concatenate with all 36 nerve-cell
+   Leiden clusters from ``nerve_cells.h5ad`` (per-cluster groups
+   ``nerve_c{N}``).
+2. Use HGNC symbols as the var index (LIANA's consensus resource is
+   HGNC-keyed); drop genes with no symbol.
+3. Run ``liana.mt.rank_aggregate`` with the consensus L-R resource and
+   restrict the source/target search space to malignant↔nerve pairings
+   only (37 groups would be 1,332 unrestricted combinations; restricting
+   to malignant↔nerve cuts that to 72 directional pairings — both
+   sender→receiver directions retained).
+4. Persist the full LR table, the top-10 magnitude-ranked pairs per
+   nerve cluster (each direction), a LIANA dotplot of the top consensus
+   interactions, and a heatmap of significant LR-pair counts per
+   directional pairing.
+"""
+
+import os
+import sys
+
+import anndata as ad
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+
+matplotlib.use("Agg")
+
+import liana as li  # noqa: E402
+
+sys.path.insert(0, "workflow/scripts")
+from fair_utils import (  # noqa: E402
+    log_transformation,
+    stamp_artifact,
+    verify_artifact,
+    write_provenance,
+)
+
+# Tunables --------------------------------------------------------------------
+N_PERMS = 1000
+EXPR_PROP = 0.10
+TOP_N_PER_CLUSTER = 10
+MAGNITUDE_RANK_SIG = 0.05
+RESOURCE_NAME = "consensus"
+
+log = snakemake.log[0]  # type: ignore[name-defined]
+os.environ["PYTHONHASHSEED"] = str(snakemake.params.random_seed)  # type: ignore[name-defined]
+
+# --- Load and combine inputs -------------------------------------------------
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"Loading {snakemake.input.malig} and {snakemake.input.nerve}",  # type: ignore[name-defined]
+)
+malig_full = ad.read_h5ad(snakemake.input.malig)  # type: ignore[name-defined]
+nerve = ad.read_h5ad(snakemake.input.nerve)  # type: ignore[name-defined]
+
+malig = malig_full[malig_full.obs["is_malignant"].astype(bool)].copy()
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"Malignant subset: {malig.n_obs} cells; nerve subset: {nerve.n_obs} cells",
+)
+
+# Standardize obs labels.
+malig.obs["cell_label"] = "malignant"
+nerve.obs["cell_label"] = "nerve_c" + nerve.obs["nerve_leiden"].astype(str)
+
+# Use HGNC symbols as var index for LIANA (consensus resource is HGNC-keyed).
+# Both AnnDatas already carry `gene_symbol` in var.
+def _to_symbol_index(a: ad.AnnData) -> ad.AnnData:
+    if "gene_symbol" not in a.var.columns:
+        raise KeyError("gene_symbol missing from var — cannot run LIANA on Ensembl IDs")
+    mask = a.var["gene_symbol"].notna()
+    a = a[:, mask].copy()
+    # Collapse duplicates by keeping the first occurrence (most-expressed
+    # tie-breaking is overkill here; consensus resource is dedup'd already).
+    a.var = a.var.copy()
+    a.var["_symbol"] = a.var["gene_symbol"].astype(str)
+    a = a[:, ~a.var["_symbol"].duplicated(keep="first")].copy()
+    a.var.index = a.var["_symbol"].values
+    a.var.index.name = "gene_symbol"
+    return a
+
+
+malig = _to_symbol_index(malig)
+nerve = _to_symbol_index(nerve)
+
+# Concatenate on shared genes (inner join).
+shared_genes = malig.var_names.intersection(nerve.var_names)
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"Shared HGNC-symbol gene set: {len(shared_genes)} genes",
+)
+combined = ad.concat(
+    [malig[:, shared_genes], nerve[:, shared_genes]],
+    axis=0,
+    join="inner",
+    label="src_h5ad",
+    keys=["malignant", "nerve"],
+    index_unique=None,
+)
+combined.obs_names_make_unique()
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"Combined AnnData: {combined.n_obs} cells × {combined.n_vars} genes",
+)
+
+# Sanity-check normalization. X.max() < ~20 with float32 + non-integer values
+# strongly indicates log1p-normalized data — the input we want for LIANA.
+x_max = float(combined.X.max())
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"X.max() = {x_max:.3f} — assuming log1p-normalized counts (use_raw=False)",
+)
+
+# --- Restrict groupby pairs to malignant↔nerve only --------------------------
+nerve_groups = sorted(
+    combined.obs.loc[combined.obs["cell_label"] != "malignant", "cell_label"].unique(),
+    key=lambda s: int(s.replace("nerve_c", "")),
+)
+pairs_records = []
+for g in nerve_groups:
+    pairs_records.append({"source": "malignant", "target": g})
+    pairs_records.append({"source": g, "target": "malignant"})
+groupby_pairs = pd.DataFrame(pairs_records)
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"Restricting search to {len(groupby_pairs)} malignant↔nerve directional pairs "
+    f"(over {len(nerve_groups)} nerve clusters)",
+)
+
+# --- Run LIANA consensus rank ------------------------------------------------
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"Running li.mt.rank_aggregate (n_perms={N_PERMS}, expr_prop={EXPR_PROP}, "
+    f"resource={RESOURCE_NAME})",
+)
+li.mt.rank_aggregate(
+    combined,
+    groupby="cell_label",
+    resource_name=RESOURCE_NAME,
+    expr_prop=EXPR_PROP,
+    groupby_pairs=groupby_pairs,
+    n_perms=N_PERMS,
+    seed=int(snakemake.params.random_seed),  # type: ignore[name-defined]
+    use_raw=False,
+    n_jobs=int(snakemake.threads),  # type: ignore[name-defined]
+    verbose=True,
+    inplace=True,
+    key_added="liana_res",
+)
+
+lr_full = combined.uns["liana_res"].copy()
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"LIANA returned {len(lr_full)} (source,target,ligand,receptor) rows",
+)
+
+# Defensive filter: only retain malignant↔nerve directions (LIANA respects
+# groupby_pairs, but persist the contract explicitly).
+nerve_set = set(nerve_groups)
+lr_full = lr_full[
+    ((lr_full["source"] == "malignant") & (lr_full["target"].isin(nerve_set)))
+    | ((lr_full["target"] == "malignant") & (lr_full["source"].isin(nerve_set)))
+].copy()
+
+# Add a direction column for downstream slicing.
+lr_full["direction"] = np.where(
+    lr_full["source"] == "malignant",
+    "malignant_to_nerve",
+    "nerve_to_malignant",
+)
+lr_full["nerve_cluster"] = np.where(
+    lr_full["direction"] == "malignant_to_nerve",
+    lr_full["target"],
+    lr_full["source"],
+)
+
+# Sort for stable output.
+lr_full = lr_full.sort_values(
+    by=["nerve_cluster", "direction", "magnitude_rank"],
+    ascending=[True, True, True],
+).reset_index(drop=True)
+
+lr_full.to_csv(snakemake.output.lr_table, index=False)  # type: ignore[name-defined]
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"Wrote {len(lr_full)} tumor-nerve LR rows to {snakemake.output.lr_table}",  # type: ignore[name-defined]
+)
+
+# --- Top-N per (nerve_cluster, direction) ------------------------------------
+top_per = (
+    lr_full.sort_values("magnitude_rank")
+    .groupby(["nerve_cluster", "direction"], observed=True, group_keys=False)
+    .head(TOP_N_PER_CLUSTER)
+    .reset_index(drop=True)
+)
+top_per.to_csv(snakemake.output.top_pairs, index=False)  # type: ignore[name-defined]
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"Top {TOP_N_PER_CLUSTER} pairs/cluster/direction → {len(top_per)} rows",
+)
+
+# --- Significance heatmap (#sig LR pairs per directional pairing) ------------
+sig = lr_full[lr_full["magnitude_rank"] < MAGNITUDE_RANK_SIG]
+sig_counts = (
+    sig.groupby(["direction", "nerve_cluster"], observed=True)
+    .size()
+    .unstack("direction", fill_value=0)
+    .reindex(nerve_groups)
+    .fillna(0)
+    .astype(int)
+)
+for col in ["malignant_to_nerve", "nerve_to_malignant"]:
+    if col not in sig_counts.columns:
+        sig_counts[col] = 0
+sig_counts = sig_counts[["malignant_to_nerve", "nerve_to_malignant"]]
+
+fig, ax = plt.subplots(figsize=(5, max(6, 0.28 * len(sig_counts))))
+sns.heatmap(
+    sig_counts,
+    ax=ax,
+    cmap="rocket_r",
+    linewidths=0.3,
+    linecolor="white",
+    annot=True,
+    fmt="d",
+    cbar_kws={"label": f"# LR pairs (magnitude_rank < {MAGNITUDE_RANK_SIG})"},
+)
+ax.set_title(
+    f"Tumor↔nerve cell-cell communication\n"
+    f"Significant LR pairs per directional pairing\n"
+    f"(LIANA+ consensus, {RESOURCE_NAME}, n_perms={N_PERMS})"
+)
+ax.set_xlabel("Direction")
+ax.set_ylabel("Nerve-cell cluster")
+fig.tight_layout()
+fig.savefig(snakemake.output.heatmap, dpi=150, bbox_inches="tight")  # type: ignore[name-defined]
+plt.close(fig)
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"Wrote significance heatmap with {int(sig_counts.sum().sum())} total sig pairs across "
+    f"{len(nerve_groups)} clusters",
+)
+
+# --- LIANA dotplot of top consensus interactions -----------------------------
+# Plot top global magnitude-ranked LR pairs across all nerve clusters in one
+# figure (LIANA's built-in dotplot expects the in-place uns dict).
+n_pairs_for_plot = min(25, len(lr_full))
+# Globally rank by magnitude for the dotplot (the on-disk CSV is sorted by
+# cluster for readability; the plot wants a single cohort-wide top list).
+lr_global_top = lr_full.sort_values("magnitude_rank").head(n_pairs_for_plot).copy()
+try:
+    plot_df = lr_global_top
+    fig = li.pl.dotplot(
+        liana_res=plot_df,
+        colour="magnitude_rank",
+        size="specificity_rank",
+        inverse_colour=True,
+        inverse_size=True,
+        top_n=n_pairs_for_plot,
+        orderby="magnitude_rank",
+        orderby_ascending=True,
+        figure_size=(max(8, 0.4 * len(nerve_groups)), 0.4 * n_pairs_for_plot + 2),
+    )
+    fig.save(snakemake.output.dotplot, dpi=150, bbox_inches="tight")  # type: ignore[name-defined]
+except Exception as exc:  # plotnine API differences across versions
+    log_transformation(
+        log,
+        "nerve_tumor_interaction",
+        f"WARNING: LIANA dotplot failed ({exc}); writing fallback bar chart",
+        status="WARNING",
+    )
+    fig, ax = plt.subplots(figsize=(8, 0.35 * n_pairs_for_plot + 2))
+    plot_df = lr_global_top.iloc[::-1]
+    label = (
+        plot_df["source"].astype(str)
+        + " → "
+        + plot_df["target"].astype(str)
+        + " | "
+        + plot_df["ligand_complex"].astype(str)
+        + "→"
+        + plot_df["receptor_complex"].astype(str)
+    )
+    ax.barh(label.values, -np.log10(plot_df["magnitude_rank"].clip(lower=1e-6).values))
+    ax.set_xlabel("-log10(magnitude_rank)")
+    ax.set_title(f"Top {n_pairs_for_plot} tumor↔nerve LR pairs (LIANA+ consensus)")
+    fig.tight_layout()
+    fig.savefig(snakemake.output.dotplot, dpi=150, bbox_inches="tight")  # type: ignore[name-defined]
+    plt.close(fig)
+
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    f"Wrote dotplot with top-{n_pairs_for_plot} interactions",
+)
+
+# --- FAIR provenance ---------------------------------------------------------
+verify_artifact(snakemake.output.lr_table)  # type: ignore[name-defined]
+prov = stamp_artifact(
+    output_path=snakemake.output.lr_table,  # type: ignore[name-defined]
+    rule_name="nerve_tumor_interaction",
+    input_paths=[snakemake.input.malig, snakemake.input.nerve],  # type: ignore[name-defined]
+    tool_versions={
+        "liana": li.__version__,
+        "anndata": ad.__version__,
+        "pandas": pd.__version__,
+    },
+    parameters={
+        "n_perms": N_PERMS,
+        "expr_prop": EXPR_PROP,
+        "resource_name": RESOURCE_NAME,
+        "magnitude_rank_sig": MAGNITUDE_RANK_SIG,
+        "top_n_per_cluster": TOP_N_PER_CLUSTER,
+        "n_malignant_cells": int(malig.n_obs),
+        "n_nerve_cells": int(nerve.n_obs),
+        "n_nerve_clusters": int(len(nerve_groups)),
+        "n_lr_rows_total": int(len(lr_full)),
+        "n_lr_rows_sig": int((lr_full["magnitude_rank"] < MAGNITUDE_RANK_SIG).sum()),
+    },
+    description="Tumor-nerve ligand-receptor interaction inference (LIANA+ consensus rank)",
+    ontology_operation="operation:3501",  # EDAM: Enrichment analysis (closest available)
+)
+write_provenance(prov, snakemake.output.provenance)  # type: ignore[name-defined]
+
+log_transformation(
+    log,
+    "nerve_tumor_interaction",
+    "Complete",
+    status="SUCCESS",
+    artifact_paths=[
+        snakemake.output.lr_table,  # type: ignore[name-defined]
+        snakemake.output.top_pairs,  # type: ignore[name-defined]
+        snakemake.output.heatmap,  # type: ignore[name-defined]
+        snakemake.output.dotplot,  # type: ignore[name-defined]
+        snakemake.output.provenance,  # type: ignore[name-defined]
+    ],
+)
