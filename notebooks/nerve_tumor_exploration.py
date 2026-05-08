@@ -7,7 +7,7 @@ direction, and in which nerve cluster?
 
 import marimo
 
-__generated_with = "0.23.1"
+__generated_with = "0.23.5"
 app = marimo.App(width="wide", app_title="GBM — Nerve↔Tumor LR Explorer")
 
 
@@ -53,22 +53,19 @@ def _load_config(Path, mo, yaml):
                 kind="danger",
             ),
         )
-
-    return config, interactions_path, project_root, tables_dir, top_pairs_path
+    return interactions_path, tables_dir, top_pairs_path
 
 
 @app.cell
 def _header(mo):
-    mo.md(
-        """
-        # GBM — Nerve↔Tumor Ligand–Receptor Explorer
-        **Source rule:** `workflow/rules/nerve_cells.smk` → `nerve_tumor_interaction.py`
-        **Inputs:** `nerve_tumor_interactions.csv` (full LIANA table) and
-        `nerve_tumor_top_pairs.csv` (top-N per cluster × direction)
-        **Convention:** lower `magnitude_rank` / `specificity_rank` ⇒ stronger
-        evidence. Direction is read as `source → target`.
-        """
-    )
+    mo.md("""
+    # GBM — Nerve↔Tumor Ligand–Receptor Explorer
+    **Source rule:** `workflow/rules/nerve_cells.smk` → `nerve_tumor_interaction.py`
+    **Inputs:** `nerve_tumor_interactions.csv` (full LIANA table) and
+    `nerve_tumor_top_pairs.csv` (top-N per cluster × direction)
+    **Convention:** lower `magnitude_rank` / `specificity_rank` ⇒ stronger
+    evidence. Direction is read as `source → target`.
+    """)
     return
 
 
@@ -81,7 +78,6 @@ def _load_tables(interactions_path, pd, top_pairs_path):
     for _df in (interactions_df, top_pairs_df):
         _df["nerve_cluster"] = _df["nerve_cluster"].astype("category")
         _df["direction"] = _df["direction"].astype("category")
-
     return interactions_df, top_pairs_df
 
 
@@ -153,7 +149,6 @@ def _filters(interactions_df, mo):
     )
     ligand_search = mo.ui.text(label="Ligand contains", placeholder="e.g. NLGN1")
     receptor_search = mo.ui.text(label="Receptor contains", placeholder="e.g. NRXN")
-
     return (
         cluster_select,
         direction_radio,
@@ -249,9 +244,10 @@ def _show_filtered(filtered_df, mo):
 @app.cell
 def _significance_heatmap(filtered_df, magnitude_slider, mo, plt, sns):
     """Counts of LR pairs per (nerve_cluster, direction) at current threshold."""
-    if filtered_df.empty:
-        mo.md("*No rows survive current filters — heatmap suppressed.*")
-        return
+    mo.stop(
+        filtered_df.empty,
+        mo.md("*No rows survive current filters — heatmap suppressed.*"),
+    )
 
     _counts = (
         filtered_df.groupby(["nerve_cluster", "direction"], observed=True)
@@ -274,6 +270,7 @@ def _significance_heatmap(filtered_df, magnitude_slider, mo, plt, sns):
     _ax.set_xlabel("Direction")
     _ax.set_ylabel("Nerve cluster")
     _fig.tight_layout()
+    mo.center(_fig)
     return
 
 
@@ -294,9 +291,7 @@ def _show_topk(mo, topk_slider):
 @app.cell
 def _top_lr_dotplot(filtered_df, mo, np, plt, topk_slider):
     """Dotplot of top-K LR pairs from the filtered view."""
-    if filtered_df.empty:
-        mo.md("*No rows to plot.*")
-        return
+    mo.stop(filtered_df.empty, mo.md("*No rows to plot.*"))
 
     _top = filtered_df.head(topk_slider.value).copy()
     _top["lr_label"] = (
@@ -331,6 +326,7 @@ def _top_lr_dotplot(filtered_df, mo, np, plt, topk_slider):
     _ax.set_title(f"Top-{topk_slider.value} LR pairs (size = -log10 magnitude_rank)")
     _fig.colorbar(_sc, ax=_ax, label="lrscore", shrink=0.6)
     _fig.tight_layout()
+    mo.center(_fig)
     return
 
 
@@ -354,15 +350,17 @@ def _show_compare_selector(annotate_n, compare_cluster, mo):
 
 @app.cell
 def _direction_comparison(
-    annotate_n, compare_cluster, interactions_df, mo, plt
+    annotate_n,
+    compare_cluster,
+    interactions_df,
+    mo,
+    plt,
 ):
     """Scatter malignant→nerve vs nerve→malignant lrscore for matching LR pairs."""
     _df = interactions_df[
         interactions_df["nerve_cluster"] == compare_cluster.value
     ].copy()
-    if _df.empty:
-        mo.md("*No rows for selected cluster.*")
-        return
+    mo.stop(_df.empty, mo.md("*No rows for selected cluster.*"))
 
     _m2n = _df[_df["direction"] == "malignant_to_nerve"][
         ["ligand_complex", "receptor_complex", "lrscore"]
@@ -411,12 +409,14 @@ def _direction_comparison(
             fontsize=7,
         )
     _fig.tight_layout()
+    mo.center(mo.mpl.interactive(_fig))
     return
 
 
 @app.cell
 def _export_button(mo):
     export_button = mo.ui.run_button(label="Export current view → results/tables/")
+    mo.center(export_button)
     return (export_button,)
 
 
@@ -477,28 +477,26 @@ def _export(
 
 @app.cell
 def _footer(mo):
-    mo.md(
-        """
-        ---
-        ### Column legend
-        | column | meaning |
-        |---|---|
-        | `source`, `target` | sender → receiver cell types |
-        | `ligand_complex`, `receptor_complex` | LR pair identifiers |
-        | `lr_means` | mean expression product across source/target |
-        | `cellphone_pvals` | CellPhoneDB-style permutation p-value |
-        | `expr_prod` | raw expression product (ligand × receptor) |
-        | `lrscore` | LIANA aggregate strength score (0–1, higher = stronger) |
-        | `magnitude_rank` | LIANA aggregate magnitude rank (lower = better) |
-        | `specificity_rank` | LIANA aggregate specificity rank (lower = better) |
-        | `direction` | `malignant_to_nerve` or `nerve_to_malignant` |
-        | `nerve_cluster` | recipient/sender nerve cluster id |
+    mo.md("""
+    ---
+    ### Column legend
+    | column | meaning |
+    |---|---|
+    | `source`, `target` | sender → receiver cell types |
+    | `ligand_complex`, `receptor_complex` | LR pair identifiers |
+    | `lr_means` | mean expression product across source/target |
+    | `cellphone_pvals` | CellPhoneDB-style permutation p-value |
+    | `expr_prod` | raw expression product (ligand × receptor) |
+    | `lrscore` | LIANA aggregate strength score (0–1, higher = stronger) |
+    | `magnitude_rank` | LIANA aggregate magnitude rank (lower = better) |
+    | `specificity_rank` | LIANA aggregate specificity rank (lower = better) |
+    | `direction` | `malignant_to_nerve` or `nerve_to_malignant` |
+    | `nerve_cluster` | recipient/sender nerve cluster id |
 
-        **FAIR:** input artifacts produced by `workflow/rules/nerve_cells.smk`
-        (rule `nerve_tumor_interaction`). Exports include a `.provenance.txt`
-        sidecar with input hash and filter parameters.
-        """
-    )
+    **FAIR:** input artifacts produced by `workflow/rules/nerve_cells.smk`
+    (rule `nerve_tumor_interaction`). Exports include a `.provenance.txt`
+    sidecar with input hash and filter parameters.
+    """)
     return
 
 
