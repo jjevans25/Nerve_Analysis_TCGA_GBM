@@ -29,6 +29,21 @@ def _imports():
 
 
 @app.cell
+def _hint_helper(mo):
+    """Reusable click-to-expand inline definition — uses native <details>."""
+
+    def hint(label: str, tip: str):
+        return mo.md(
+            f"<details style='display:inline-block; margin:0 1em 0 0;'>"
+            f"<summary style='cursor:pointer; user-select:none;'>{label} ⓘ</summary>"
+            f"<div style='font-size:0.9em; color:#555; margin-top:0.25em;'>{tip}</div>"
+            f"</details>"
+        )
+
+    return (hint,)
+
+
+@app.cell
 def _load_config(Path, mo, yaml):
     """Resolve table paths from config.yaml — no hardcoded absolute paths."""
     project_root = Path(__file__).parent.parent
@@ -65,7 +80,34 @@ def _header(mo):
     `nerve_tumor_top_pairs.csv` (top-N per cluster × direction)
     **Convention:** lower `magnitude_rank` / `specificity_rank` ⇒ stronger
     evidence. Direction is read as `source → target`.
+
+    > See the **Glossary** accordion below for column definitions and how each is computed.
     """)
+    return
+
+
+@app.cell
+def _glossary(mo):
+    """Top-level glossary — collapsed by default; expand for definitions."""
+    mo.accordion(
+        {
+            "Glossary — column definitions and how they are computed": mo.md("""
+| Term | What it is | How it is computed | How to read it |
+|---|---|---|---|
+| `cellphone_pvals` | CellPhoneDB-style permutation p-value for the LR pair in `(source, target)`. | Cell-cluster labels are randomly permuted (LIANA default ≈ 1000 permutations); the p-value is the fraction of permutations whose mean(ligand)·mean(receptor) ≥ the observed value. | **Lower ⇒ more cluster-specific.** `0.0` means the observed mean exceeded every permutation. |
+| `lr_means` | Test statistic: mean ligand expression in source × mean receptor expression in target. | Computed on the normalized AnnData expression matrix; aggregated by LIANA from the CellPhoneDB method. | Higher = stronger raw signal. Sensitive to library size. |
+| `expr_prod` | Raw (un-permuted) per-cluster expression product (ligand × receptor). | Source-cluster ligand mean × target-cluster receptor mean, no normalization. | Same direction as `lr_means`; sanity check. |
+| `lrscore` | LIANA aggregate **strength** score in [0, 1]. | Rank-aggregation (RobustRankAggregate) across multiple LR-scoring methods, then normalized. | **Higher = stronger.** Used as the dotplot color and the direction-comparison axes. |
+| `magnitude_rank` | LIANA aggregate **magnitude** rank across methods. | RRA rank fraction (0–1) over magnitude-style scores. | **Lower = stronger evidence.** `< 0.05` ≈ top 5% by magnitude. |
+| `specificity_rank` | LIANA aggregate **specificity** rank. | RRA over specificity-style scores. | **Lower = more cluster-specific.** |
+| `direction` | `malignant_to_nerve` or `nerve_to_malignant` (read as `source → target`). | Set by which side is `source` vs `target` in the LIANA call. | Use to ask "who is signaling to whom?" |
+| `nerve_cluster` | Leiden cluster id from `nerve_cells.h5ad` (36 clusters). | Re-clustering of the non-malignant nerve-cell subspace. | Categorical id; map to biology via `nerve_cluster_markers.csv`. |
+| `source`, `target` | Sender and receiver cell-type labels. | From the LIANA call (`source_labels`, `target_labels`). | `(source, target)` defines the directional pair. |
+
+*A `0.05` threshold is convention, not a hard rule. Tighten to `0.01` for confirmatory shortlists, relax to `0.10` for small clusters.*
+""")
+        }
+    )
     return
 
 
@@ -121,7 +163,21 @@ def _overview_stats(duckdb, interactions_df, mo, top_pairs_df):
 
 @app.cell
 def _show_overview(mo, overview_df):
-    mo.ui.table(overview_df, selection=None)
+    mo.vstack(
+        [
+            mo.accordion(
+                {
+                    "What do these summary columns mean?": mo.md("""
+- **`pct_pval_lt_05`** — % of LR rows with `cellphone_pvals < 0.05`
+  (CellPhoneDB-style permutation p-value; lower = more cluster-specific).
+- **`n_mag_rank_lt_05`** — count of LR rows with `magnitude_rank < 0.05`
+  (top 5% of LR pairs by aggregate magnitude across LIANA methods).
+""")
+                }
+            ),
+            mo.ui.table(overview_df, selection=None),
+        ]
+    )
     return
 
 
@@ -164,6 +220,7 @@ def _filters(interactions_df, mo):
 def _show_filters(
     cluster_select,
     direction_radio,
+    hint,
     ligand_search,
     magnitude_slider,
     mo,
@@ -174,9 +231,30 @@ def _show_filters(
     mo.vstack(
         [
             mo.md("## Filters"),
+            mo.md(
+                "*Defaults of `0.05` are conventional cutoffs — tighten to `0.01` "
+                "for confirmatory shortlists, or relax to `0.10` for small clusters.*"
+            ),
             mo.hstack([source_toggle, direction_radio], gap=2),
+            mo.md(
+                "*`top_pairs` is the pre-filtered top-N per `(cluster × direction)` "
+                "shortlist; toggle off to see the unfiltered LIANA table.*"
+            ),
             cluster_select,
             mo.hstack([magnitude_slider, pval_slider], gap=2),
+            mo.hstack(
+                [
+                    hint(
+                        "magnitude_rank",
+                        "LIANA aggregate magnitude rank across methods (RRA). Lower = stronger evidence.",
+                    ),
+                    hint(
+                        "cellphone_pvals",
+                        "CellPhoneDB permutation p-value (~1000 cell-label permutations). Lower = more cluster-specific.",
+                    ),
+                ],
+                gap=2,
+            ),
             mo.hstack([ligand_search, receptor_search], gap=2),
         ],
         gap=1,
@@ -242,7 +320,7 @@ def _show_filtered(filtered_df, mo):
 
 
 @app.cell
-def _significance_heatmap(filtered_df, magnitude_slider, mo, plt, sns):
+def _significance_heatmap(filtered_df, magnitude_slider, mo, plt, pval_slider, sns):
     """Counts of LR pairs per (nerve_cluster, direction) at current threshold."""
     mo.stop(
         filtered_df.empty,
@@ -270,7 +348,20 @@ def _significance_heatmap(filtered_df, magnitude_slider, mo, plt, sns):
     _ax.set_xlabel("Direction")
     _ax.set_ylabel("Nerve cluster")
     _fig.tight_layout()
-    mo.center(_fig)
+    mo.vstack(
+        [
+            mo.center(_fig),
+            mo.callout(
+                mo.md(
+                    f"**How to read:** each cell counts LR pairs that survive *both* "
+                    f"`magnitude_rank ≤ {magnitude_slider.value:.2f}` *and* "
+                    f"`cellphone_pvals ≤ {pval_slider.value:.2f}`. "
+                    "Darker = more LR pairs supported in that cluster × direction."
+                ),
+                kind="info",
+            ),
+        ]
+    )
     return
 
 
@@ -326,7 +417,25 @@ def _top_lr_dotplot(filtered_df, mo, np, plt, topk_slider):
     _ax.set_title(f"Top-{topk_slider.value} LR pairs (size = -log10 magnitude_rank)")
     _fig.colorbar(_sc, ax=_ax, label="lrscore", shrink=0.6)
     _fig.tight_layout()
-    mo.center(_fig)
+    mo.vstack(
+        [
+            mo.center(_fig),
+            mo.callout(
+                mo.md("""
+**How to read this dotplot**
+
+- **x-axis** — nerve cluster id (Leiden).
+- **y-axis** — `ligand_complex → receptor_complex`.
+- **Dot size** — `−log10(magnitude_rank)`. Larger ⇒ stronger aggregate magnitude.
+- **Dot color** — `lrscore` (LIANA aggregate strength, 0–1). Brighter ⇒ stronger.
+- **Worked example:** a large, bright dot at cluster `12` means this LR pair is
+  among the top-ranked by magnitude *and* has a high aggregate strength in
+  cluster `12`.
+"""),
+                kind="info",
+            ),
+        ]
+    )
     return
 
 
@@ -409,7 +518,55 @@ def _direction_comparison(
             fontsize=7,
         )
     _fig.tight_layout()
-    mo.center(mo.mpl.interactive(_fig))
+    mo.vstack(
+        [
+            mo.accordion(
+                {
+                    "Why ligand and receptor are swapped, and why many points land on the diagonal": mo.md("""
+**Why ligand and receptor are swapped for one direction.** A given LR pair `A → B`
+is stored once per direction in the LIANA output. For `malignant → nerve` it appears
+as `(ligand=A, receptor=B)`; for `nerve → malignant` the LIANA resource often stores
+the same molecular contact under the swapped roles `(ligand=B, receptor=A)`, because
+pairs like neurexin/neuroligin are bidirectional adhesion molecules. To compare the
+*same* contact across directions, the `nerve_to_malignant` rows have their
+`ligand_complex` and `receptor_complex` columns swapped before joining on
+`(ligand_complex, receptor_complex)`.
+
+**Why many points land exactly on the diagonal.** This is **expected**, not a bug.
+The dominant LIANA component score is `mean(ligand in source) × mean(receptor in target)`.
+Multiplication is commutative, so for a symmetric resource pair the swap yields
+`mean(A in malignant) × mean(B in nerve)` for both directions — the two scores are
+*identical by construction*. Diagonal points therefore mean "this contact is
+bidirectional and the chart cannot distinguish a direction for it." Look **off the
+diagonal** for direction-specific signal.
+""")
+                }
+            ),
+            mo.center(mo.mpl.interactive(_fig)),
+            mo.callout(
+                mo.md("""
+**How to read this chart — three regions, three meanings.**
+
+- **On the diagonal (`y = x`).** Symmetric pairs (e.g., NLGN/NRXN). The LIANA score
+  is mathematically identical in both directions because the underlying mean-based
+  statistic is commutative. The pair is real and often strong, but the chart cannot
+  resolve a direction for it.
+- **On the x-axis (`y = 0`).** The reciprocal `nerve → malignant` row was missing
+  from the LIANA output (filtered below threshold or absent in the resource for that
+  direction); the zero comes from `fillna(0)`, not a measured null.
+- **On the y-axis (`x = 0`).** Same as above, in the opposite direction.
+- **Off the diagonal, away from the axes.** The interesting signal — these pairs
+  have a real direction-specific difference. Points **above** the diagonal favor
+  `nerve → malignant`; points **below** favor `malignant → nerve`.
+
+When interpreting any cluster, focus on the off-diagonal mass first; treat the
+diagonal pile-up as confirmatory evidence of bidirectional contacts rather than as
+direction-specific findings.
+"""),
+                kind="info",
+            ),
+        ]
+    )
     return
 
 
@@ -468,7 +625,9 @@ def _export(
     mo.callout(
         mo.md(
             f"**Exported** `{_out_path.name}` ({len(filtered_df):,} rows)\n\n"
-            f"**Provenance** `{_prov_path.name}` (input sha256[:12] = `{_src_hash}`)"
+            f"**Provenance** `{_prov_path.name}` (input sha256[:12] = `{_src_hash}`)\n\n"
+            f"*The `.provenance.txt` records the source CSV hash and every filter value. "
+            f"Keep it next to the export — it is what makes the file reproducible.*"
         ),
         kind="success",
     )
@@ -479,19 +638,19 @@ def _export(
 def _footer(mo):
     mo.md("""
     ---
-    ### Column legend
-    | column | meaning |
-    |---|---|
-    | `source`, `target` | sender → receiver cell types |
-    | `ligand_complex`, `receptor_complex` | LR pair identifiers |
-    | `lr_means` | mean expression product across source/target |
-    | `cellphone_pvals` | CellPhoneDB-style permutation p-value |
-    | `expr_prod` | raw expression product (ligand × receptor) |
-    | `lrscore` | LIANA aggregate strength score (0–1, higher = stronger) |
-    | `magnitude_rank` | LIANA aggregate magnitude rank (lower = better) |
-    | `specificity_rank` | LIANA aggregate specificity rank (lower = better) |
-    | `direction` | `malignant_to_nerve` or `nerve_to_malignant` |
-    | `nerve_cluster` | recipient/sender nerve cluster id |
+    ### Column legend (with how each value is computed)
+    | column | meaning | how it is computed |
+    |---|---|---|
+    | `source`, `target` | sender → receiver cell types | LIANA `source_labels` / `target_labels` |
+    | `ligand_complex`, `receptor_complex` | LR pair identifiers | LIANA resource (CellPhoneDB-derived) |
+    | `lr_means` | mean expression product across source/target | mean(ligand in source) × mean(receptor in target) on normalized AnnData |
+    | `cellphone_pvals` | CellPhoneDB-style permutation p-value | fraction of ~1000 cell-label permutations with statistic ≥ observed |
+    | `expr_prod` | raw expression product (ligand × receptor) | same as `lr_means` but un-normalized — sanity check |
+    | `lrscore` | LIANA aggregate strength score (0–1, higher = stronger) | RRA rank-aggregation across LR methods, normalized |
+    | `magnitude_rank` | LIANA aggregate magnitude rank (lower = better) | RRA rank fraction (0–1) over magnitude-style scores |
+    | `specificity_rank` | LIANA aggregate specificity rank (lower = better) | RRA rank fraction over specificity-style scores |
+    | `direction` | `malignant_to_nerve` or `nerve_to_malignant` | set by which side is `source` vs `target` |
+    | `nerve_cluster` | recipient/sender nerve cluster id | Leiden cluster id from `nerve_cells.h5ad` (36 clusters) |
 
     **FAIR:** input artifacts produced by `workflow/rules/nerve_cells.smk`
     (rule `nerve_tumor_interaction`). Exports include a `.provenance.txt`
