@@ -448,21 +448,30 @@ def _direction_compare_selector(interactions_df, mo):
     annotate_n = mo.ui.slider(
         start=0, stop=20, value=8, step=1, label="Annotate top-N by combined lrscore"
     )
-    return annotate_n, compare_cluster
+    asym_n = mo.ui.slider(
+        start=0,
+        stop=15,
+        value=5,
+        step=1,
+        label="Top-K asymmetric pairs per side (bar chart)",
+    )
+    return annotate_n, asym_n, compare_cluster
 
 
 @app.cell
-def _show_compare_selector(annotate_n, compare_cluster, mo):
-    mo.hstack([compare_cluster, annotate_n], gap=2)
+def _show_compare_selector(annotate_n, asym_n, compare_cluster, mo):
+    mo.hstack([compare_cluster, annotate_n, asym_n], gap=2)
     return
 
 
 @app.cell
 def _direction_comparison(
     annotate_n,
+    asym_n,
     compare_cluster,
     interactions_df,
     mo,
+    pd,
     plt,
 ):
     """Scatter malignant→nerve vs nerve→malignant lrscore for matching LR pairs."""
@@ -518,6 +527,49 @@ def _direction_comparison(
             fontsize=7,
         )
     _fig.tight_layout()
+
+    # Asymmetry panel — reuse _joined so the two panels are guaranteed consistent.
+    _joined["asym"] = _joined["lrscore_n2m"] - _joined["lrscore_m2n"]
+    _asym = _joined[_joined["asym"].abs() > 0].copy()
+
+    if _asym.empty or asym_n.value == 0:
+        _asym_panel = mo.md(
+            "*No directionally asymmetric pairs at the current filter threshold "
+            "(every joined pair has `lrscore_m2n == lrscore_n2m`).*"
+        )
+    else:
+        _top_pos = _asym.nlargest(asym_n.value, "asym")
+        _top_neg = _asym.nsmallest(asym_n.value, "asym")
+        _bars = pd.concat([_top_neg.iloc[::-1], _top_pos]).drop_duplicates(
+            subset=["ligand_complex", "receptor_complex"]
+        )
+        _labels = (
+            _bars["ligand_complex"].astype(str)
+            + " → "
+            + _bars["receptor_complex"].astype(str)
+        ).tolist()
+        _vals = _bars["asym"].to_numpy()
+        _colors = ["#1f77b4" if v >= 0 else "#d62728" for v in _vals]
+
+        _fig2, _ax2 = plt.subplots(
+            figsize=(7, max(2.0, 0.32 * len(_labels) + 1.0))
+        )
+        _ax2.barh(
+            range(len(_labels)),
+            _vals,
+            color=_colors,
+            edgecolor="black",
+            linewidth=0.3,
+        )
+        _ax2.set_yticks(range(len(_labels)))
+        _ax2.set_yticklabels(_labels, fontsize=8)
+        _ax2.invert_yaxis()
+        _ax2.axvline(0, color="grey", linewidth=0.8)
+        _ax2.set_xlabel(r"$\Delta$ = lrscore(n→m) − lrscore(m→n)")
+        _ax2.set_title(f"Directional asymmetry — {compare_cluster.value}")
+        _fig2.tight_layout()
+        _asym_panel = mo.center(mo.mpl.interactive(_fig2))
+
     mo.vstack(
         [
             mo.accordion(
@@ -539,29 +591,52 @@ Multiplication is commutative, so for a symmetric resource pair the swap yields
 *identical by construction*. Diagonal points therefore mean "this contact is
 bidirectional and the chart cannot distinguish a direction for it." Look **off the
 diagonal** for direction-specific signal.
+
+**How the heatmap counts relate to scatter points.** A single bidirectional pair
+appears as **two rows** in the LIANA output — one in each direction with ligand
+and receptor swapped. The significance heatmap counts both rows, so a heatmap cell
+showing `(m2n = 10, n2m = 10)` for a cluster typically means **10 bidirectional
+contacts, each counted twice**. The scatter's reciprocal-pair join (the rename +
+merge on `(ligand_complex, receptor_complex)`) collapses those two rows back into
+one point on the diagonal. So heatmap "10 + 10" → scatter "≈ 10 diagonal points
+(plus any unidirectional contacts on the axes), and the asymmetry bar chart below
+makes those unidirectional pairs explicit." That is the consistent, expected
+arithmetic — not a discrepancy.
 """)
                 }
             ),
             mo.center(mo.mpl.interactive(_fig)),
+            _asym_panel,
             mo.callout(
                 mo.md("""
-**How to read this chart — three regions, three meanings.**
+**How to read these two panels.**
 
-- **On the diagonal (`y = x`).** Symmetric pairs (e.g., NLGN/NRXN). The LIANA score
-  is mathematically identical in both directions because the underlying mean-based
-  statistic is commutative. The pair is real and often strong, but the chart cannot
-  resolve a direction for it.
-- **On the x-axis (`y = 0`).** The reciprocal `nerve → malignant` row was missing
-  from the LIANA output (filtered below threshold or absent in the resource for that
-  direction); the zero comes from `fillna(0)`, not a measured null.
-- **On the y-axis (`x = 0`).** Same as above, in the opposite direction.
-- **Off the diagonal, away from the axes.** The interesting signal — these pairs
-  have a real direction-specific difference. Points **above** the diagonal favor
-  `nerve → malignant`; points **below** favor `malignant → nerve`.
+*Scatter (top): two regions for what's there, a third caveat for what isn't.*
 
-When interpreting any cluster, focus on the off-diagonal mass first; treat the
-diagonal pile-up as confirmatory evidence of bidirectional contacts rather than as
-direction-specific findings.
+- **On the diagonal (`y = x`).** Bidirectional contacts. Both directions exist in
+  the LIANA output and the aggregate `lrscore` is mathematically identical under
+  the role swap (the dominant component is the commutative product
+  `mean(L) · mean(R)`). The contact is real and often strong; the scatter cannot
+  resolve a directional preference for it.
+- **On the axes (`x = 0` or `y = 0`).** Unidirectional contacts. The pair has a
+  row in only one direction; the zero on the other axis comes from `fillna(0)`
+  after the reciprocal-pair join — it is "no row," not "no signal."
+- **Off the diagonal, away from the axes (caveat).** *Theoretically* these would
+  mark direction-specific asymmetry. *In practice*, with LIANA's aggregate
+  `lrscore` over a symmetric (CellPhoneDB-style) resource, the symmetric
+  mean-based components dominate the rank aggregation and off-diagonal points are
+  essentially never produced. For genuine directional asymmetry queries, look at
+  `specificity_rank` (column documented in the glossary) instead of the aggregate
+  `lrscore`.
+
+*Asymmetry bar chart (bottom).* For each joined pair,
+`Δ = lrscore_n2m − lrscore_m2n`. Pairs with `Δ = 0` (bidirectional, sitting
+exactly on the diagonal above) are dropped. The top-K most positive bars favor
+`nerve → malignant`, the top-K most negative bars favor `malignant → nerve`.
+**In practice these bars will be the on-axis pairs from the scatter, sorted and
+labeled** — i.e., the unidirectional contacts that the scatter shows but does
+not annotate. If you ever see a pair here whose `lrscore` on the *opposite*
+direction is non-zero, that is a true off-diagonal pair and worth a second look.
 """),
                 kind="info",
             ),
