@@ -163,6 +163,46 @@ nerve_cells:
       - "AQP4"
       - "VIM"
   reference_dataset: "cellxgene_census"
+  batch_qc:
+    # Cluster passes if its largest single-sample fraction is below this:
+    dominant_fraction_max: 0.5
+    # Sample counted as "contributing" if it provides at least this fraction of cluster cells:
+    min_contributing_fraction: 0.01
+    # Cluster also requires at least this many contributing samples to pass:
+    min_contributing_samples: 3
+
+# -------------------------------------------------------------
+# MSigDB gene-set collections (offline GSEA via gseapy.prerank)
+# Replaces the Enrichr online API (rate-limited, non-reproducible).
+# C5 GO BP+MF mirrors the prior GO_Biological_Process_2023 /
+# GO_Molecular_Function_2023 Enrichr libraries.
+# License: CC-BY 4.0 (MSigDB v2024+).
+# After the first successful download, copy the SHA-256 emitted in
+# msigdb_manifest.json into the `sha256:` fields below and commit so
+# subsequent runs validate against fixed digests.
+# -------------------------------------------------------------
+msigdb:
+  release: "2024.1.Hs"
+  download_dir: "data/external/msigdb"
+  request_timeout: 120
+  max_retries: 5
+  collections:
+    gmt_bp:
+      filename: "c5.go.bp.v2024.1.Hs.symbols.gmt"
+      url: "https://data.broadinstitute.org/gsea-msigdb/msigdb/release/2024.1.Hs/c5.go.bp.v2024.1.Hs.symbols.gmt"
+      library_label: "GO_Biological_Process_2024"
+      sha256: "71df041c352cc810c11847db328bb94925c5448a009f310d224f2e8baa60b792"
+    gmt_mf:
+      filename: "c5.go.mf.v2024.1.Hs.symbols.gmt"
+      url: "https://data.broadinstitute.org/gsea-msigdb/msigdb/release/2024.1.Hs/c5.go.mf.v2024.1.Hs.symbols.gmt"
+      library_label: "GO_Molecular_Function_2024"
+      sha256: "b49da24e797c31a9ec39a59a44b9cf13c29c094a33eece54132f9f25fae2d87f"
+  prerank:
+    top_n_per_cluster: 10        # rows kept per (cluster, library)
+    min_size: 15
+    max_size: 500
+    permutation_num: 1000
+    min_ranked_genes: 50         # skip clusters with fewer mappable symbols
 
 # -------------------------------------------------------------
 # GDC REST API configuration

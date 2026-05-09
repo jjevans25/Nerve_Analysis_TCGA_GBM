@@ -137,10 +137,16 @@ sc.pp.highly_variable_genes(
 )
 adata_nerve.raw = adata_nerve
 
-# PCA on nerve-cell HVGs
+# PCA on nerve-cell HVGs (kept as a reference embedding alongside the scVI
+# integration; not used for the neighbourhood graph).
 sc.tl.pca(adata_nerve, n_comps=min(30, n_nerve - 1, adata_nerve.n_vars - 1),
           random_state=snakemake.params.random_seed)
-sc.pp.neighbors(adata_nerve, use_rep="X_pca", random_state=snakemake.params.random_seed)
+# Use the scVI batch-corrected latent space for the kNN graph; PCA on the
+# nerve-cell subset re-introduces patient identity (verified by the
+# nerve_batch_qc rule: PCA-based clustering produced 32/36 patient-pure
+# clusters; X_scVI from the upstream `scrna_integration` rule preserves
+# inter-patient mixing).
+sc.pp.neighbors(adata_nerve, use_rep="X_scVI", random_state=snakemake.params.random_seed)
 sc.tl.umap(adata_nerve, random_state=snakemake.params.random_seed)
 sc.tl.leiden(adata_nerve,
              resolution=snakemake.params.leiden_resolution,

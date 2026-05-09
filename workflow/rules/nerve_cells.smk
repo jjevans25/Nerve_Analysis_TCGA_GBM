@@ -31,11 +31,41 @@ rule nerve_cell_subset:
         "../scripts/nerve_cell_subset.py"
 
 
+rule download_msigdb_gmt:
+    """Fetch MSigDB C5 GO BP+MF .gmt files for offline GSEA (replaces Enrichr API)."""
+    output:
+        gmt_bp     = os.path.join(config["msigdb"]["download_dir"],
+                                  config["msigdb"]["collections"]["gmt_bp"]["filename"]),
+        gmt_mf     = os.path.join(config["msigdb"]["download_dir"],
+                                  config["msigdb"]["collections"]["gmt_mf"]["filename"]),
+        manifest   = os.path.join(config["msigdb"]["download_dir"], "msigdb_manifest.json"),
+        provenance = os.path.join(config["dirs"]["provenance"], "msigdb_download_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "download_msigdb_gmt.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = 2000,
+        threads = 1,
+    params:
+        release         = config["msigdb"]["release"],
+        request_timeout = config["msigdb"]["request_timeout"],
+        max_retries     = config["msigdb"]["max_retries"],
+        collections     = config["msigdb"]["collections"],
+    script:
+        "../scripts/download_msigdb_gmt.py"
+
+
 rule nerve_cell_heterogeneity:
-    """Differential expression, GSEA, marker dot plot, and per-sample cluster abundance."""
+    """Differential expression, GSEA (offline gseapy.prerank), marker dot plot, and per-sample cluster abundance."""
     input:
         h5ad       = os.path.join(config["dirs"]["data_processed"], "nerve_cells.h5ad"),
         symbol_map = config["gene_symbol_map"]["cache_tsv"],
+        gmt_bp     = os.path.join(config["msigdb"]["download_dir"],
+                                  config["msigdb"]["collections"]["gmt_bp"]["filename"]),
+        gmt_mf     = os.path.join(config["msigdb"]["download_dir"],
+                                  config["msigdb"]["collections"]["gmt_mf"]["filename"]),
+        gmt_manifest = os.path.join(config["msigdb"]["download_dir"], "msigdb_manifest.json"),
     output:
         markers    = os.path.join(config["dirs"]["tables"],  "nerve_cluster_markers.csv"),
         enrichment = os.path.join(config["dirs"]["tables"],  "nerve_enrichment.csv"),
@@ -50,8 +80,12 @@ rule nerve_cell_heterogeneity:
         mem_mb  = config["resources"]["default_mem_mb"],
         threads = config["resources"]["default_threads"],
     params:
-        markers     = config["nerve_cells"]["markers"],
-        random_seed = config["scrna"]["random_seed"],
+        markers          = config["nerve_cells"]["markers"],
+        random_seed      = config["scrna"]["random_seed"],
+        msigdb_release   = config["msigdb"]["release"],
+        bp_label         = config["msigdb"]["collections"]["gmt_bp"]["library_label"],
+        mf_label         = config["msigdb"]["collections"]["gmt_mf"]["library_label"],
+        prerank          = config["msigdb"]["prerank"],
     script:
         "../scripts/nerve_cell_heterogeneity.py"
 
@@ -100,6 +134,31 @@ rule nerve_clinical_association:
         random_seed = config["scrna"]["random_seed"],
     script:
         "../scripts/nerve_clinical_association.py"
+
+
+rule nerve_batch_qc:
+    """Sanity-check scVI batch correction: per-cluster sample purity + UMAP-by-sample figures."""
+    input:
+        h5ad = os.path.join(config["dirs"]["data_processed"], "nerve_cells.h5ad"),
+    output:
+        purity          = os.path.join(config["dirs"]["tables"],     "nerve_cluster_sample_purity.csv"),
+        umap_main       = os.path.join(config["dirs"]["figures"],    "nerve_cells_umap_by_sample.png"),
+        umap_per_sample = os.path.join(config["dirs"]["figures"],    "nerve_cells_umap_per_sample_panel.png"),
+        provenance      = os.path.join(config["dirs"]["provenance"], "nerve_batch_qc_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "nerve_batch_qc.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = 1,
+    params:
+        random_seed              = config["scrna"]["random_seed"],
+        dominant_fraction_max    = config["nerve_cells"]["batch_qc"]["dominant_fraction_max"],
+        min_contributing_fraction= config["nerve_cells"]["batch_qc"]["min_contributing_fraction"],
+        min_contributing_samples = config["nerve_cells"]["batch_qc"]["min_contributing_samples"],
+    script:
+        "../scripts/nerve_batch_qc.py"
 
 
 rule nerve_tumor_interaction:

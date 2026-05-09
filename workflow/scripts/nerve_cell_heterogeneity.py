@@ -2,7 +2,6 @@
 
 import os
 import sys
-import warnings
 
 import anndata as ad
 import matplotlib
@@ -125,29 +124,44 @@ else:
         sc.pp.normalize_total(adata_de, target_sum=1e4)
         sc.pp.log1p(adata_de)
 
+_TOP_N_MARKERS_PER_CLUSTER = 50
+
+# Rank ALL genes per cluster: prerank GSEA needs the full ranking, while the
+# exported markers CSV is truncated to the top-N significant genes (preserves
+# prior CSV semantics).
 sc.tl.rank_genes_groups(
     adata_de,
     groupby="nerve_leiden",
     method="wilcoxon",
-    n_genes=50,
+    n_genes=None,
     key_added="rank_genes_nerve",
 )
 
-# Flatten results to a DataFrame
-marker_rows = []
+# Flatten results into two DataFrames:
+#   markers_full_df → all genes per cluster (drives prerank rnk construction)
+#   markers_df      → top-50 significant genes per cluster (written to CSV)
+full_rows: list[pd.DataFrame] = []
+marker_rows: list[pd.DataFrame] = []
 for group in adata_de.obs["nerve_leiden"].unique():
-    result = sc.get.rank_genes_groups_df(
-        adata_de, group=group, key="rank_genes_nerve", pval_cutoff=0.05
+    full = sc.get.rank_genes_groups_df(
+        adata_de, group=group, key="rank_genes_nerve"
     )
-    result.insert(0, "cluster", group)
-    marker_rows.append(result)
+    full.insert(0, "cluster", group)
+    full_rows.append(full)
 
-if marker_rows:
-    markers_df = pd.concat(marker_rows, ignore_index=True)
-else:
-    markers_df = pd.DataFrame(
-        columns=["cluster", "names", "scores", "logfoldchanges", "pvals", "pvals_adj"]
-    )
+    sig = full[full["pvals_adj"] < 0.05].head(_TOP_N_MARKERS_PER_CLUSTER)
+    marker_rows.append(sig)
+
+_full_cols = ["cluster", "names", "scores", "logfoldchanges", "pvals", "pvals_adj"]
+markers_full_df = (
+    pd.concat(full_rows, ignore_index=True) if full_rows else pd.DataFrame(columns=_full_cols)
+)
+markers_df = (
+    pd.concat(marker_rows, ignore_index=True) if marker_rows else pd.DataFrame(columns=_full_cols)
+)
+
+# Annotate symbol on the full table too — used by prerank.
+markers_full_df["gene_symbol"] = markers_full_df["names"].map(ensembl_to_symbol)
 
 # §3.1: attach human-readable HGNC symbol next to the Ensembl ID in `names`.
 markers_df["gene_symbol"] = markers_df["names"].map(ensembl_to_symbol)
@@ -169,62 +183,145 @@ log_transformation(
 )
 
 # ---------------------------------------------------------------------------
-# Step 2: Gene set enrichment (gseapy) on top cluster markers
+# Step 2: Offline GSEA via gseapy.prerank against local MSigDB GMTs
+# (replaces Enrichr API — gap §3.2 in markdowns/next_steps_interpretation.md).
+# Ranking metric: Wilcoxon z-score (`scores`) from rank_genes_groups, oriented
+# so up-regulation = high. Genes are mapped Ensembl→HGNC symbol because MSigDB
+# .gmt collections are keyed on symbols.
 # ---------------------------------------------------------------------------
-enrichment_rows = []
-try:
-    import gseapy as gp
+import gseapy as gp
 
-    gene_sets = ["GO_Biological_Process_2023", "GO_Molecular_Function_2023"]
 
-    for cluster in markers_df["cluster"].unique():
-        cluster_markers = (
-            markers_df[markers_df["cluster"] == cluster]
-            .sort_values("scores", ascending=False)
-            .head(100)["names"]
-            .tolist()
-        )
-        if len(cluster_markers) < 5:
-            continue
-        for gs in gene_sets:
-            try:
-                enr = gp.enrichr(
-                    gene_list=cluster_markers,
-                    gene_sets=gs,
-                    organism="human",
-                    outdir=None,
-                    verbose=False,
-                )
-                if enr.results is not None and len(enr.results) > 0:
-                    top = enr.results.head(10).copy()
-                    top.insert(0, "cluster", cluster)
-                    top.insert(1, "gene_set_library", gs)
-                    enrichment_rows.append(top)
-            except Exception as exc:
-                log_transformation(
-                    log,
-                    "nerve_cell_heterogeneity",
-                    f"WARNING: enrichr failed for cluster {cluster}, {gs}: {exc}",
-                    status="WARNING",
-                )
+def _read_gmt_set_sizes(gmt_path: str) -> dict[str, int]:
+    """Map term name → number of genes in the set (used to format Overlap)."""
+    sizes: dict[str, int] = {}
+    with open(gmt_path, "rt", encoding="utf-8") as fh:
+        for line in fh:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 3:
+                continue
+            sizes[fields[0]] = len(fields[2:])
+    return sizes
 
-    log_transformation(
-        log,
-        "nerve_cell_heterogeneity",
-        f"GSEA complete: {len(enrichment_rows)} result blocks",
+
+def _build_rnk(cluster_df: pd.DataFrame) -> pd.DataFrame:
+    """Convert per-cluster markers into a 2-column [gene_symbol, score] rnk.
+
+    Drops rows with no gene_symbol mapping. On duplicate symbols (rare, from
+    Ensembl version collisions) keeps the entry with largest |score|.
+    """
+    sub = cluster_df.dropna(subset=["gene_symbol"]).copy()
+    sub["abs_score"] = sub["scores"].abs()
+    sub = (
+        sub.sort_values("abs_score", ascending=False)
+        .drop_duplicates(subset="gene_symbol", keep="first")
+        .sort_values("scores", ascending=False)
     )
+    return sub[["gene_symbol", "scores"]].rename(columns={"scores": "score"})
 
-except ImportError:
-    warnings.warn("[FAIR-ALERT] gseapy not available; skipping GSEA")
+
+prerank_cfg = dict(snakemake.params.prerank)
+top_n = int(prerank_cfg["top_n_per_cluster"])
+min_size = int(prerank_cfg["min_size"])
+max_size = int(prerank_cfg["max_size"])
+permutation_num = int(prerank_cfg["permutation_num"])
+min_ranked = int(prerank_cfg["min_ranked_genes"])
+
+gmt_targets = [
+    (snakemake.input.gmt_bp, snakemake.params.bp_label),
+    (snakemake.input.gmt_mf, snakemake.params.mf_label),
+]
+set_size_lookup: dict[str, dict[str, int]] = {
+    label: _read_gmt_set_sizes(path) for path, label in gmt_targets
+}
+
+enrichment_rows: list[pd.DataFrame] = []
+n_clusters_skipped = 0
+n_prerank_failures = 0
+
+for cluster in markers_full_df["cluster"].unique():
+    rnk = _build_rnk(markers_full_df[markers_full_df["cluster"] == cluster])
+    if len(rnk) < min_ranked:
+        n_clusters_skipped += 1
+        log_transformation(
+            log,
+            "nerve_cell_heterogeneity",
+            f"Skipping cluster {cluster}: only {len(rnk)} ranked symbols "
+            f"(<{min_ranked} required)",
+            status="WARNING",
+        )
+        continue
+
+    for gmt_path, library_label in gmt_targets:
+        try:
+            pre = gp.prerank(
+                rnk=rnk,
+                gene_sets=str(gmt_path),
+                threads=int(snakemake.threads),
+                min_size=min_size,
+                max_size=max_size,
+                permutation_num=permutation_num,
+                seed=int(snakemake.params.random_seed),
+                outdir=None,
+                verbose=False,
+            )
+        except (ValueError, KeyError, RuntimeError) as exc:
+            n_prerank_failures += 1
+            log_transformation(
+                log,
+                "nerve_cell_heterogeneity",
+                f"WARNING: prerank failed for cluster {cluster}, {library_label}: {exc}",
+                status="WARNING",
+            )
+            continue
+
+        res = getattr(pre, "res2d", None)
+        if res is None or len(res) == 0:
+            continue
+
+        sizes = set_size_lookup[library_label]
+        res = res.copy()
+        res["__lead_size"] = res["Lead_genes"].fillna("").map(
+            lambda s: 0 if not s else len([g for g in s.split(";") if g])
+        )
+        res["__set_size"] = res["Term"].map(sizes).fillna(0).astype(int)
+        # Sort by FDR q-val ascending, then keep top-N for parity with prior
+        # `enr.results.head(10)` slice.
+        res = res.sort_values("FDR q-val", ascending=True).head(top_n)
+
+        out = pd.DataFrame(
+            {
+                "cluster": cluster,
+                "gene_set_library": library_label,
+                "Term": res["Term"].values,
+                "Adjusted P-value": res["FDR q-val"].values,
+                "Overlap": [
+                    f"{int(ls)}/{int(ss)}" if ss > 0 else f"{int(ls)}/NA"
+                    for ls, ss in zip(res["__lead_size"], res["__set_size"])
+                ],
+            }
+        )
+        enrichment_rows.append(out)
+
+if n_prerank_failures:
     log_transformation(
         log,
         "nerve_cell_heterogeneity",
-        "WARNING: gseapy not installed — GSEA skipped",
+        f"prerank had {n_prerank_failures} per-(cluster, library) failures "
+        f"(see WARNING entries above)",
         status="WARNING",
     )
+log_transformation(
+    log,
+    "nerve_cell_heterogeneity",
+    f"GSEA complete: {len(enrichment_rows)} result blocks "
+    f"({n_clusters_skipped} clusters skipped for insufficient ranked symbols)",
+)
 
 enrichment_df = (
-    pd.concat(enrichment_rows, ignore_index=True) if enrichment_rows else pd.DataFrame()
+    pd.concat(enrichment_rows, ignore_index=True) if enrichment_rows else pd.DataFrame(
+        columns=["cluster", "gene_set_library", "Term", "Adjusted P-value", "Overlap"]
+    )
 )
 enrichment_df.to_csv(snakemake.output.enrichment, index=False)
 
@@ -347,7 +444,11 @@ prov = stamp_artifact(
     output_path=snakemake.output.markers,
     rule_name="nerve_cell_heterogeneity",
     input_paths=[snakemake.input.h5ad],
-    tool_versions={"scanpy": sc.__version__, "anndata": ad.__version__},
+    tool_versions={
+        "scanpy": sc.__version__,
+        "anndata": ad.__version__,
+        "gseapy": gp.__version__,
+    },
     parameters={
         "n_clusters": n_clusters,
         "n_cells": adata.n_obs,
@@ -357,6 +458,26 @@ prov = stamp_artifact(
         "n_dotplot_markers_present": len(present_markers),
         "n_dotplot_markers_unmapped": len(unmapped_markers),
         "gsea_ran": bool(enrichment_rows),
+        "gsea_engine": "gseapy.prerank",
+        "msigdb_release": snakemake.params.msigdb_release,
+        "gsea_libraries": [
+            snakemake.params.bp_label,
+            snakemake.params.mf_label,
+        ],
+        "gsea_gmt_files": [
+            str(snakemake.input.gmt_bp),
+            str(snakemake.input.gmt_mf),
+        ],
+        "prerank_params": {
+            "min_size": min_size,
+            "max_size": max_size,
+            "permutation_num": permutation_num,
+            "top_n_per_cluster": top_n,
+            "min_ranked_genes": min_ranked,
+            "seed": int(snakemake.params.random_seed),
+        },
+        "n_prerank_failures": n_prerank_failures,
+        "n_clusters_skipped_low_symbols": n_clusters_skipped,
     },
     description="Nerve cell DE markers, GSEA enrichment, marker dot plot, and sample abundance heatmap",
     ontology_operation="operation:3223",  # EDAM: Differential gene expression profiling

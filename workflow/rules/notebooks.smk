@@ -20,3 +20,23 @@ rule explore_gbm_notebook:
         threads = 1,
     script:
         "../scripts/run_notebook_export.py"
+
+
+rule nerve_enrichment_notebook:
+    """Export nerve-cell GSEA enrichment explorer to HTML (consumes nerve_enrichment.csv)."""
+    input:
+        notebook   = "notebooks/02_nerve_enrichment_explorer.py",
+        enrichment = os.path.join(config["dirs"]["tables"], "nerve_enrichment.csv"),
+        markers    = os.path.join(config["dirs"]["tables"], "nerve_cluster_markers.csv"),
+    output:
+        html       = os.path.join(config["dirs"]["figures"],    "02_nerve_enrichment_explorer.html"),
+        provenance = os.path.join(config["dirs"]["provenance"], "nerve_enrichment_notebook_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "nerve_enrichment_notebook.log"),
+    conda:
+        "../envs/notebooks.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = 1,
+    script:
+        "../scripts/run_notebook_export.py"

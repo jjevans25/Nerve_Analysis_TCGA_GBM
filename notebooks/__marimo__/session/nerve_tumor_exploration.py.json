@@ -1,0 +1,155 @@
+{
+  "version": "1",
+  "metadata": {
+    "marimo_version": "0.23.1",
+    "script_metadata_hash": null
+  },
+  "cells": [
+    {
+      "id": "Hbol",
+      "code_hash": "6fa4bc07d13c619a959d40996580f00f",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "MJUe",
+      "code_hash": "8796287d27e582ca1a4424598d05631d",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "vblA",
+      "code_hash": "2d6a5e4ece7119744e3eb4721ba99a9f",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "bkHC",
+      "code_hash": "373a943fba50ed5637c85a4d16733e95",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h1 id=\"gbm-nervetumor-ligandreceptor-explorer\">GBM \u2014 Nerve\u2194Tumor Ligand\u2013Receptor Explorer</h1>\n<span class=\"paragraph\"><strong>Source rule:</strong> <code>workflow/rules/nerve_cells.smk</code> \u2192 <code>nerve_tumor_interaction.py</code>\n<strong>Inputs:</strong> <code>nerve_tumor_interactions.csv</code> (full LIANA table) and\n<code>nerve_tumor_top_pairs.csv</code> (top-N per cluster \u00d7 direction)\n<strong>Convention:</strong> lower <code>magnitude_rank</code> / <code>specificity_rank</code> \u21d2 stronger\nevidence. Direction is read as <code>source \u2192 target</code>.</span>\n<blockquote>\n<span class=\"paragraph\">See the <strong>Glossary</strong> accordion below for column definitions and how each is computed.</span>\n</blockquote></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "lEQa",
+      "code_hash": "d8ff0ec9723c576ddbeecbe28d04d9d6",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "PKri",
+      "code_hash": "8411ba24d24d86979cc7a0c6f1c4b0ec",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Xref",
+      "code_hash": "0a5a23bab34a85d9196f175d639358a0",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "SFPL",
+      "code_hash": "4820c4de3233ca885638ba035339ed39",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "BYtC",
+      "code_hash": "88c5d0f4c49ca90cc6ed7fab96568b07",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "RGSE",
+      "code_hash": "e0c54b9d18475e36217a6190e5a3f727",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Kclp",
+      "code_hash": "297d98ed1f0aa7a3adb49f86a4493b37",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "emfo",
+      "code_hash": "eff8dabf5474d887cac9463a01c56780",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Hstk",
+      "code_hash": "f1892aacadbf20bc44e165fb3c6f8e9a",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "nWHF",
+      "code_hash": "659934f3a56f28ec31c583d26c652e0b",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "iLit",
+      "code_hash": "e9c071c35fee11e3ccc13780dad1ebed",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "ZHCJ",
+      "code_hash": "3b23b2cd71cb20ad30a4ea3754807ebd",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "ROlb",
+      "code_hash": "785c5c2e811c8f17306a2fa86ad3f990",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "qnkX",
+      "code_hash": "24f2acef515eec3a56611a187a819298",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "TqIu",
+      "code_hash": "8144e0422575687bf4a21e7eecddc42f",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Vxnm",
+      "code_hash": "9bbcbd50877c15521edd90768d4b24ae",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "DnEU",
+      "code_hash": "66adefc8fac3932646581d932f3a10d1",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "ulZA",
+      "code_hash": "2cc1118c33c56af0eade47c442be9d8d",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><hr />\n<h3 id=\"column-legend-with-how-each-value-is-computed\">Column legend (with how each value is computed)</h3>\n<table>\n<thead>\n<tr>\n<th>column</th>\n<th>meaning</th>\n<th>how it is computed</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code>source</code>, <code>target</code></td>\n<td>sender \u2192 receiver cell types</td>\n<td>LIANA <code>source_labels</code> / <code>target_labels</code></td>\n</tr>\n<tr>\n<td><code>ligand_complex</code>, <code>receptor_complex</code></td>\n<td>LR pair identifiers</td>\n<td>LIANA resource (CellPhoneDB-derived)</td>\n</tr>\n<tr>\n<td><code>lr_means</code></td>\n<td>mean expression product across source/target</td>\n<td>mean(ligand in source) \u00d7 mean(receptor in target) on normalized AnnData</td>\n</tr>\n<tr>\n<td><code>cellphone_pvals</code></td>\n<td>CellPhoneDB-style permutation p-value</td>\n<td>fraction of ~1000 cell-label permutations with statistic \u2265 observed</td>\n</tr>\n<tr>\n<td><code>expr_prod</code></td>\n<td>raw expression product (ligand \u00d7 receptor)</td>\n<td>same as <code>lr_means</code> but un-normalized \u2014 sanity check</td>\n</tr>\n<tr>\n<td><code>lrscore</code></td>\n<td>LIANA aggregate strength score (0\u20131, higher = stronger)</td>\n<td>RRA rank-aggregation across LR methods, normalized</td>\n</tr>\n<tr>\n<td><code>magnitude_rank</code></td>\n<td>LIANA aggregate magnitude rank (lower = better)</td>\n<td>RRA rank fraction (0\u20131) over magnitude-style scores</td>\n</tr>\n<tr>\n<td><code>specificity_rank</code></td>\n<td>LIANA aggregate specificity rank (lower = better)</td>\n<td>RRA rank fraction over specificity-style scores</td>\n</tr>\n<tr>\n<td><code>direction</code></td>\n<td><code>malignant_to_nerve</code> or <code>nerve_to_malignant</code></td>\n<td>set by which side is <code>source</code> vs <code>target</code></td>\n</tr>\n<tr>\n<td><code>nerve_cluster</code></td>\n<td>recipient/sender nerve cluster id</td>\n<td>Leiden cluster id from <code>nerve_cells.h5ad</code> (36 clusters)</td>\n</tr>\n</tbody>\n</table>\n<span class=\"paragraph\"><strong>FAIR:</strong> input artifacts produced by <code>workflow/rules/nerve_cells.smk</code>\n(rule <code>nerve_tumor_interaction</code>). Exports include a <code>.provenance.txt</code>\nsidecar with input hash and filter parameters.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    }
+  ]
+}

@@ -384,3 +384,147 @@ Next Action:    Re-run pipeline end-to-end (requires network for first MyGene.in
 - Accessible: LIANA's `consensus` resource is fetched lazily via OmniPath the first time the rule runs; subsequent runs use the cached copy. No license issues — OmniPath/LIANA are GPL.
 - Interoperable: output CSV is in long format keyed on (source, target, ligand_complex, receptor_complex), directly joinable with `nerve_cluster_annotations.csv` on `nerve_cluster ↔ cluster` for biological annotation overlay.
 - Reusable: tunables (`N_PERMS`, `EXPR_PROP`, `RESOURCE_NAME`, `MAGNITUDE_RANK_SIG`, `TOP_N_PER_CLUSTER`) are constants at the top of the script — easy to alter for sensitivity analyses without touching downstream logic.
+
+---
+
+### [2026-05-09] | Phase: Nerve-Cell GSEA — §3.2 Offline Remediation + Enrichment Notebook | Status: COMPLETE
+
+**Action:** Two-part change. (1) Replaced the failing online Enrichr call inside `nerve_cell_heterogeneity` with offline `gseapy.prerank` driven by local MSigDB C5 GO BP+MF `.gmt` files (gap §3.2 in `markdowns/next_steps_interpretation.md`). New `download_msigdb_gmt` Snakemake rule fetches the `.gmt`s with retry/backoff, validates SHA-256, and writes a manifest sidecar. (2) Added a dedicated marimo notebook `notebooks/02_nerve_enrichment_explorer.py` with four interactive views over `nerve_enrichment.csv` — term-by-cluster heatmap, top-K per cluster bar charts, hierarchical cluster-similarity from enrichment profiles, and a regex-based theme roll-up (axon/synapse/myelin-glia/immune/metabolic/etc.). Wired as `nerve_enrichment_notebook` rule in `workflow/rules/notebooks.smk` and added to `Snakefile` `rule all`.
+
+**Outcome:** `results/tables/nerve_enrichment.csv` now contains 720 result rows (36 clusters × 2 GO libraries × top-10 by FDR), of which 380 pass `FDR < 0.05`; `n_prerank_failures=0`, `n_clusters_skipped_low_symbols=0`. Cluster 6 (high MALAT1/NEAT1/GFAP/NRCAM/TRIO markers) recovers nerve-relevant terms (`GOBP_NEURON_CELL_CELL_ADHESION`, `GOBP_REGULATION_OF_NEUROTRANSMITTER_TRANSPORT`, `GOBP_REGULATION_OF_SYNAPTIC_VESICLE_ENDOCYTOSIS`, `GOBP_GLIAL_CELL_ACTIVATION`). Notebook exports cleanly to a 1.9 MB self-contained HTML; marimo check passes (exit 0); FAIR provenance JSON written. Required GMT terms: 7,608 GO BP + 1,820 GO MF.
+
+**Tool Choice & Build:**
+- `gseapy.prerank` chosen over Enrichr-mimic overrepresentation because per-cluster Wilcoxon `scores` are already computed by `sc.tl.rank_genes_groups` — preranked-list semantics is the intended GSEA usage for ranked DE input. `decoupler` (already in env) kept available for future side-by-side but not wired in this change.
+- C5 GO BP + MF chosen to preserve interpretive parity with the previous Enrichr libraries (`GO_Biological_Process_2023` / `GO_Molecular_Function_2023`).
+- During the first prerank attempt, the original `n_genes=50` truncation in `sc.tl.rank_genes_groups` left only 50 genes per cluster in the rnk — too few to overlap with `min_size=15` GO sets. Fix: changed to `n_genes=None` and split into two derived DataFrames (`markers_df` keeps the prior CSV semantics of top-50 significant; `markers_full_df` drives prerank with the full ~20k-gene ranking). Markers CSV behaviour is preserved.
+- SHA-256 digests for both `.gmt` files now pinned in `config.yaml` (`71df041c…` for BP, `b49da24e…` for MF) — subsequent downloads validate against the digest.
+- Notebook env (`workflow/envs/notebooks.yaml`) had every dependency except `scipy`; added `scipy==1.13.1` for hierarchical clustering (`linkage`, `leaves_list`, `pdist`, `squareform`, `dendrogram`).
+- Notebook follows project conventions: marimo 0.23.1, single `_imports` cell, config-driven paths via `Path(__file__).parent.parent / "config" / "config.yaml"`, DuckDB query mirroring `_nerve_enrichment_table` in `01_explore_gbm_data.py`. All cell-private working variables underscored to satisfy marimo's variable-uniqueness check (`fig`/`ax`/`matrix` cannot be redefined across cells without `_` prefix).
+
+**Workaround note:** The host conda base env has a numpy 2.0.2 / pyarrow ABI mismatch that breaks Snakemake's params-persistence layer — affects all rules, not just the new ones. Worked around by running `download_msigdb_gmt`, `nerve_cell_heterogeneity`, and the notebook export through small stub-`snakemake`-namespace launchers under the project's existing scrna and notebooks conda envs (`.snakemake/conda/465f7a09…/`, `.snakemake/conda/5a394ede…/`). Once the base-env ABI is fixed (e.g. `pip install --upgrade pyarrow` or pin `numpy<2`), the rules can be invoked directly via `snakemake --use-conda`.
+
+**Artifacts:**
+- `config/config.yaml` (added `msigdb:` block — release, 2 GMT URLs, pinned SHA-256s, prerank params)
+- `workflow/scripts/download_msigdb_gmt.py` (NEW — atomic download + retry + checksum + manifest)
+- `workflow/scripts/nerve_cell_heterogeneity.py` (Enrichr block replaced with prerank loop; rank_genes_groups now full-genome; provenance extended with `gsea_engine`, `msigdb_release`, `gsea_libraries`, `gsea_gmt_files`, `prerank_params`, `n_prerank_failures`, `n_clusters_skipped_low_symbols`; unused `warnings` import removed)
+- `workflow/rules/nerve_cells.smk` (NEW `download_msigdb_gmt` rule; updated `nerve_cell_heterogeneity` rule with GMT inputs + new params)
+- `notebooks/02_nerve_enrichment_explorer.py` (NEW — ~21 cells, 4 sections, FAIR provenance callout)
+- `workflow/rules/notebooks.smk` (NEW `nerve_enrichment_notebook` rule)
+- `Snakefile` (`rule all` += `02_nerve_enrichment_explorer.html`)
+- `workflow/envs/notebooks.yaml` (+`scipy==1.13.1`)
+- Runtime outputs (gitignored): `data/external/msigdb/c5.go.bp.v2024.1.Hs.symbols.gmt` (4.94 MB, 7,608 terms), `data/external/msigdb/c5.go.mf.v2024.1.Hs.symbols.gmt` (0.94 MB, 1,820 terms), `data/external/msigdb/msigdb_manifest.json`, `provenance/msigdb_download_provenance.json`, `results/tables/nerve_enrichment.csv` (70 KB, 720 rows), `results/tables/nerve_cluster_markers.csv` (130 KB), `results/figures/nerve_dotplot.png`, `results/figures/nerve_abundance_heatmap.png`, `provenance/heterogeneity_provenance.json`, `results/figures/02_nerve_enrichment_explorer.html` (1.9 MB), `provenance/nerve_enrichment_notebook_provenance.json`
+
+**Tool Versions:** gseapy==1.1.3, scanpy==1.12.1, anndata==0.12.10, pandas==2.3.3, marimo==0.23.1, duckdb==1.5.2, scipy==1.13.1, seaborn==0.13.2, matplotlib==3.10.8, MSigDB release 2024.1.Hs.
+
+**Open Issues:**
+- `workflow/scripts/run_notebook_export.py` writes `"rule": "explore_gbm_notebook"` hardcoded into provenance — pre-existing imperfection that now affects the new rule's provenance too. Trivial to fix by reading `snakemake.rule` instead; left out of this change to keep scope tight.
+- The seaborn `tight_layout` warning emitted during the cluster-similarity gridspec render is cosmetic; no impact on output. Could be silenced by switching to `constrained_layout=True`.
+- The host base-env numpy/pyarrow ABI bug is a deployment problem, not a project code problem, but it currently blocks `snakemake --use-conda` invocations — should be fixed before the next CI run.
+- The marimo notebook lints clean (exit 0) but emits 4 cosmetic `markdown-indentation` warnings on the `_section_*` cells; can be silenced by tightening the multi-line-string indentation if desired.
+- Theme regexes are intentionally simple and inline in the notebook — easy to extend (e.g. add `tumor_microenvironment`, `proteostasis`) without rerunning any pipeline rule.
+
+**FAIR Notes:**
+- Findable: every artifact has a UUID5 / UUIDv4 in its provenance JSON; manifest records SHA-256 + retrieval timestamp for both GMTs.
+- Accessible: GMT URLs source from `data.broadinstitute.org` (HTTPS, no auth) and are pinned by SHA-256 — collaborators verifying the manifest can confirm bit-identical local copies. Notebook HTML is self-contained (no remote asset fetch at view time).
+- Interoperable: enrichment CSV preserves the schema (`cluster, gene_set_library, Term, Adjusted P-value, Overlap`) the existing notebook (`01_explore_gbm_data.py`) already consumes — no downstream breakage. EDAM `data_3753` (Gene set) tagged on the GMT manifest; EDAM `operation:2422` (Data retrieval) on the download rule; EDAM `operation:3223` (DE profiling) preserved on the heterogeneity output.
+- Reusable: prerank seed is `config["scrna"]["random_seed"]` (=0), and `permutation_num=1000` is fixed — re-running the rule produces bit-identical `nerve_enrichment.csv`. All MSigDB SHA-256s are pinned, so re-downloading from a corrupted mirror would fail loudly rather than silently substitute results.
+
+---
+
+### [2026-05-09] | Phase: Nerve-Cell Batch-Correction QC — §6 Checklist Item 5 | Status: COMPLETE-FAILED-VERDICT
+
+**Action:** Implemented the §6 batch-correction sanity check the previous run had deferred. New `nerve_batch_qc` Snakemake rule + script (`workflow/scripts/nerve_batch_qc.py`) produces `results/tables/nerve_cluster_sample_purity.csv` (per-cluster dominant-sample fraction, Shannon entropy, contributing-sample count, pass/fail flags) and two figures: `results/figures/nerve_cells_umap_by_sample.png` (full UMAP coloured by patient + Leiden) and `results/figures/nerve_cells_umap_per_sample_panel.png` (5×4 small-multiples, one panel per patient). Pass thresholds (configurable in `config.yaml` under `nerve_cells.batch_qc`): dominant single-sample fraction < 0.5 AND ≥ 3 samples each contributing ≥ 1% of cluster cells. Wired into `Snakefile` `rule all`. Also pinned `pyarrow==24.0.0`, `pandas==3.0.2`, `numexpr==2.14.1`, `bottleneck==1.6.0` in the host base anaconda env to clear the numpy 2.0.2 / numpy-1.x-built-extension ABI mismatch that was blocking direct `snakemake --use-conda` invocations all session.
+
+**Outcome — VERDICT: FAILED.** Only **4 / 36** Leiden clusters pass the threshold. Median dominant single-sample fraction across all 36 clusters is **0.997** (i.e. the median cluster is essentially one patient); median normalised entropy is **0.008** of the uniform-distribution maximum 4.087 bits. ~24 clusters have a dominant fraction > 0.99 with only one contributing sample. The four passing clusters: cluster 2 (11 samples, 23.6% dominant), cluster 20 (8 samples, 38.9%), cluster 24 (10 samples, 30.2%), cluster 30 (8 samples, 27.4%) — i.e. clusters representing genuinely cohort-shared cell-type biology. The remaining 32 clusters are essentially "patient X's neurons" rather than "neurons" cohort-wide.
+
+**Root cause identified (NOT scVI):** `workflow/scripts/nerve_cell_subset.py:143` calls `sc.pp.neighbors(adata_nerve, use_rep="X_pca", ...)` — i.e. recomputes PCA on the nerve subset's raw expression matrix and uses *that* for the neighbourhood graph. PCA does not remove batch effects, so the re-clustering reverts to patient identity. The scVI integration itself works correctly: the upstream `scrna_integration` rule batches on `sample_id` (17 batches detected; `_scvi_batch` has 17 unique values), trains for up to 400 epochs with early stopping, and produces a populated `obsm["X_scVI"]` that survives subsetting (verified present in `nerve_cells.h5ad` alongside `X_pca` and `X_umap`). The integration latent is just being ignored downstream.
+
+**Implications for prior-session results:** because the current Leiden labels are largely patient-defined, all per-cluster downstream artifacts produced this session and earlier are computationally correct but biologically misframed:
+- `results/tables/nerve_enrichment.csv` (today): describes the dominant nerve-cell state of individual patients, not cohort cell types.
+- `results/figures/02_nerve_enrichment_explorer.html` (today): the cluster-similarity dendrogram in §3 reflects inter-patient variation rather than cell-type proximity.
+- `results/tables/nerve_cluster_annotations.csv`, `results/tables/nerve_tumor_interactions.csv`, `results/tables/nerve_clinical_association.csv` (prior sessions): same caveat.
+
+**Status:** the batch-QC sanity check itself is COMPLETE; the *result* it returned is FAILED. v1.0.0 baseline tag is now held until remediation passes (see `markdowns/next_steps_interpretation.md` §6).
+
+**Tool Choice & Build:**
+- Pass-criteria thresholds chosen to be lenient: `dominant_fraction < 0.5` (i.e. no single patient owns the cluster) AND `≥ 3 samples contributing ≥ 1%`. Even with this lenient bar, 32/36 clusters fail — the failure is not threshold-sensitive.
+- Removed `from __future__ import annotations` from the script after first run failed: Snakemake injects its preamble at the top of executed scripts, which pushes the `__future__` import off line 1. Python 3.12's native PEP 604/585 syntax handles all our annotations without it.
+- Used a `tab20` colormap for the 17-sample legend (recycles past index 17 if need be); first 8 chars of the GDC UUID as legend label since full UUIDs are unreadable.
+
+**Artifacts:**
+- `workflow/scripts/nerve_batch_qc.py` (NEW)
+- `workflow/rules/nerve_cells.smk` (appended `nerve_batch_qc` rule)
+- `config/config.yaml` (added `nerve_cells.batch_qc` block: `dominant_fraction_max=0.5`, `min_contributing_fraction=0.01`, `min_contributing_samples=3`)
+- `Snakefile` (`rule all` += `nerve_cluster_sample_purity.csv`, `nerve_cells_umap_by_sample.png`)
+- `markdowns/next_steps_interpretation.md` (§6 checklist updated; v1.0.0 baseline marked BLOCKED)
+- Runtime outputs (gitignored): `results/tables/nerve_cluster_sample_purity.csv` (3.2 KB, 36 rows), `results/figures/nerve_cells_umap_by_sample.png` (1.0 MB), `results/figures/nerve_cells_umap_per_sample_panel.png` (772 KB), `provenance/nerve_batch_qc_provenance.json`
+- Inputs (unchanged): `data/processed/nerve_cells.h5ad`
+
+**Tool Versions:** snakemake==9.20.0, scanpy==1.12.1, anndata==0.12.10, pandas==2.3.3 (within scrna conda env), matplotlib==3.10.8.
+
+**Open Issues / Blocked Work:**
+- **v1.0.0 baseline tag (§6 checklist item 6):** BLOCKED until the `use_rep` fix is applied and `nerve_batch_qc` PASSES for the majority of clusters.
+- **All cluster-level interpretations from this session and prior sessions are caveated** — see "Implications" above. Re-interpretation is required after re-clustering on `X_scVI`.
+- The fix is one line — `workflow/scripts/nerve_cell_subset.py:143` `use_rep="X_pca"` → `use_rep="X_scVI"`. **Plan only — fix not yet applied this session per researcher instruction.**
+
+**Remediation plan (next session, no scVI retrain needed):**
+1. Edit `nerve_cell_subset.py:143` to `use_rep="X_scVI"`.
+2. Re-run downstream chain: `nerve_cell_subset` → `nerve_cell_heterogeneity` → `nerve_cluster_annotations` → `nerve_clinical_association` → `nerve_tumor_interaction` → `nerve_batch_qc` → `nerve_enrichment_notebook` (~30–45 min total compute, dominated by prerank ~17 min).
+3. Re-verify `nerve_batch_qc` produces ≥ ~⅔ passing clusters (target). If still failing, escalate to scVI hyperparameter review (more `n_layers`, longer training, or `categorical_covariate_keys`).
+4. Re-interpret cluster-level outputs against the new (renumbered) cluster IDs.
+5. Then proceed to baseline-tag step.
+
+**FAIR Notes:**
+- Findable: every output has a UUID5 / SHA-256 in `provenance/nerve_batch_qc_provenance.json` along with the per-cluster purity verdict and threshold settings.
+- Accessible: pass-criteria thresholds live in `config.yaml`, not hardcoded in the script — independent reviewers can rerun with their own thresholds without code edits.
+- Interoperable: purity CSV is keyed on `cluster` and joins directly with the existing `nerve_cluster_markers.csv`, `nerve_cluster_annotations.csv`, and `nerve_enrichment.csv` for combined cluster-level inspection.
+- Reusable: rule is generic — same script works for any future re-clustering result; just rerun.
+
+---
+
+### [2026-05-09] | Phase: Batch-Correction Remediation — `use_rep="X_scVI"` Fix + Full Downstream Rerun | Status: COMPLETE
+
+**Action:** Applied the one-line fix identified in the previous entry: `workflow/scripts/nerve_cell_subset.py:143` changed from `sc.pp.neighbors(adata_nerve, use_rep="X_pca", ...)` to `sc.pp.neighbors(adata_nerve, use_rep="X_scVI", ...)`. Kept the `sc.tl.pca` call above it intact so `X_pca` remains as a reference embedding alongside `X_scVI`. Force-reran `nerve_cell_subset` → `nerve_batch_qc` to verify the fix, then ran the full downstream chain (`nerve_cell_heterogeneity`, `nerve_cluster_annotations`, `nerve_clinical_association`, `nerve_tumor_interaction`, `nerve_enrichment_notebook`) directly via `snakemake --use-conda` (the host pyarrow/pandas/numexpr/bottleneck base-env upgrade earlier in the session removed the ABI block).
+
+**Outcome — VERDICT: PASS.** Batch QC re-run flipped from 4/36 (11%) PASS to **18/24 (75%) PASS**. Median dominant single-sample fraction went 0.997 → **0.313** (3× lower); median normalised entropy went 0.008 → **0.722** of the uniform-distribution maximum 4.087 bits — ~90× improvement. Cluster count collapsed 36 → 24 because removing the patient-effect noise lets cells from different patients share clusters. The 6 remaining "failing" clusters all have 4–6 contributing samples (just dominated by one patient at 0.72–0.96), not the prior single-patient singletons.
+
+**Biology now coherent across the cohort.** Sampled top-line enrichments after rerun: cluster 7 — `GOBP_CENTRAL_NERVOUS_SYSTEM_PROJECTION_NEURON_AXONOGENESIS` (FDR 0.025, top row of the entire CSV); cluster 0 — DNA replication / positive regulation of cell cycle / interstrand cross-link repair (a proliferating progenitor / reactive state); cluster 2 — `GOBP_REGULATION_OF_AXON_EXTENSION_INVOLVED_IN_AXON_GUIDANCE`. 312/480 enrichment rows are now significant (65%) vs 380/720 (53%) with the patient-defined clustering — fewer clusters but a higher per-cluster enrichment density.
+
+**Tool Choice & Build:**
+- Verified `X_scVI` (30-dim) is present in `data/processed/malignancy_labeled.h5ad` (184,494 × 30) before applying the fix; AnnData subsetting preserves obsm slices, so `adata_nerve.obsm["X_scVI"]` (106,603 × 30) is available at `nerve_cell_subset.py:143` without any extra plumbing.
+- The redundant `sc.tl.pca(...)` line above the neighbours call was kept (not removed) — `X_pca` is still a useful reference embedding when comparing the integration against the unintegrated baseline. The cost is ~10 s per nerve_cell_subset run and zero downstream impact.
+- Single-process Snakemake (`--cores 1`) made the heterogeneity prerank ~8× slower than my earlier stub-launcher run because `snakemake.threads = 1` propagates into `gp.prerank(threads=...)`. Heterogeneity took ~57 min in this rerun (vs ~17 min when threads=8). Mid-run, I considered killing and re-launching with `--cores 8`, but the chain was already 4/5 complete by the time I issued SIGTERM — Snakemake honoured the in-flight job and exited cleanly after `nerve_tumor_interaction` finished, with only `nerve_enrichment_notebook` left. Re-ran that one separately at `--cores 8` to finish.
+- All five downstream rules re-ran without code changes: schema and rule shape unchanged from the failed-clustering run, only the cluster IDs and contents differ.
+- `Snakefile` `rule all` continues to gate the full pipeline on these outputs; no further wiring needed.
+
+**Artifacts (all regenerated):**
+- `workflow/scripts/nerve_cell_subset.py` (1-line edit at line 143; explanatory comment added referencing the QC verdict that motivated the change)
+- `data/processed/nerve_cells.h5ad` (regenerated; 24 clusters now, indexed 0–23)
+- `results/tables/nerve_cluster_markers.csv` (1,200 markers across 24 clusters; 1,188/1,200 mapped to gene_symbol)
+- `results/tables/nerve_enrichment.csv` (480 rows; 312 with FDR < 0.05; 24 clusters × 2 GO libraries × top-10)
+- `results/tables/nerve_cluster_sample_purity.csv` (24 rows; **18 PASS, 6 FAIL** — see verdict above)
+- `results/tables/nerve_cluster_annotations.csv` (24 rows; 6 module scores)
+- `results/tables/nerve_clinical_association.csv` (76 stat rows across testable categorical covariates `tissue_type, gender, race`; continuous `age_at_index` not testable in this cohort)
+- `results/tables/nerve_tumor_interactions.csv` (1,207 sig LR pairs across 24 clusters via LIANA consensus; vs 1,654 across 36 clusters in prior run — same biology, less fragmentation)
+- `results/tables/nerve_tumor_top_pairs.csv`
+- `results/figures/nerve_cells_umap.png`, `nerve_cells_umap_by_sample.png` (1.4 MB), `nerve_cells_umap_per_sample_panel.png` (1.4 MB)
+- `results/figures/nerve_dotplot.png`, `nerve_abundance_heatmap.png`
+- `results/figures/nerve_clinical_pvalue_heatmap.png`, `nerve_clinical_boxplots.png`
+- `results/figures/nerve_tumor_sig_heatmap.png`, `nerve_tumor_dotplot.png`
+- `results/figures/02_nerve_enrichment_explorer.html` (1.6 MB; regenerated against the new clustering)
+- `provenance/nerve_subset_provenance.json`, `heterogeneity_provenance.json`, `nerve_cluster_annotations_provenance.json`, `nerve_clinical_association_provenance.json`, `nerve_tumor_interaction_provenance.json`, `nerve_batch_qc_provenance.json`, `nerve_enrichment_notebook_provenance.json`
+- `markdowns/next_steps_interpretation.md` (§6 checklist updated; baseline-tag item now unblocked)
+
+**Tool Versions:** snakemake==9.20.0, scanpy==1.12.1, anndata==0.12.10, scvi-tools==1.4.2 (no retrain needed — used existing `X_scVI`), gseapy==1.1.3, liana==1.7.1, decoupler==2.1.6, pandas==2.3.3 (project conda env), marimo==0.23.1.
+
+**Open Issues:**
+- 6 clusters still fail batch QC (clusters 13, 15, 19, 21, 22, 23 in the new numbering). Five of them have 4–6 contributing samples; cluster 22 is the most patient-skewed (0.96 dominant from `20e86156…` with only 2 contributing samples). These are small clusters that may represent rare patient-specific cell states or residual integration imperfection at the long tail. Worth flagging in any per-cluster interpretation but do not invalidate cohort-level conclusions.
+- Cluster IDs renumbered (was 36 IDs, now 0–23). Any prior notes / draft figures referencing old cluster numbers must be redone.
+- Mid-run `--cores 1` performance issue: rule's declared `threads = config["resources"]["default_threads"]` (=8) is silently capped to global `--cores` value. Future runs of the heterogeneity rule should explicitly pass `--cores 8` (or higher) to recover prerank parallelism.
+- The `run_notebook_export.py` provenance JSON still hardcodes `"rule": "explore_gbm_notebook"` — pre-existing trivial fix, deferred.
+
+**FAIR Notes:**
+- Findable: every regenerated artifact has a fresh UUID5 / SHA-256 in its provenance JSON; provenance for the heterogeneity rule records `gsea_engine="gseapy.prerank"`, `msigdb_release="2024.1.Hs"`, the prerank seed (`0`), permutation count (`1000`), and per-cluster failure counts (zero).
+- Accessible: the one-line fix is documented inline in `nerve_cell_subset.py` with the reasoning + a back-reference to `nerve_batch_qc` so future maintainers see why `X_scVI` is preferred over `X_pca` for the kNN graph.
+- Interoperable: the regenerated `nerve_enrichment.csv` keeps the schema (`cluster, gene_set_library, Term, Adjusted P-value, Overlap`) the existing notebook (`02_nerve_enrichment_explorer.py`) consumes — no downstream code change required to re-render the explorer HTML against the corrected clustering.
+- Reusable: rerun is a clean Snakemake invocation (`snakemake --use-conda --cores 8 --rerun-triggers mtime --forcerun nerve_cell_subset -- nerve_cell_subset` followed by the dependent rules) — fully reproducible from `nerve_cells.h5ad` upstream. **§6 checklist item 6 (baseline-tag) is now unblocked.**
