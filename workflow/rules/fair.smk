@@ -30,3 +30,28 @@ rule fair_snakemake_report:
         "../envs/notebooks.yaml",
     shell:
         "snakemake --report {output.report} 2> {log}"
+
+
+rule freeze_baseline_provenance:
+    """Bundle every per-rule provenance JSON into a single tracked baseline file.
+
+    Run on demand (not auto-triggered): `snakemake --use-conda freeze_baseline_provenance`.
+    The output is the only file inside `provenance/` that gets committed to git
+    (see `.gitignore` exception for `provenance/baseline_*.json`).
+    """
+    output:
+        bundle = os.path.join(config["dirs"]["provenance"],
+                              f"baseline_{config['baseline']['version']}.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "freeze_baseline_provenance.log"),
+    conda:
+        "../envs/notebooks.yaml",
+    resources:
+        mem_mb  = 1000,
+        threads = 1,
+    params:
+        version        = config["baseline"]["version"],
+        summary        = config["baseline"]["summary"],
+        provenance_dir = config["dirs"]["provenance"],
+    script:
+        "../scripts/freeze_baseline_provenance.py"

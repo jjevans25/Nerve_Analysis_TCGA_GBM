@@ -528,3 +528,39 @@ Next Action:    Re-run pipeline end-to-end (requires network for first MyGene.in
 - Accessible: the one-line fix is documented inline in `nerve_cell_subset.py` with the reasoning + a back-reference to `nerve_batch_qc` so future maintainers see why `X_scVI` is preferred over `X_pca` for the kNN graph.
 - Interoperable: the regenerated `nerve_enrichment.csv` keeps the schema (`cluster, gene_set_library, Term, Adjusted P-value, Overlap`) the existing notebook (`02_nerve_enrichment_explorer.py`) consumes — no downstream code change required to re-render the explorer HTML against the corrected clustering.
 - Reusable: rerun is a clean Snakemake invocation (`snakemake --use-conda --cores 8 --rerun-triggers mtime --forcerun nerve_cell_subset -- nerve_cell_subset` followed by the dependent rules) — fully reproducible from `nerve_cells.h5ad` upstream. **§6 checklist item 6 (baseline-tag) is now unblocked.**
+
+---
+
+### [2026-05-09] | Phase: v1.0.0 Baseline Freeze — §6 Checklist Item 6 | Status: COMPLETE
+
+**Action:** Closed the final §6 checklist item by freezing every per-rule provenance JSON into a single tracked baseline bundle, then tagging git with `v1.0.0`. Implemented as a Snakemake rule (FAIR-compliant — runs in the project's notebooks conda env, has its own provenance log, never silently overwrites). New components: `workflow/scripts/freeze_baseline_provenance.py` (walks `provenance/*.json`, extracts artifact_id / sha256 / rule / tool versions / created_at, captures `git rev-parse HEAD`, branch, and remote URL); new `freeze_baseline_provenance` rule in `workflow/rules/fair.smk`; new `baseline:` block in `config/config.yaml` (`version: v1.0.0` + multi-line `summary` describing the pipeline state); `.gitignore` updated to use a file-level glob `provenance/*` (rather than directory-level `provenance/`) so a `!provenance/baseline_*.json` exception can take effect — the bundle is now the only file inside `provenance/` that git sees.
+
+**Outcome:** `provenance/baseline_v1.0.0.json` produced (~36 KB, 49 rule records). Bundle anchors to `git_commit=43a51e380602df554ec2fbca36eaa94d732f8d49` (the commit the user pushed earlier in the session that captured all the today's code/notebook/config work). `git check-ignore -v` confirms only `baseline_*.json` is tracked; per-run JSONs (e.g. `heterogeneity_provenance.json`) remain ignored as before. All §6 checklist items are now ✅. Annotated `v1.0.0` git tag will be created on the commit produced by this entry.
+
+**Tool Choice & Build:**
+- Bundle vs. selective allowlist: chose bundle (every regenerable JSON gets summarised into one tracked file) over `!provenance/*.json` (every per-run file tracked) because the per-run JSONs change every Snakemake invocation and would create noisy diffs on every rerun. Bundle is regenerated only when explicitly invoked, so `git status` stays quiet during normal pipeline work.
+- `.gitignore` semantics required moving from `provenance/` (directory-level — final, no exceptions) to `provenance/*` (file-level — exceptions allowed). Verified with `git check-ignore -v` that the bundle file matches the exception line and other JSONs still match the catch-all.
+- Bundle records the *parent* git commit (`43a51e3`) as `git_commit`, not the commit being created by this freeze. This is intentional: the bundle describes a pipeline-state-at-commit, and `43a51e3` is the commit that produced the runtime artifacts being summarised.
+- Decision: rule produces a single output `baseline_<version>.json`; the version comes from `config["baseline"]["version"]`. Bumping the version in config (e.g. to `v1.1.0`) and rerunning the rule will produce a *new* bundle alongside the existing one — old baselines are preserved as historical snapshots.
+
+**Artifacts:**
+- `workflow/scripts/freeze_baseline_provenance.py` (NEW)
+- `workflow/rules/fair.smk` (appended `freeze_baseline_provenance` rule)
+- `config/config.yaml` (added `baseline:` block — version + multi-line summary)
+- `.gitignore` (`provenance/` → `provenance/*` + `!provenance/baseline_*.json` exception)
+- `provenance/baseline_v1.0.0.json` (NEW — tracked) — 49 rule records, 36 KB, anchors to git_commit `43a51e3…` and remote `https://github.com/jjevans25/Nerve_Analysis_TCGA_GBM.git`
+- `markdowns/next_steps_interpretation.md` (§6 checklist item 6 marked ✅)
+- Annotated git tag `v1.0.0`
+
+**Tool Versions:** snakemake==9.20.0, python==3.12 (project conda env), gitpython not used (shelled out via `subprocess.check_output(["git", ...])` for portability with the existing scrna env layout).
+
+**Open Issues:**
+- The new tag is local; pushing to remote was deliberately not performed in this session (`git push` is destination-mutating and was not explicitly authorised). To publish: `git push origin main && git push origin v1.0.0`.
+- 6 of 24 nerve-cell clusters still fail the batch QC threshold — see prior entry. They are documented in `nerve_cluster_sample_purity.csv` and bundled into `baseline_v1.0.0.json`. v1.0.0 is shipped as "best current state with known caveats" rather than as a fully-clean integration.
+- Future bumps: bump `config.baseline.version` and rerun the rule to produce `baseline_v1.1.0.json`, etc. — old baselines stay tracked.
+
+**FAIR Notes:**
+- Findable: bundle is a single citable artifact; semver tag `v1.0.0` is git-pinned. Bundle records UUID5 / SHA-256 for every per-rule artifact described.
+- Accessible: collaborators cloning at tag `v1.0.0` see only `baseline_v1.0.0.json` inside `provenance/` — no need for them to regenerate the per-run JSONs to verify provenance. They can reproduce by checking out `git_commit=43a51e3…` and running the pipeline; the resulting per-rule JSONs should match the bundle's recorded SHA-256s up to seeded determinism.
+- Interoperable: bundle structure is plain JSON — consumable by any downstream tool. Each rule entry retains the original `ontology_operation` (EDAM identifiers preserved end-to-end).
+- Reusable: rule is generic — bumping `config.baseline.version` and rerunning is the intended workflow for future baselines (`v1.1.0`, `v2.0.0`). The script handles the bundling deterministically.

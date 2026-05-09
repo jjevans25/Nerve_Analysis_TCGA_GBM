@@ -32,7 +32,14 @@ skills-lock.json
 # ── Generated outputs ────────────────────────────────────────────────────────
 logs/
 results/
-provenance/
+# `provenance/*` not `provenance/`: file-level glob lets the negation below
+# take effect (git ignores everything inside an ignored *directory* even with
+# a `!` rule, but allows un-ignoring with a file glob).
+provenance/*
+# Exception: track the semver-tagged baseline bundles produced by the
+# `freeze_baseline_provenance` rule so collaborators can verify any local copy
+# of the per-rule provenance JSONs against a frozen citable record.
+!provenance/baseline_*.json
 
 # ── macOS metadata ───────────────────────────────────────────────────────────
 .DS_Store

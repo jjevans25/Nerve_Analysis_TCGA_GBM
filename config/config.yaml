@@ -172,6 +172,23 @@ nerve_cells:
     min_contributing_samples: 3
 
 # -------------------------------------------------------------
+# Baseline provenance bundle (semver-tagged citable result set)
+# Run on demand: `snakemake --use-conda freeze_baseline_provenance`
+# Bump `version` and append a new `summary` line whenever the science changes.
+# -------------------------------------------------------------
+baseline:
+  version: "v1.0.0"
+  summary: |
+    First reproducible baseline of the TCGA-GBM nerve-cell pipeline.
+    Pipeline: GDC loom → QC → scVI integration → CNV-based malignancy labelling →
+    nerve-cell subset (re-clustered on X_scVI, 24 Leiden clusters) →
+    DE markers (Wilcoxon) → offline GSEA (gseapy.prerank vs MSigDB C5 GO BP+MF, v2024.1.Hs) →
+    cluster annotations / clinical association / tumor–nerve LIANA interactions /
+    interactive marimo enrichment explorer.
+    Batch-correction QC: 18 / 24 clusters PASS (median dominant-sample fraction 0.313;
+    median normalised entropy 0.722 of 4.087 bits).
+
+# -------------------------------------------------------------
 # MSigDB gene-set collections (offline GSEA via gseapy.prerank)
 # Replaces the Enrichr online API (rate-limited, non-reproducible).
 # C5 GO BP+MF mirrors the prior GO_Biological_Process_2023 /
