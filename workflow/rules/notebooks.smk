@@ -23,11 +23,11 @@ rule explore_gbm_notebook:
 
 
 rule nerve_enrichment_notebook:
-    """Export nerve-cell GSEA enrichment explorer to HTML (consumes nerve_enrichment.csv)."""
+    """Export nerve-cell GSEA enrichment explorer to HTML (consumes nerve_enrichment_with_qc.csv)."""
     input:
         notebook   = "notebooks/02_nerve_enrichment_explorer.py",
-        enrichment = os.path.join(config["dirs"]["tables"], "nerve_enrichment.csv"),
-        markers    = os.path.join(config["dirs"]["tables"], "nerve_cluster_markers.csv"),
+        enrichment = os.path.join(config["dirs"]["tables"], "nerve_enrichment_with_qc.csv"),
+        markers    = os.path.join(config["dirs"]["tables"], "nerve_cluster_markers_with_qc.csv"),
     output:
         html       = os.path.join(config["dirs"]["figures"],    "02_nerve_enrichment_explorer.html"),
         provenance = os.path.join(config["dirs"]["provenance"], "nerve_enrichment_notebook_provenance.json"),

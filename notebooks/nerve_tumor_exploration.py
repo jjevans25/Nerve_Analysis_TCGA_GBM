@@ -52,8 +52,8 @@ def _load_config(Path, mo, yaml):
         config = yaml.safe_load(_f)
 
     tables_dir = project_root / config["dirs"]["tables"]
-    interactions_path = tables_dir / "nerve_tumor_interactions.csv"
-    top_pairs_path = tables_dir / "nerve_tumor_top_pairs.csv"
+    interactions_path = tables_dir / "nerve_tumor_interactions_with_qc.csv"
+    top_pairs_path = tables_dir / "nerve_tumor_top_pairs_with_qc.csv"
 
     _missing = [p for p in (interactions_path, top_pairs_path) if not p.exists()]
     if _missing:
@@ -63,7 +63,9 @@ def _load_config(Path, mo, yaml):
                 mo.md(
                     "Required artifacts not found:\n\n"
                     + "\n".join(f"- `{p}`" for p in _missing)
-                    + "\n\nRun the pipeline first: `snakemake nerve_tumor_interaction`."
+                    + "\n\nRun the pipeline first: "
+                    "`snakemake annotate_cluster_qc` (which depends on "
+                    "`nerve_tumor_interaction`)."
                 ),
                 kind="danger",
             ),
@@ -113,7 +115,12 @@ def _glossary(mo):
 
 @app.cell
 def _load_tables(interactions_path, pd, top_pairs_path):
-    """Read both CSVs; coerce categorical columns for memory + plotting."""
+    """Read both CSVs; coerce categorical columns for memory + plotting.
+
+    The `_with_qc.csv` variants carry the appended batch-QC columns:
+    `batch_qc_pass`, `dominant_sample_fraction`, `n_contributing_samples`,
+    `normalised_entropy`.
+    """
     interactions_df = pd.read_csv(interactions_path)
     top_pairs_df = pd.read_csv(top_pairs_path)
 
@@ -121,6 +128,75 @@ def _load_tables(interactions_path, pd, top_pairs_path):
         _df["nerve_cluster"] = _df["nerve_cluster"].astype("category")
         _df["direction"] = _df["direction"].astype("category")
     return interactions_df, top_pairs_df
+
+
+@app.cell
+def _qc_lookup(interactions_df, pd, top_pairs_df):
+    """Derive the set of nerve_cluster ids that failed batch QC."""
+    _combined = pd.concat(
+        [
+            interactions_df[["nerve_cluster", "batch_qc_pass"]],
+            top_pairs_df[["nerve_cluster", "batch_qc_pass"]],
+        ],
+        ignore_index=True,
+    )
+    _lookup = (
+        _combined.drop_duplicates(subset=["nerve_cluster"])
+        .set_index("nerve_cluster")["batch_qc_pass"]
+        .astype(bool)
+    )
+    failing_nerve_clusters = sorted(str(c) for c in _lookup.index[~_lookup])
+    _failing_set = set(failing_nerve_clusters)
+
+    def cluster_tick(value):
+        return f"{value} *" if str(value) in _failing_set else str(value)
+
+    return cluster_tick, failing_nerve_clusters
+
+
+@app.cell
+def _qc_banner(failing_nerve_clusters, interactions_df, mo):
+    """Banner listing batch-QC-failing nerve clusters with purity context."""
+    if not failing_nerve_clusters:
+        _qc_banner_view = mo.callout(
+            mo.md(
+                "All nerve clusters in this table pass batch-correction QC."
+            ),
+            kind="success",
+        )
+    else:
+        _qc_table = (
+            interactions_df[interactions_df["nerve_cluster"].isin(failing_nerve_clusters)]
+            .drop_duplicates(subset=["nerve_cluster"])
+            .sort_values("nerve_cluster")[
+                [
+                    "nerve_cluster",
+                    "dominant_sample_fraction",
+                    "n_contributing_samples",
+                    "normalised_entropy",
+                ]
+            ]
+            .reset_index(drop=True)
+        )
+        _ids = ", ".join(failing_nerve_clusters)
+        _qc_banner_view = mo.vstack(
+            [
+                mo.callout(
+                    mo.md(
+                        f"""
+**Batch-QC caveat** — clusters {_ids} fail the batch-correction QC
+(`nerve_cluster_sample_purity.csv`). They are marked with `*` in the
+heatmap and dotplot below; use the **Hide rows on QC-failing clusters**
+checkbox in the filter panel to drop them from every reactive view.
+"""
+                    ),
+                    kind="warn",
+                ),
+                mo.ui.table(_qc_table, selection=None),
+            ]
+        )
+    _qc_banner_view
+    return
 
 
 @app.cell
@@ -205,9 +281,13 @@ def _filters(interactions_df, mo):
     )
     ligand_search = mo.ui.text(label="Ligand contains", placeholder="e.g. NLGN1")
     receptor_search = mo.ui.text(label="Receptor contains", placeholder="e.g. NRXN")
+    hide_qc_fail = mo.ui.checkbox(
+        value=False, label="Hide rows on QC-failing clusters"
+    )
     return (
         cluster_select,
         direction_radio,
+        hide_qc_fail,
         ligand_search,
         magnitude_slider,
         pval_slider,
@@ -220,6 +300,7 @@ def _filters(interactions_df, mo):
 def _show_filters(
     cluster_select,
     direction_radio,
+    hide_qc_fail,
     hint,
     ligand_search,
     magnitude_slider,
@@ -235,10 +316,12 @@ def _show_filters(
                 "*Defaults of `0.05` are conventional cutoffs — tighten to `0.01` "
                 "for confirmatory shortlists, or relax to `0.10` for small clusters.*"
             ),
-            mo.hstack([source_toggle, direction_radio], gap=2),
+            mo.hstack([source_toggle, direction_radio, hide_qc_fail], gap=2),
             mo.md(
                 "*`top_pairs` is the pre-filtered top-N per `(cluster × direction)` "
-                "shortlist; toggle off to see the unfiltered LIANA table.*"
+                "shortlist; toggle off to see the unfiltered LIANA table. "
+                "`Hide rows on QC-failing clusters` drops any row whose "
+                "`nerve_cluster` failed batch-correction QC.*"
             ),
             cluster_select,
             mo.hstack([magnitude_slider, pval_slider], gap=2),
@@ -266,6 +349,7 @@ def _show_filters(
 def _filtered_view(
     cluster_select,
     direction_radio,
+    hide_qc_fail,
     interactions_df,
     ligand_search,
     magnitude_slider,
@@ -285,6 +369,9 @@ def _filtered_view(
 
     if direction_radio.value != "both":
         _df = _df[_df["direction"] == direction_radio.value]
+
+    if hide_qc_fail.value:
+        _df = _df[_df["batch_qc_pass"].astype(bool)]
 
     _df = _df[
         (_df["magnitude_rank"] <= magnitude_slider.value)
@@ -320,7 +407,9 @@ def _show_filtered(filtered_df, mo):
 
 
 @app.cell
-def _significance_heatmap(filtered_df, magnitude_slider, mo, plt, pval_slider, sns):
+def _significance_heatmap(
+    cluster_tick, filtered_df, magnitude_slider, mo, plt, pval_slider, sns
+):
     """Counts of LR pairs per (nerve_cluster, direction) at current threshold."""
     mo.stop(
         filtered_df.empty,
@@ -343,10 +432,11 @@ def _significance_heatmap(filtered_df, magnitude_slider, mo, plt, pval_slider, s
         cmap="magma_r",
         cbar_kws={"label": f"# LR pairs (magnitude_rank ≤ {magnitude_slider.value:.2f})"},
         ax=_ax,
+        yticklabels=[cluster_tick(c) for c in _counts.index],
     )
     _ax.set_title("Significant LR pairs per nerve cluster × direction")
     _ax.set_xlabel("Direction")
-    _ax.set_ylabel("Nerve cluster")
+    _ax.set_ylabel("Nerve cluster (`*` = batch-QC fail)")
     _fig.tight_layout()
     mo.vstack(
         [
@@ -380,7 +470,7 @@ def _show_topk(mo, topk_slider):
 
 
 @app.cell
-def _top_lr_dotplot(filtered_df, mo, np, plt, topk_slider):
+def _top_lr_dotplot(cluster_tick, filtered_df, mo, np, plt, topk_slider):
     """Dotplot of top-K LR pairs from the filtered view."""
     mo.stop(filtered_df.empty, mo.md("*No rows to plot.*"))
 
@@ -409,10 +499,12 @@ def _top_lr_dotplot(filtered_df, mo, np, plt, topk_slider):
         linewidths=0.3,
     )
     _ax.set_xticks(range(len(_x_levels)))
-    _ax.set_xticklabels(_x_levels, rotation=45, ha="right")
+    _ax.set_xticklabels(
+        [cluster_tick(v) for v in _x_levels], rotation=45, ha="right"
+    )
     _ax.set_yticks(range(len(_y_levels)))
     _ax.set_yticklabels(_y_levels, fontsize=8)
-    _ax.set_xlabel("Nerve cluster")
+    _ax.set_xlabel("Nerve cluster (`*` = batch-QC fail)")
     _ax.set_ylabel("Ligand → Receptor")
     _ax.set_title(f"Top-{topk_slider.value} LR pairs (size = -log10 magnitude_rank)")
     _fig.colorbar(_sc, ax=_ax, label="lrscore", shrink=0.6)

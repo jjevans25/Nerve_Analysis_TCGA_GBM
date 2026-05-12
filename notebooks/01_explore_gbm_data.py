@@ -255,6 +255,12 @@ def _nerve_cell_header(mo):
     ## Nerve Cell Heterogeneity Explorer
     Visualizes results from the nerve-cell subset and heterogeneity Snakemake rules.
     Requires the pipeline to have been run through the `nerve_cell_heterogeneity` rule.
+
+    *Per-cluster readers (`nerve_enrichment.csv`, `nerve_cluster_markers.csv`,
+    `nerve_tumor_interactions.csv`, `nerve_tumor_top_pairs.csv`) now have
+    `_with_qc.csv` companions produced by the `annotate_cluster_qc` rule —
+    each row carries `batch_qc_pass` and purity context so QC-failing clusters
+    can be flagged in any downstream view.*
     """)
     return
 

@@ -62,3 +62,8 @@ markdowns/fix_3.1_and_3.3_step_by_step.md
 .claude/scheduled_tasks.lock
 markdowns/stratifying_open_issues.md
 markdowns/nerve_tumor_exploration_considerations.md
+.claude/plans/batch-qc-downstream-flagging.md
+.gitignore
+.gitignore
+markdowns/batch_qc_downstream_flagging_plan.md
+markdowns/DO_THIS_NEXT_coarser_leiden_remediation_plan.md

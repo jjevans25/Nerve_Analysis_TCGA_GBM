@@ -3,9 +3,9 @@ Marimo reactive notebook: Nerve-cell GSEA enrichment explorer.
 Addresses: Which biological themes characterize each nerve-cell cluster, and
 which clusters share enrichment profiles?
 
-Data source: results/tables/nerve_enrichment.csv (produced by the
-`nerve_cell_heterogeneity` Snakemake rule via offline gseapy.prerank against
-local MSigDB GMTs — gap §3.2 remediation).
+Data source: results/tables/nerve_enrichment_with_qc.csv (the
+`annotate_cluster_qc` Snakemake rule's annotated copy of
+`nerve_enrichment.csv`, with `batch_qc_pass` and purity columns joined in).
 """
 
 import marimo
@@ -58,8 +58,8 @@ def _load_config(Path, yaml):
     _cfg_path = Path(__file__).parent.parent / "config" / "config.yaml"
     with open(_cfg_path) as _fh:
         config = yaml.safe_load(_fh)
-    enrichment_path = Path(config["dirs"]["tables"]) / "nerve_enrichment.csv"
-    markers_path = Path(config["dirs"]["tables"]) / "nerve_cluster_markers.csv"
+    enrichment_path = Path(config["dirs"]["tables"]) / "nerve_enrichment_with_qc.csv"
+    markers_path = Path(config["dirs"]["tables"]) / "nerve_cluster_markers_with_qc.csv"
     msigdb_release = config.get("msigdb", {}).get("release", "unknown")
     return config, enrichment_path, markers_path, msigdb_release
 
@@ -105,7 +105,11 @@ def _check_data(enrichment_path, mo):
 
 @app.cell
 def _load_enrichment(duckdb, enrichment_path, np, pd):
-    """Load CSV via DuckDB; parse Overlap into integer columns; add -log10 padj."""
+    """Load CSV via DuckDB; parse Overlap into integer columns; add -log10 padj.
+
+    The annotated `_with_qc.csv` adds `batch_qc_pass` and three purity columns
+    so the notebook can flag clusters that failed the batch-correction QC.
+    """
     _conn = duckdb.connect()
     _raw = _conn.execute(
         f"""
@@ -113,7 +117,11 @@ def _load_enrichment(duckdb, enrichment_path, np, pd):
                gene_set_library,
                Term,
                CAST("Adjusted P-value" AS DOUBLE) AS padj,
-               "Overlap" AS overlap_str
+               "Overlap" AS overlap_str,
+               batch_qc_pass,
+               dominant_sample_fraction,
+               n_contributing_samples,
+               normalised_entropy
         FROM read_csv('{enrichment_path}', header=true)
         """
     ).df()
@@ -128,7 +136,84 @@ def _load_enrichment(duckdb, enrichment_path, np, pd):
     enrichment_df = _raw.sort_values(["cluster", "padj"]).reset_index(drop=True)
     cluster_ids = sorted(enrichment_df["cluster"].dropna().unique().tolist())
     libraries = sorted(enrichment_df["gene_set_library"].unique().tolist())
-    return cluster_ids, enrichment_df, libraries
+
+    _qc_lookup = (
+        enrichment_df.dropna(subset=["cluster"])
+        .drop_duplicates(subset=["cluster"])
+        .set_index("cluster")["batch_qc_pass"]
+        .astype(bool)
+    )
+    failing_clusters = sorted(int(c) for c in _qc_lookup.index[~_qc_lookup])
+    return cluster_ids, enrichment_df, failing_clusters, libraries
+
+
+@app.cell
+def _qc_banner(enrichment_df, failing_clusters, mo):
+    """Banner: list clusters that failed batch-correction QC with purity context."""
+    if not failing_clusters:
+        _qc_banner_view = mo.callout(
+            mo.md(
+                "All clusters pass batch-correction QC "
+                "(`batch_qc_pass == True` for every cluster in this table)."
+            ),
+            kind="success",
+        )
+    else:
+        _qc_table = (
+            enrichment_df[enrichment_df["cluster"].isin(failing_clusters)]
+            .drop_duplicates(subset=["cluster"])
+            .sort_values("cluster")[
+                [
+                    "cluster",
+                    "dominant_sample_fraction",
+                    "n_contributing_samples",
+                    "normalised_entropy",
+                ]
+            ]
+            .reset_index(drop=True)
+        )
+        _ids = ", ".join(str(c) for c in failing_clusters)
+        _qc_banner_view = mo.vstack(
+            [
+                mo.callout(
+                    mo.md(
+                        f"""
+**Batch-QC caveat** — clusters {_ids} fail the batch-correction QC in
+`nerve_cluster_sample_purity.csv` and are marked with `*` in the heatmaps
+and `[batch-QC fail]` in the cluster picker below. Per-cluster signals from
+these clusters may reflect a single patient rather than a cohort program;
+treat them as exploratory only.
+"""
+                    ),
+                    kind="warn",
+                ),
+                mo.ui.table(_qc_table, selection=None),
+            ]
+        )
+    _qc_banner_view
+    return
+
+
+@app.cell
+def _qc_label_helpers(failing_clusters):
+    """Tick-label / dropdown-label helpers that mark failing clusters."""
+    _failing = set(int(c) for c in failing_clusters)
+
+    def cluster_tick(value):
+        try:
+            _i = int(value)
+        except (TypeError, ValueError):
+            return str(value)
+        return f"{_i} *" if _i in _failing else str(_i)
+
+    def cluster_dropdown_label(value):
+        try:
+            _i = int(value)
+        except (TypeError, ValueError):
+            return str(value)
+        return f"{_i} [batch-QC fail]" if _i in _failing else str(_i)
+
+    return cluster_dropdown_label, cluster_tick
 
 
 @app.cell
@@ -202,6 +287,7 @@ def _heatmap_controls(libraries, mo):
 @app.cell
 def _heatmap_view(
     cluster_terms_switch,
+    cluster_tick,
     enrichment_df,
     leaves_list,
     library_pick,
@@ -257,7 +343,11 @@ def _heatmap_view(
             cbar_kws={"label": "-log10 FDR"},
             linewidths=0.0,
         )
-        _ax.set_xlabel("Cluster (leiden)")
+        _ax.set_xticklabels(
+            [cluster_tick(c) for c in _matrix.columns],
+            rotation=_ax.get_xticklabels()[0].get_rotation() if _ax.get_xticklabels() else 0,
+        )
+        _ax.set_xlabel("Cluster (leiden) — `*` marks batch-QC-failing clusters")
         _ax.set_ylabel(library_pick.value)
         _ax.set_title(
             f"Top-{top_n.value} terms per cluster (FDR < {padj_cut.value:g}) — "
@@ -284,10 +374,11 @@ leading-edge / set-size overlap.
 
 
 @app.cell
-def _per_cluster_controls(cluster_ids, mo):
+def _per_cluster_controls(cluster_dropdown_label, cluster_ids, mo):
+    _options = {cluster_dropdown_label(c): str(c) for c in cluster_ids}
     cluster_pick = mo.ui.dropdown(
-        options=[str(c) for c in cluster_ids],
-        value=str(cluster_ids[0]),
+        options=_options,
+        value=cluster_dropdown_label(cluster_ids[0]),
         label="Cluster",
     )
     top_k = mo.ui.slider(start=1, stop=10, step=1, value=10, label="Top K per library")
@@ -408,6 +499,7 @@ def _similarity_controls(mo):
 
 @app.cell
 def _similarity_view(
+    cluster_tick,
     dendrogram,
     enrichment_df,
     linkage,
@@ -467,18 +559,20 @@ def _similarity_view(
             cbar_kws={"label": f"1 − {metric_pick.value} distance"},
             square=True,
             linewidths=0.0,
+            xticklabels=[cluster_tick(c) for c in _sim_df.columns],
+            yticklabels=[cluster_tick(c) for c in _sim_df.index],
         )
         _ax_heat.set_title(
             f"Cluster–cluster similarity ({metric_pick.value}, "
             f"{_matrix.shape[1]} terms ≥ -log10 FDR {min_score.value:g})"
         )
-        _ax_heat.set_xlabel("cluster")
-        _ax_heat.set_ylabel("cluster")
+        _ax_heat.set_xlabel("cluster (`*` = batch-QC fail)")
+        _ax_heat.set_ylabel("cluster (`*` = batch-QC fail)")
 
         _ax_dend = similarity_fig.add_subplot(_gs[0, 1])
         dendrogram(
             _link,
-            labels=[str(c) for c in _matrix.index],
+            labels=[cluster_tick(c) for c in _matrix.index],
             ax=_ax_dend,
             color_threshold=0,
             above_threshold_color="#444",

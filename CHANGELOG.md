@@ -564,3 +564,44 @@ Next Action:    Re-run pipeline end-to-end (requires network for first MyGene.in
 - Accessible: collaborators cloning at tag `v1.0.0` see only `baseline_v1.0.0.json` inside `provenance/` — no need for them to regenerate the per-run JSONs to verify provenance. They can reproduce by checking out `git_commit=43a51e3…` and running the pipeline; the resulting per-rule JSONs should match the bundle's recorded SHA-256s up to seeded determinism.
 - Interoperable: bundle structure is plain JSON — consumable by any downstream tool. Each rule entry retains the original `ontology_operation` (EDAM identifiers preserved end-to-end).
 - Reusable: rule is generic — bumping `config.baseline.version` and rerunning is the intended workflow for future baselines (`v1.1.0`, `v2.0.0`). The script handles the bundling deterministically.
+
+---
+
+### [2026-05-11] | Phase: Downstream Annotation of Batch-QC-Failing Clusters | Status: COMPLETE
+
+**Action:** Added a downstream-only annotation pass that flags the 6 batch-QC-failing nerve clusters (13, 15, 19, 21, 22, 23) in every per-cluster artifact without modifying the v1.0.0 outputs in place. New Snakemake rule `annotate_cluster_qc` (`workflow/rules/nerve_cells.smk`) + new script `workflow/scripts/annotate_cluster_qc.py` left-join the purity table onto each downstream per-cluster table and emit `_with_qc.csv` companions. Marimo notebooks updated to read the annotated tables, render a batch-QC banner up front, mark failing clusters with `*` in heatmaps / dotplots, and (in the LIANA explorer) expose a `Hide rows on QC-failing clusters` checkbox.
+
+**Outcome:** Four new annotated tables produced alongside their v1.0.0 sources; original CSVs remain byte-identical, so `provenance/baseline_v1.0.0.json` SHA-256s still verify. Readers of the explorer notebooks now see the 6 failing cluster IDs and per-cluster purity context (dominant-sample fraction, # contributing samples, normalised entropy) before drilling into any per-cluster signal.
+
+**Tool Choice & Build:**
+- Annotation pass rather than retrain: a downstream join keeps v1.0.0 frozen (`provenance/baseline_v1.0.0.json` still valid) while making the QC verdict legible to every downstream reader. Retraining / re-clustering is the next remediation step if/when the researcher decides annotation alone isn't enough; tracked separately.
+- Pass column renamed `pass_overall → batch_qc_pass` on output for legibility; the underlying purity CSV is unchanged.
+- Tumor-table join: the LIANA tables key on `nerve_cluster` (values like `nerve_c20`); the script strips the `nerve_c` prefix and joins on the bare cluster id. Row-count parity is asserted before write so a key mismatch fails the rule loudly.
+- New rule lives in the default `all` target, so `snakemake --use-conda --cores all` re-produces every annotated artifact automatically.
+- Cluster 22 (n = 327 cells, 2 contributing samples, ~0.96 from one patient) flagged in `markdowns/project_overview.md` as a candidate for exclusion in a future remediation pass — annotation only for now.
+
+**Artifacts:**
+- `workflow/scripts/annotate_cluster_qc.py` (NEW)
+- `workflow/rules/nerve_cells.smk` (NEW `annotate_cluster_qc` rule after the `nerve_tumor_interaction` block)
+- `Snakefile` (4 `_with_qc.csv` outputs appended to `rule all`)
+- `results/tables/nerve_enrichment_with_qc.csv` (NEW)
+- `results/tables/nerve_cluster_markers_with_qc.csv` (NEW)
+- `results/tables/nerve_tumor_interactions_with_qc.csv` (NEW)
+- `results/tables/nerve_tumor_top_pairs_with_qc.csv` (NEW)
+- `provenance/annotate_cluster_qc_provenance.json` (NEW; lists all 5 inputs + 4 outputs with SHA-256s)
+- `notebooks/02_nerve_enrichment_explorer.py` (reads `_with_qc.csv`; banner cell; `*` tick labels on both heatmaps; `[batch-QC fail]` suffix in cluster picker)
+- `notebooks/nerve_tumor_exploration.py` (reads `_with_qc.csv`; banner cell; `Hide rows on QC-failing clusters` checkbox wired into the reactive filter; `*` tick labels on cluster × direction heatmap and dotplot)
+- `notebooks/01_explore_gbm_data.py` (pointer to `_with_qc.csv` variants in the nerve-cell gallery header)
+- `markdowns/project_overview.md` (line 49 "Known caveat" expanded with cluster IDs + cluster-22 callout + pointer to the new artifacts)
+
+**Tool Versions:** snakemake==9.20.0, python==3.12, pandas==2.3.3, marimo==0.23.1 (project conda env, no new dependencies).
+
+**Open Issues:**
+- Cluster 22 remains an exclusion candidate (n = 327, 2 contributing samples, ~0.96 from one patient). Annotation alone is not a substitute for dropping it if a downstream interpretation depends on cluster 22 — flagged in `project_overview.md`.
+- HTML re-exports of the two explorer notebooks not regenerated in this entry; rerun `explore_gbm_notebook` and `nerve_enrichment_notebook` rules to refresh `results/figures/01_explore_gbm_data.html` and `02_nerve_enrichment_explorer.html`.
+
+**FAIR Notes:**
+- Findable: every `_with_qc.csv` has a fresh UUID5 / SHA-256 captured in `annotate_cluster_qc_provenance.json` alongside the SHA-256s of all 5 input tables.
+- Accessible: outputs sit next to their sources in `results/tables/`; readers do not need to know which Leiden cluster IDs are QC-failing — the table row tells them via `batch_qc_pass`.
+- Interoperable: appended columns (`batch_qc_pass`, `dominant_sample_fraction`, `n_contributing_samples`, `normalised_entropy`) preserve the source schema; existing tooling that ignored these columns will continue to work.
+- Reusable: rule is generic — if a future re-clustering produces a new `nerve_cluster_sample_purity.csv`, rerunning `annotate_cluster_qc` rebuilds the annotated tables with the new verdict. v1.0.0 baseline tag remains valid because no v1.0.0 artifact is modified in place.

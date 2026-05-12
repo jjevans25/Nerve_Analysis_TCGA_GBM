@@ -183,3 +183,28 @@ rule nerve_tumor_interaction:
         random_seed = config["scrna"]["random_seed"],
     script:
         "../scripts/nerve_tumor_interaction.py"
+
+
+rule annotate_cluster_qc:
+    """Left-join batch-QC verdict onto downstream per-cluster tables (no v1.0.0 changes)."""
+    input:
+        purity       = os.path.join(config["dirs"]["tables"], "nerve_cluster_sample_purity.csv"),
+        enrichment   = os.path.join(config["dirs"]["tables"], "nerve_enrichment.csv"),
+        markers      = os.path.join(config["dirs"]["tables"], "nerve_cluster_markers.csv"),
+        interactions = os.path.join(config["dirs"]["tables"], "nerve_tumor_interactions.csv"),
+        top_pairs    = os.path.join(config["dirs"]["tables"], "nerve_tumor_top_pairs.csv"),
+    output:
+        enrichment   = os.path.join(config["dirs"]["tables"],     "nerve_enrichment_with_qc.csv"),
+        markers      = os.path.join(config["dirs"]["tables"],     "nerve_cluster_markers_with_qc.csv"),
+        interactions = os.path.join(config["dirs"]["tables"],     "nerve_tumor_interactions_with_qc.csv"),
+        top_pairs    = os.path.join(config["dirs"]["tables"],     "nerve_tumor_top_pairs_with_qc.csv"),
+        provenance   = os.path.join(config["dirs"]["provenance"], "annotate_cluster_qc_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "annotate_cluster_qc.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = 2000,
+        threads = 1,
+    script:
+        "../scripts/annotate_cluster_qc.py"

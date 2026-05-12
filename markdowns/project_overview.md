@@ -15,7 +15,7 @@ This repository implements an autonomous, FAIR-compliant single-cell RNA-seq pip
 
 The pipeline approaches this in three passes: (1) characterise the **distribution** of neural / glial cells across patients; (2) identify the **molecular programs** active in each cluster via differential expression and GO BP / GO MF enrichment; (3) surface candidate **paracrine signaling axes** linking malignant GBM cells to the surrounding nerve-cell compartment via ligand–receptor inference.
 
-**Cohort:** 17 TCGA-GBM scRNA-seq samples (GDC loom files) → 184,494 cells post-QC → **106,603 non-malignant nerve cells across 24 Leiden clusters** (post-batch-correction-fix on 2026-05-09; numbers from `markdowns/next_steps_interpretation.md` §6 and `provenance/baseline_v1.0.0.json`).
+**Cohort:** 17 TCGA-GBM scRNA-seq samples (GDC loom files) → 184,494 cells post-QC → **106,603 non-malignant nerve cells across 24 Leiden clusters** 
 
 ## Pipeline architecture
 
@@ -46,7 +46,7 @@ Every rule writes a JSON provenance record to `provenance/<rule>_provenance.json
 - **Per-cluster GSEA** (480 rows; 312 with FDR < 0.05) — sample top-line hits from the new clustering: cluster 7 → `GOBP_CENTRAL_NERVOUS_SYSTEM_PROJECTION_NEURON_AXONOGENESIS` (FDR 0.025); cluster 0 → DNA replication / cell-cycle (proliferating state); cluster 2 → axon-extension / axon-guidance neurons.
 - **LIANA tumor↔nerve interactions:** 1,207 significant L–R pairs across the 24 clusters (`results/tables/nerve_tumor_interactions.csv`).
 - **Provenance frozen:** `provenance/baseline_v1.0.0.json` (49 rule records + git commit + SHA-256s).
-- **Known caveat:** 6 of the 24 clusters still fail the batch-QC threshold (each has 4–6 contributing samples but is dominated by one patient at 0.72–0.96). Documented in `results/tables/nerve_cluster_sample_purity.csv` and acknowledged in the v1.0.0 tag message.
+- **Known caveat — 6 batch-QC-failing clusters annotated downstream:** clusters **13, 15, 19, 21, 22, 23** fail the batch-QC threshold (each has 4–6 contributing samples but is dominated by one patient at 0.72–0.96). **Cluster 22 fails both criteria** (n = 327 cells, 2 contributing samples, ~0.96 from one patient) and is a candidate for exclusion in a future remediation pass. Documented in `results/tables/nerve_cluster_sample_purity.csv` and acknowledged in the v1.0.0 tag message. The `annotate_cluster_qc` rule produces `_with_qc.csv` companions for every per-cluster table (`nerve_enrichment_with_qc.csv`, `nerve_cluster_markers_with_qc.csv`, `nerve_tumor_interactions_with_qc.csv`, `nerve_tumor_top_pairs_with_qc.csv`); the marimo explorers (`02_nerve_enrichment_explorer.py`, `nerve_tumor_exploration.py`) display a batch-QC banner up front and mark these clusters with `*` in heatmaps / dotplots.
 
 Detailed history is in `CHANGELOG.md` under the `[2026-05-09]` entries.
 
