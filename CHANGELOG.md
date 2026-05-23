@@ -605,3 +605,50 @@ Next Action:    Re-run pipeline end-to-end (requires network for first MyGene.in
 - Accessible: outputs sit next to their sources in `results/tables/`; readers do not need to know which Leiden cluster IDs are QC-failing — the table row tells them via `batch_qc_pass`.
 - Interoperable: appended columns (`batch_qc_pass`, `dominant_sample_fraction`, `n_contributing_samples`, `normalised_entropy`) preserve the source schema; existing tooling that ignored these columns will continue to work.
 - Reusable: rule is generic — if a future re-clustering produces a new `nerve_cluster_sample_purity.csv`, rerunning `annotate_cluster_qc` rebuilds the annotated tables with the new verdict. v1.0.0 baseline tag remains valid because no v1.0.0 artifact is modified in place.
+
+---
+
+### [2026-05-23] | Phase: Failing-Cluster Diagnosis + Selective Drop + Re-annotation | Status: COMPLETE
+
+**Action:** Diagnosed the 6 batch-QC-dominance-failing nerve clusters with a marker + per-cell QC + clinical cross-reference (`scripts/diagnose_failing_clusters.py` → `markdowns/failing_cluster_diagnosis.md`). Outcome reframes the failure mode: only **1 of 6 ("cl21") is a true technical artifact** (dissociation stress); **4 of 6 (cl13, cl15, cl22, cl23) are patient-anatomy-specific real neural subtypes** preserved in donors whose `tissue_type` is `Normal`; **cl19 is real ependymal cells mislabeled as astrocyte** because the upstream marker scoring lacked an ependymal gene set. Followed through on all three recommended actions:
+
+1. **Drop cl21 from downstream `_with_qc.csv` tables.** Extended `workflow/scripts/annotate_cluster_qc.py` with an `exclude_clusters` parameter that filters rows whose cluster id is in the excluded set, after the merge / parity assertions, with a per-table dropped-row counter logged and stored in the provenance JSON. Source `nerve_cluster_markers.csv`, `nerve_enrichment.csv`, `nerve_tumor_interactions.csv`, `nerve_tumor_top_pairs.csv` are untouched so the audit trail of the artifact is preserved. New config key `nerve_cells.batch_qc.exclude_clusters: ["21"]` in `config/config.yaml` makes the exclusion declarative and reviewable. Wired into the `annotate_cluster_qc` rule in `workflow/rules/nerve_cells.smk` via a `params:` block.
+
+2. **Add ependymal markers + scorer wiring.** New `nerve_cells.markers.ependymal` block in `config/config.yaml`: FOXJ1, RFX3, DNAH7, DNAH9, DNAH11, CFAP54, PIFO, RSPH1. Added `"ependymal"` entry to `MARKER_SETS` in `workflow/scripts/scrna_annotate.py` so per-cell `cell_type_predicted` gets the new label on next run. Added `"ependymal"` entry to `LABEL_GROUPS` in `workflow/scripts/nerve_celltype_labels.py` so scANVI v2 retraining can anchor on it. Softened the per-label collapse-floor in `nerve_celltype_labels.py` to 0.1 % for rare labels (ependymal cells are ≈ 1 % of glia; the previous 1 % hard floor would have raised a `[FAIR-ALERT]` on next run).
+
+3. **Documentation updates.** Rewrote the "Known caveat" paragraph in `markdowns/project_overview.md:49` with the new 5-of-6-is-biology framing, pointer to `markdowns/failing_cluster_diagnosis.md`, and explicit per-cluster verdicts (B / mislabeled / T). This CHANGELOG entry. Cleaned out the stale "cluster 22 exclusion candidate" line from `project_overview.md` since the diagnosis re-classifies cl22 as a real excitatory-neuron subtype.
+
+**Outcome:** Downstream `_with_qc.csv` tables shed cl21 rows (counts before / after: enrichment 20 → 0, markers 50 → 0, interactions 244 → 0, top_pairs 10 → 0). The 4 marimo notebook exports that read these tables no longer surface cl21. Next full `snakemake --use-conda --cores all` run will re-label cl19's cells as `ependymal` in `cell_type_predicted` and assign `cell_type = ependymal` to them for scANVI v2. v1.0.0 provenance (`provenance/baseline_v1.0.0.json`) remains valid — no v1.0.0 artifact is modified in place.
+
+**Tool Choice & Build:**
+- Diagnostic script (`scripts/diagnose_failing_clusters.py`) lives in top-level `scripts/`, not `workflow/scripts/` — it's exploratory, one-shot, and not a production pipeline step. Outputs are a markdown report (`markdowns/failing_cluster_diagnosis.md`) plus a structured-evidence JSON (`results/tables/failing_cluster_diagnosis.json`) for future-self auditing.
+- `exclude_clusters` filter is applied *after* the merge and *after* the row-count parity / unmatched-cluster-id assertions, so the FAIR-ALERT semantics are preserved — the script still loudly fails if a source table has a cluster id absent from the purity table.
+- `exclude_clusters` is config-driven (not hard-coded) so future drops (or restoring cl21 after an upstream QC retighten) are a one-line config change with no script edits.
+- The "tier-3 scVI re-train with `categorical_covariate_keys`" option (raised in the diagnosis as a candidate next move) was rejected: 4 / 6 failing-cluster signals are biologically correct patient-tissue specificity, and a categorical-covariate-keyed scVI would *remove* that signal, collapsing rare subtypes into the generic-neuron blob.
+
+**Artifacts:**
+- `scripts/diagnose_failing_clusters.py` (NEW; top-level, not Snakemake-wired)
+- `markdowns/failing_cluster_diagnosis.md` (NEW; sibling of `DO_THIS_NEXT_coarser_leiden_remediation_plan.md`)
+- `results/tables/failing_cluster_diagnosis.json` (NEW; structured evidence)
+- `.claude/plans/failing_cluster_diagnosis.md` (in-project copy of the session plan)
+- `config/config.yaml` (NEW `nerve_cells.markers.ependymal` block; NEW `nerve_cells.batch_qc.exclude_clusters` key)
+- `workflow/scripts/annotate_cluster_qc.py` (`_annotate` returns `(n_rows, n_dropped)`; reads `snakemake.params.exclude_clusters`; provenance now records `exclude_clusters` + `rows_dropped`)
+- `workflow/scripts/scrna_annotate.py` (`"ependymal"` added to `MARKER_SETS`)
+- `workflow/scripts/nerve_celltype_labels.py` (`"ependymal"` added to `LABEL_GROUPS`; per-label collapse floor relaxed to 0.1 % for rare labels)
+- `workflow/rules/nerve_cells.smk` (`annotate_cluster_qc` rule now passes `exclude_clusters` from config)
+- `markdowns/project_overview.md` (line 49 "Known caveat" rewritten with new diagnosis)
+- `results/tables/nerve_*_with_qc.csv` (regenerated minus cl21; v1.0.0 sources untouched)
+- `provenance/annotate_cluster_qc_provenance.json` (refreshed with new params + drop counts)
+
+**Tool Versions:** snakemake==9.20.0, python==3.12, pandas==2.3.3, anndata==0.13.x, scanpy==1.12.1. No new dependencies.
+
+**Open Issues:**
+- `nerve_celltype_labels.py`'s `cell_type` Categorical (line 122) hard-codes the `LABEL_GROUPS.keys() + ["Unknown"]` categories — already auto-picks up the new ependymal label since it iterates `LABEL_GROUPS`. No further edit needed but worth confirming after the next full run.
+- The scANVI v2 model in `results/models/nerve_scanvi_model` was trained against a 4-label scheme; the next full run will produce a 5-label model and a fresh `nerve_cells_v2.h5ad`. Old `_v2` artifacts will be invalidated; treat the next `--use-conda --cores all` rerun as a v1.1.0 cut.
+- HTML re-exports of `02_nerve_enrichment_explorer.html` and `nerve_tumor_exploration.html` were refreshed alongside the `annotate_cluster_qc` rerun; `01_explore_gbm_data.html` doesn't depend on `_with_qc.csv` so its mtime is unchanged.
+
+**FAIR Notes:**
+- Findable: `markdowns/failing_cluster_diagnosis.md` includes per-cluster verdicts keyed by cluster id with explicit gene-marker evidence — discoverable via `grep cluster\\ 21` and similar.
+- Accessible: diagnosis output is plain markdown + JSON; no special tooling needed.
+- Interoperable: `exclude_clusters` mechanism generalises — any future cluster-level artifact can be dropped from `_with_qc.csv` outputs by listing its id in `config.yaml`.
+- Reusable: ependymal markers are config-driven, so future cohorts with different ciliated-cell repertoires can swap the gene list without touching scripts.

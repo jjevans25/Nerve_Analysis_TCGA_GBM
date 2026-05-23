@@ -57,10 +57,13 @@ def _annotate(
     join_column: str,
     *,
     strip_prefix: bool,
-) -> int:
-    """Left-join purity onto a source table; assert no row drops; write CSV.
+    exclude_clusters: set[str],
+) -> tuple[int, int]:
+    """Left-join purity onto a source table; drop excluded clusters; write CSV.
 
-    Returns the row count for sanity logging.
+    Returns (rows_written, rows_dropped) for sanity logging. Source per-cluster
+    tables are not modified; only the downstream `_with_qc.csv` variant has the
+    excluded clusters filtered out.
     """
     src = pd.read_csv(source_path)
     if join_column not in src.columns:
@@ -93,11 +96,16 @@ def _annotate(
             f"id not found in the purity table: {unmatched_ids}"
         )
 
+    dropped_mask = merged["_join_key"].isin(exclude_clusters)
+    n_dropped = int(dropped_mask.sum())
+    if n_dropped:
+        merged = merged.loc[~dropped_mask].reset_index(drop=True)
+
     merged = merged.drop(columns=["_join_key", "cluster_key"])
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     merged.to_csv(out_path, index=False)
     verify_artifact(out_path, min_size_bytes=64)
-    return len(merged)
+    return len(merged), n_dropped
 
 
 purity = _load_purity(snakemake.input.purity)
@@ -109,6 +117,15 @@ log_transformation(
     f"Loaded purity table: {n_pass} PASS / {n_fail} FAIL across {len(purity)} clusters",
 )
 
+exclude_clusters = {str(c) for c in getattr(snakemake.params, "exclude_clusters", []) or []}
+if exclude_clusters:
+    log_transformation(
+        log,
+        "annotate_cluster_qc",
+        f"Excluding {len(exclude_clusters)} cluster(s) from _with_qc.csv outputs: "
+        f"{sorted(exclude_clusters)}",
+    )
+
 jobs = [
     (snakemake.input.enrichment,      snakemake.output.enrichment,      "cluster",       False),
     (snakemake.input.markers,         snakemake.output.markers,         "cluster",       False),
@@ -117,13 +134,18 @@ jobs = [
 ]
 
 row_counts: dict[str, int] = {}
+rows_dropped: dict[str, int] = {}
 for src, out, join_col, strip in jobs:
-    n_rows = _annotate(src, out, purity, join_col, strip_prefix=strip)
+    n_rows, n_dropped = _annotate(
+        src, out, purity, join_col,
+        strip_prefix=strip, exclude_clusters=exclude_clusters,
+    )
     row_counts[str(out)] = n_rows
+    rows_dropped[str(out)] = n_dropped
     log_transformation(
         log,
         "annotate_cluster_qc",
-        f"Annotated {src} -> {out} ({n_rows} rows)",
+        f"Annotated {src} -> {out} ({n_rows} rows; {n_dropped} dropped via exclude_clusters)",
     )
 
 prov = stamp_artifact(
@@ -144,6 +166,8 @@ prov = stamp_artifact(
         "n_clusters_pass": n_pass,
         "n_clusters_fail": n_fail,
         "row_counts": row_counts,
+        "rows_dropped": rows_dropped,
+        "exclude_clusters": sorted(exclude_clusters),
         "appended_columns": [
             "batch_qc_pass",
             "dominant_sample_fraction",

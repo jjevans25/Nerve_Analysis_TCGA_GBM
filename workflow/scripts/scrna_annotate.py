@@ -41,6 +41,7 @@ MARKER_SETS: dict[str, list[str]] = {
     "opc":               snakemake.params.markers.get("opc", []),
     "oligodendrocyte":   snakemake.params.markers.get("oligodendrocyte", []),
     "astrocyte":         snakemake.params.markers.get("astrocyte", []),
+    "ependymal":         snakemake.params.markers.get("ependymal", []),
     # Additional TME cell types for annotation context
     "microglia":         ["AIF1", "CX3CR1", "TMEM119", "P2RY12", "PTPRC"],
     "t_cell":            ["CD3D", "CD3E", "CD4", "CD8A", "CD8B"],

@@ -67,3 +67,7 @@ markdowns/nerve_tumor_exploration_considerations.md
 .gitignore
 markdowns/batch_qc_downstream_flagging_plan.md
 markdowns/DO_THIS_NEXT_coarser_leiden_remediation_plan.md
+.claude/plans/failing_cluster_diagnosis.md
+.gitignore
+markdowns/failing_cluster_diagnosis.md
+markdowns/DO_THIS_NEXT_v1.1.0_cut.md

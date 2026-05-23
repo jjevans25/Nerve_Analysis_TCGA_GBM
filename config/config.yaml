@@ -162,6 +162,18 @@ nerve_cells:
       - "S100B"
       - "AQP4"
       - "VIM"
+    # Motile-ciliated cells lining the ventricles. Added in v1.1.0 after the
+    # failing-cluster diagnosis identified cl19 as ependymal (DNAH/CFAP-dominated
+    # markers) mislabeled as astrocyte. See markdowns/failing_cluster_diagnosis.md.
+    ependymal:
+      - "FOXJ1"
+      - "RFX3"
+      - "DNAH7"
+      - "DNAH9"
+      - "DNAH11"
+      - "CFAP54"
+      - "PIFO"
+      - "RSPH1"
   reference_dataset: "cellxgene_census"
   batch_qc:
     # Cluster passes if its largest single-sample fraction is below this:
@@ -170,6 +182,12 @@ nerve_cells:
     min_contributing_fraction: 0.01
     # Cluster also requires at least this many contributing samples to pass:
     min_contributing_samples: 3
+    # Clusters identified as technical artifacts (e.g. dissociation stress) by
+    # markdowns/failing_cluster_diagnosis.md — annotate_cluster_qc drops their
+    # rows from the _with_qc.csv variants. Source per-cluster tables are
+    # untouched so the audit trail of the artifact is preserved.
+    exclude_clusters:
+      - "21"  # dissociation stress (MT-RNR2/MT-RNR1/MT-CO1/RPL41/RPS12 markers; n_genes=1099)
 
 # -------------------------------------------------------------
 # scANVI re-train on the nerve subset (v2 model)

@@ -337,5 +337,7 @@ rule annotate_cluster_qc:
     resources:
         mem_mb  = 2000,
         threads = 1,
+    params:
+        exclude_clusters = config["nerve_cells"]["batch_qc"].get("exclude_clusters", []),
     script:
         "../scripts/annotate_cluster_qc.py"

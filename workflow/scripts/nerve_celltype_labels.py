@@ -51,6 +51,9 @@ LABEL_GROUPS: dict[str, list[str]] = {
     "opc": list(markers_cfg.get("opc", [])),
     "oligodendrocyte": list(markers_cfg.get("oligodendrocyte", [])),
     "astrocyte": list(markers_cfg.get("astrocyte", [])),
+    # Motile-ciliated ventricular cells; markers cluster on DNAH/CFAP and
+    # diverge from astrocyte despite the historical mislabel (cl19 in v1.0.0).
+    "ependymal": list(markers_cfg.get("ependymal", [])),
 }
 
 log_transformation(log, "nerve_celltype_labels",
@@ -141,12 +144,15 @@ if unknown_frac >= 0.20 + 1e-6:
                        f"consider lowering unknown_percentile.",
                        status="WARNING")
 
+RARE_LABELS = {"ependymal"}  # anatomically rare; use a looser min-fraction floor
 for lbl in LABEL_GROUPS:
     frac = float(counts.get(lbl, 0)) / total
-    if frac < 0.01:
+    min_frac = 0.001 if lbl in RARE_LABELS else 0.01
+    if frac < min_frac:
         raise RuntimeError(
-            f"[FAIR-ALERT] cell-type '{lbl}' got only {frac:.3%} of cells — "
-            f"label collapse; refine markers or threshold before training scANVI."
+            f"[FAIR-ALERT] cell-type '{lbl}' got only {frac:.3%} of cells "
+            f"(floor {min_frac:.1%}) — label collapse; refine markers or threshold "
+            f"before training scANVI."
         )
 
 summary = pd.DataFrame(
