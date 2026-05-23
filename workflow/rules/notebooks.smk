@@ -40,3 +40,23 @@ rule nerve_enrichment_notebook:
         threads = 1,
     script:
         "../scripts/run_notebook_export.py"
+
+
+rule nerve_tumor_exploration_notebook:
+    """Export nerve-tumor LIANA LR interaction explorer to HTML (consumes nerve_tumor_*_with_qc.csv)."""
+    input:
+        notebook     = "notebooks/nerve_tumor_exploration.py",
+        interactions = os.path.join(config["dirs"]["tables"], "nerve_tumor_interactions_with_qc.csv"),
+        top_pairs    = os.path.join(config["dirs"]["tables"], "nerve_tumor_top_pairs_with_qc.csv"),
+    output:
+        html       = os.path.join(config["dirs"]["figures"],    "nerve_tumor_exploration.html"),
+        provenance = os.path.join(config["dirs"]["provenance"], "nerve_tumor_exploration_notebook_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "nerve_tumor_exploration_notebook.log"),
+    conda:
+        "../envs/notebooks.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = 1,
+    script:
+        "../scripts/run_notebook_export.py"

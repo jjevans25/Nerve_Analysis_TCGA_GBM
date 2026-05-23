@@ -25,6 +25,7 @@ matplotlib.use("Agg")
 
 sys.path.insert(0, "workflow/scripts")
 from fair_utils import (
+    compute_cluster_purity,
     log_transformation,
     stamp_artifact,
     verify_artifact,
@@ -64,58 +65,30 @@ log_transformation(
 )
 
 # ---------------------------------------------------------------------------
-# Per-cluster purity table
+# Per-cluster purity table (shared helper — identical logic also used by the
+# nerve_leiden_resolution_sweep rule to keep the comparison apples-to-apples)
 # ---------------------------------------------------------------------------
-counts = (
-    adata.obs.assign(
-        nerve_leiden=adata.obs["nerve_leiden"].astype(str),
-        sample_id=adata.obs["sample_id"].astype(str),
-    )
-    .groupby(["nerve_leiden", "sample_id"], observed=True)
-    .size()
-    .unstack(fill_value=0)
-    .reindex(index=clusters, columns=samples, fill_value=0)
+purity = compute_cluster_purity(
+    adata,
+    cluster_col="nerve_leiden",
+    batch_col="sample_id",
+    dominant_max=DOMINANT_FRACTION_MAX,
+    min_contributing_fraction=MIN_CONTRIBUTING_FRACTION,
+    min_contributing_samples=MIN_CONTRIBUTING_SAMPLES,
 )
-totals = counts.sum(axis=1)
-proportions = counts.div(totals.replace(0, np.nan), axis=0).fillna(0.0)
-
-dominant_fraction = proportions.max(axis=1)
-dominant_sample = proportions.idxmax(axis=1)
-n_contributing_samples = (proportions >= MIN_CONTRIBUTING_FRACTION).sum(axis=1)
-
-# Shannon entropy in bits over samples; 0 means single-sample, log2(n_samples) means uniform
-with np.errstate(divide="ignore", invalid="ignore"):
-    log_p = np.where(proportions > 0, np.log2(proportions), 0.0)
-shannon = -(proportions.values * log_p).sum(axis=1)
-expected_uniform = float(np.log2(n_samples)) if n_samples > 1 else 0.0
-normalised_entropy = (shannon / expected_uniform) if expected_uniform > 0 else 0.0
-
-pass_dominant = (dominant_fraction < DOMINANT_FRACTION_MAX).values
-pass_diversity = (n_contributing_samples >= MIN_CONTRIBUTING_SAMPLES).values
-pass_overall = pass_dominant & pass_diversity
-
-purity_df = pd.DataFrame(
-    {
-        "cluster": clusters,
-        "n_cells": totals.values.astype(int),
-        "dominant_sample": dominant_sample.values,
-        "dominant_sample_fraction": dominant_fraction.values.round(4),
-        "n_contributing_samples": n_contributing_samples.values.astype(int),
-        "shannon_entropy_bits": np.round(shannon, 4),
-        "normalised_entropy": np.round(normalised_entropy, 4),
-        "pass_dominant": pass_dominant,
-        "pass_diversity": pass_diversity,
-        "pass_overall": pass_overall,
-    }
-)
+purity_df = purity.df
+expected_uniform = purity.expected_uniform_entropy
 purity_df.to_csv(snakemake.output.purity, index=False)
 verify_artifact(snakemake.output.purity, min_size_bytes=64)
 
+pass_overall = purity_df["pass_overall"].to_numpy()
+pass_dominant = purity_df["pass_dominant"].to_numpy()
+pass_diversity = purity_df["pass_diversity"].to_numpy()
 n_pass = int(pass_overall.sum())
 n_fail_dominant = int((~pass_dominant).sum())
 n_fail_diversity = int((~pass_diversity).sum())
-median_dom = float(np.median(dominant_fraction.values))
-median_norm_entropy = float(np.median(normalised_entropy))
+median_dom = float(np.median(purity_df["dominant_sample_fraction"].to_numpy()))
+median_norm_entropy = float(np.median(purity_df["normalised_entropy"].to_numpy()))
 
 log_transformation(
     log,

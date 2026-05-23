@@ -172,6 +172,20 @@ nerve_cells:
     min_contributing_samples: 3
 
 # -------------------------------------------------------------
+# scANVI re-train on the nerve subset (v2 model)
+# Anchors latent space on marker-derived cell-type labels to
+# disentangle patient identity from cell-type biology.
+# -------------------------------------------------------------
+nerve_scanvi:
+  batch_key: "sample_id"
+  labels_key: "cell_type"
+  unlabeled_category: "Unknown"
+  unknown_percentile: 20.0       # cells below this percentile of max-score -> Unknown
+  scvi_max_epochs: 400
+  scanvi_max_epochs: 100
+  n_samples_per_label: 200       # scANVI mini-batch balance across cell-types
+
+# -------------------------------------------------------------
 # Baseline provenance bundle (semver-tagged citable result set)
 # Run on demand: `snakemake --use-conda freeze_baseline_provenance`
 # Bump `version` and append a new `summary` line whenever the science changes.
@@ -226,6 +240,8 @@ msigdb:
 # -------------------------------------------------------------
 gdc_api:
   base_url: "https://api.gdc.cancer.gov"
+  request_timeout: 60         # seconds per POST attempt
+  max_retries: 5              # exponential backoff: 1s, 2s, 4s, 8s, 16s (~31s total)
   fields:
     - "file_id"
     - "cases.case_id"

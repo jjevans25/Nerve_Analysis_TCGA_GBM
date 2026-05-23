@@ -12,7 +12,8 @@ dependencies:
     - scvelo==0.3.4
     - scvi-tools==1.4.2
     - pytorch-lightning==2.6.1
-    - torch==2.11.0
+    - torch==2.12.0
+    - torchvision==0.27.0
     - loompy==3.0.8
     - cellxgene-census==1.17.0
     - h5py==3.16.0

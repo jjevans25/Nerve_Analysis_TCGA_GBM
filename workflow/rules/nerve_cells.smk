@@ -161,6 +161,32 @@ rule nerve_batch_qc:
         "../scripts/nerve_batch_qc.py"
 
 
+rule nerve_leiden_resolution_sweep:
+    """Sweep leiden_resolution on the nerve-cell kNN graph; report purity + silhouette per resolution."""
+    input:
+        h5ad = os.path.join(config["dirs"]["data_processed"], "nerve_cells.h5ad"),
+    output:
+        csv        = os.path.join(config["dirs"]["tables"],     "nerve_leiden_resolution_sweep.csv"),
+        figure     = os.path.join(config["dirs"]["figures"],    "nerve_leiden_resolution_sweep.png"),
+        provenance = os.path.join(config["dirs"]["provenance"], "nerve_leiden_resolution_sweep_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "nerve_leiden_resolution_sweep.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = config["resources"]["default_threads"],
+    params:
+        resolutions                = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+        random_seed                = config["scrna"]["random_seed"],
+        dominant_fraction_max      = config["nerve_cells"]["batch_qc"]["dominant_fraction_max"],
+        min_contributing_fraction  = config["nerve_cells"]["batch_qc"]["min_contributing_fraction"],
+        min_contributing_samples   = config["nerve_cells"]["batch_qc"]["min_contributing_samples"],
+        silhouette_sample_size     = 5000,
+    script:
+        "../scripts/nerve_leiden_resolution_sweep.py"
+
+
 rule nerve_tumor_interaction:
     """Tumor-nerve cell-cell communication via LIANA+ consensus ligand-receptor inference."""
     input:
@@ -183,6 +209,111 @@ rule nerve_tumor_interaction:
         random_seed = config["scrna"]["random_seed"],
     script:
         "../scripts/nerve_tumor_interaction.py"
+
+
+rule nerve_assemble_counts:
+    """Reconstruct raw-count nerve AnnData from per-sample QC files for scANVI re-training."""
+    input:
+        qc_h5ads  = expand(
+            os.path.join(config["dirs"]["data_processed"], "{sample}_qc.h5ad"),
+            sample=config["samples"],
+        ),
+        nerve_ref = os.path.join(config["dirs"]["data_processed"], "nerve_cells.h5ad"),
+    output:
+        h5ad       = os.path.join(config["dirs"]["data_processed"], "nerve_cells_counts.h5ad"),
+        provenance = os.path.join(config["dirs"]["provenance"],     "nerve_assemble_counts_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "nerve_assemble_counts.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = config["resources"]["default_threads"],
+    params:
+        random_seed = config["scrna"]["random_seed"],
+    script:
+        "../scripts/nerve_assemble_counts.py"
+
+
+rule nerve_celltype_labels:
+    """Score canonical markers and assign cell-type labels for scANVI anchoring."""
+    input:
+        counts_h5ad = os.path.join(config["dirs"]["data_processed"], "nerve_cells_counts.h5ad"),
+    output:
+        h5ad       = os.path.join(config["dirs"]["data_processed"], "nerve_cells_counts_labeled.h5ad"),
+        summary    = os.path.join(config["dirs"]["tables"],         "nerve_celltype_label_summary.csv"),
+        provenance = os.path.join(config["dirs"]["provenance"],     "nerve_celltype_labels_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "nerve_celltype_labels.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = config["resources"]["default_threads"],
+    params:
+        markers             = config["nerve_cells"]["markers"],
+        unknown_percentile  = config["nerve_scanvi"]["unknown_percentile"],
+        random_seed         = config["scrna"]["random_seed"],
+    script:
+        "../scripts/nerve_celltype_labels.py"
+
+
+rule nerve_scanvi_retrain:
+    """Train scVI baseline + scANVI fine-tune on the nerve subset with cell_type labels."""
+    input:
+        counts_h5ad = os.path.join(config["dirs"]["data_processed"], "nerve_cells_counts_labeled.h5ad"),
+    output:
+        model_dir   = directory(os.path.join(config["dirs"]["models"], "nerve_scanvi_model")),
+        latent_h5ad = os.path.join(config["dirs"]["data_processed"], "nerve_cells_v2.h5ad"),
+        curves      = os.path.join(config["dirs"]["figures"],         "nerve_scanvi_training_curves.png"),
+        provenance  = os.path.join(config["dirs"]["provenance"],      "nerve_scanvi_retrain_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "nerve_scanvi_retrain.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = 64000,
+        threads = config["resources"]["gpu_threads"],
+    params:
+        device              = config["hardware"]["device"],
+        precision           = config["hardware"]["precision"],
+        n_latent            = config["scrna"]["n_latent"],
+        n_layers            = config["scrna"]["n_layers"],
+        random_seed         = config["scrna"]["random_seed"],
+        batch_key           = config["nerve_scanvi"]["batch_key"],
+        labels_key          = config["nerve_scanvi"]["labels_key"],
+        unlabeled_category  = config["nerve_scanvi"]["unlabeled_category"],
+        scvi_max_epochs     = config["nerve_scanvi"]["scvi_max_epochs"],
+        scanvi_max_epochs   = config["nerve_scanvi"]["scanvi_max_epochs"],
+        n_samples_per_label = config["nerve_scanvi"]["n_samples_per_label"],
+    script:
+        "../scripts/nerve_scanvi_retrain.py"
+
+
+rule nerve_batch_qc_v2:
+    """Per-cluster sample purity on the v2 scANVI latent space (apples-to-apples vs v1.0.0)."""
+    input:
+        h5ad = os.path.join(config["dirs"]["data_processed"], "nerve_cells_v2.h5ad"),
+    output:
+        purity          = os.path.join(config["dirs"]["tables"],     "nerve_cluster_sample_purity_v2.csv"),
+        umap_main       = os.path.join(config["dirs"]["figures"],    "nerve_cells_umap_by_sample_v2.png"),
+        umap_per_sample = os.path.join(config["dirs"]["figures"],    "nerve_cells_umap_per_sample_panel_v2.png"),
+        provenance      = os.path.join(config["dirs"]["provenance"], "nerve_batch_qc_v2_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "nerve_batch_qc_v2.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = 1,
+    params:
+        random_seed              = config["scrna"]["random_seed"],
+        leiden_resolution        = config["nerve_cells"]["leiden_resolution"],
+        dominant_fraction_max    = config["nerve_cells"]["batch_qc"]["dominant_fraction_max"],
+        min_contributing_fraction= config["nerve_cells"]["batch_qc"]["min_contributing_fraction"],
+        min_contributing_samples = config["nerve_cells"]["batch_qc"]["min_contributing_samples"],
+    script:
+        "../scripts/nerve_batch_qc_v2.py"
 
 
 rule annotate_cluster_qc:

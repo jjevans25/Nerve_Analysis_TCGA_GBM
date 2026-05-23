@@ -75,12 +75,15 @@ rule gdc_clinical_fetch:
         os.path.join(config["dirs"]["logs"], "gdc_clinical_fetch.log"),
     conda:
         "../envs/scrna.yaml",
+    retries: 2
     resources:
         mem_mb  = 2000,
         threads = 1,
     params:
-        sample_ids = config.get("samples", []),
-        api_base   = config["gdc_api"]["base_url"],
-        api_fields = config["gdc_api"]["fields"],
+        sample_ids      = config.get("samples", []),
+        api_base        = config["gdc_api"]["base_url"],
+        api_fields      = config["gdc_api"]["fields"],
+        request_timeout = config["gdc_api"]["request_timeout"],
+        max_retries     = config["gdc_api"]["max_retries"],
     script:
         "../scripts/gdc_clinical_fetch.py"

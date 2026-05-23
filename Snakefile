@@ -58,6 +58,12 @@ rule all:
         *([p(config["dirs"]["figures"],        "nerve_abundance_heatmap.png")]      if SAMPLES    else []),
         *([p(config["dirs"]["tables"],         "nerve_cluster_sample_purity.csv")]  if SAMPLES    else []),
         *([p(config["dirs"]["figures"],        "nerve_cells_umap_by_sample.png")]   if SAMPLES    else []),
+        *([p(config["dirs"]["tables"],         "nerve_leiden_resolution_sweep.csv")] if SAMPLES   else []),
+        *([p(config["dirs"]["figures"],        "nerve_leiden_resolution_sweep.png")] if SAMPLES   else []),
+        *([p(config["dirs"]["tables"],         "nerve_celltype_label_summary.csv")] if SAMPLES    else []),
+        *([p(config["dirs"]["tables"],         "nerve_cluster_sample_purity_v2.csv")] if SAMPLES  else []),
+        *([p(config["dirs"]["figures"],        "nerve_cells_umap_by_sample_v2.png")] if SAMPLES   else []),
+        *([p(config["dirs"]["figures"],        "nerve_scanvi_training_curves.png")] if SAMPLES    else []),
         *([p(config["dirs"]["tables"],         "nerve_cluster_annotations.csv")]    if SAMPLES    else []),
         *([p(config["dirs"]["tables"],         "nerve_clinical_association.csv")]   if SAMPLES    else []),
         *([p(config["dirs"]["tables"],         "nerve_tumor_interactions.csv")]     if SAMPLES    else []),
@@ -68,6 +74,7 @@ rule all:
         *([p(config["dirs"]["tables"],         "protein_quant_matrix.csv")]         if MS_SAMPLES else []),
         *([p(config["dirs"]["figures"],        "01_explore_gbm_data.html")]         if SAMPLES    else []),
         *([p(config["dirs"]["figures"],        "02_nerve_enrichment_explorer.html")] if SAMPLES    else []),
+        *([p(config["dirs"]["figures"],        "nerve_tumor_exploration.html")]      if SAMPLES    else []),
 
 
 # -------------------------------------------------------------

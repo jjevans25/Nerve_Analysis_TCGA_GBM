@@ -2,6 +2,7 @@
 
 import json
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,9 +16,60 @@ log     = snakemake.log[0]
 samples = snakemake.params.sample_ids
 base    = snakemake.params.api_base.rstrip("/")
 fields  = snakemake.params.api_fields
+timeout_s   = int(snakemake.params.request_timeout)
+max_retries = int(snakemake.params.max_retries)
+
+
+def _post_with_retry(url: str, payload: dict) -> requests.Response:
+    """POST with exponential backoff on transient (5xx, network, timeout) failures.
+
+    Mirrors ``download_msigdb_gmt.py:_download_with_retry``. 4xx is *not* retried
+    (client error — retrying won't help). Sleep grows 1s, 2s, 4s, 8s, 16s, ...
+    """
+    last_exc: BaseException | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = requests.post(url, json=payload, timeout=timeout_s)
+            if 400 <= resp.status_code < 500:
+                resp.raise_for_status()  # client error -> raise immediately, no retry
+            if resp.status_code >= 500:
+                log_transformation(
+                    log, "gdc_clinical_fetch",
+                    f"HTTP {resp.status_code} on POST {url} "
+                    f"(attempt {attempt}/{max_retries})",
+                    status="WARNING",
+                )
+                resp.raise_for_status()
+            return resp
+        except (requests.RequestException, OSError) as exc:
+            # Distinguish client (don't retry) from server / network (retry).
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status is not None and 400 <= status < 500:
+                raise
+            last_exc = exc
+            if attempt < max_retries:
+                wait = 2 ** (attempt - 1)
+                log_transformation(
+                    log, "gdc_clinical_fetch",
+                    f"  retry {attempt}/{max_retries} after {wait}s: {exc}",
+                    status="WARNING",
+                )
+                time.sleep(wait)
+            else:
+                log_transformation(
+                    log, "gdc_clinical_fetch",
+                    f"All {max_retries} attempts failed for {url}",
+                    status="ERROR",
+                )
+    raise RuntimeError(
+        f"[FAIR-ALERT] gdc_clinical_fetch: POST {url} failed after "
+        f"{max_retries} attempts; last error: {last_exc}"
+    )
+
 
 log_transformation(log, "gdc_clinical_fetch",
-    f"Querying GDC API for {len(samples)} file UUIDs at {base}")
+    f"Querying GDC API for {len(samples)} file UUIDs at {base} "
+    f"(timeout={timeout_s}s, max_retries={max_retries})")
 
 # ---------------------------------------------------------------------------
 # Step 1: resolve file UUIDs → case UUIDs via /files endpoint
@@ -33,8 +85,7 @@ files_payload = {
     "format": "JSON",
 }
 
-resp = requests.post(files_url, json=files_payload, timeout=60)
-resp.raise_for_status()
+resp = _post_with_retry(files_url, files_payload)
 files_hits = resp.json()["data"]["hits"]
 
 file_to_case: dict[str, str] = {}
@@ -64,8 +115,7 @@ cases_payload = {
     "format": "JSON",
 }
 
-resp2 = requests.post(cases_url, json=cases_payload, timeout=60)
-resp2.raise_for_status()
+resp2 = _post_with_retry(cases_url, cases_payload)
 cases_hits = resp2.json()["data"]["hits"]
 
 log_transformation(log, "gdc_clinical_fetch",

@@ -33,7 +33,7 @@ def main() -> None:
         "run_id":     str(uuid.uuid4()),
         "timestamp":  datetime.utcnow().isoformat() + "Z",
         "tool":       "marimo==0.23.1",
-        "rule":       "explore_gbm_notebook",
+        "rule":       snakemake.rule,  # noqa: F821
         "input_hash": input_hash,
     }
     Path(prov_out).write_text(json.dumps(prov, indent=2))
