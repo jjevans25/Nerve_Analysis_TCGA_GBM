@@ -1,0 +1,801 @@
+{
+  "baseline_version": "v1.1.0",
+  "frozen_at_utc": "2026-05-24T15:02:10.605452+00:00",
+  "summary": "First reproducible baseline of the TCGA-GBM nerve-cell pipeline.\nPipeline: GDC loom \u2192 QC \u2192 scVI integration \u2192 CNV-based malignancy labelling \u2192\nnerve-cell subset (re-clustered on X_scVI, 24 Leiden clusters) \u2192\nDE markers (Wilcoxon) \u2192 offline GSEA (gseapy.prerank vs MSigDB C5 GO BP+MF, v2024.1.Hs) \u2192\ncluster annotations / clinical association / tumor\u2013nerve LIANA interactions /\ninteractive marimo enrichment explorer.\nBatch-correction QC: 18 / 24 clusters PASS (median dominant-sample fraction 0.313;\nmedian normalised entropy 0.722 of 4.087 bits).\n\nv1.1.0 deltas (2026-05-24, post failing-cluster diagnosis):\n- cl21 dropped from downstream _with_qc.csv tables via\n  nerve_cells.batch_qc.exclude_clusters (dissociation artifact:\n  stress-marker dominant \u2014 MT-RNR2/1, RPL41, B2M, FTH1; see\n  markdowns/failing_cluster_diagnosis.md).\n- Ependymal added as 5th cell-type label (FOXJ1/RFX3/DNAH7-9-11/\n  CFAP54/PIFO/RSPH1 marker set) and to nerve_cells.cell_types so\n  cells pass the nerve_cell_subset filter. After re-clustering with\n  the +5,713 ependymal cells, three ependymal-dominant clusters\n  emerged: cl11 (72% ependymal, 2,585 cells), cl15 (89%, 1,854 cells),\n  and cl19 (83%, 1,020 cells; clean motile-cilia signature CFAP54/\n  DNAH7/DNAH9). cl11 and cl15 were not predicted by the cut doc;\n  they represent biologically distinct ependymal subpopulations.\n- scANVI v2 retrained on 5 labels (was 4 + Unknown): astrocyte 22,600\n  / neuron 20,538 / ependymal 14,545 / oligodendrocyte 14,380 /\n  opc 13,219 + Unknown 21,321. Classifier accuracy 0.85 (was 0.84).\n- notebooks/02_nerve_enrichment_explorer.py: added 'ependymal' theme\n  regex (CILIUM/CILIARY/AXONEMAL/DYNEIN/EPENDYM) to surface cl11/15/19\n  ciliary GSEA hits in the theme roll-up.\n- v1.0.0 baseline (provenance/baseline_v1.0.0.json) remains frozen\n  and citable.\n",
+  "git_commit": "81d32b0b2ea40c26fea662c4f3d7eafb2e34f033",
+  "git_branch": "main",
+  "git_remote_url": "https://github.com/jjevans25/Nerve_Analysis_TCGA_GBM.git",
+  "n_provenance_files": 56,
+  "rules": [
+    {
+      "provenance_file": "provenance/06820e2c-9eb7-4e71-a1c3-976d561e659d_ingest_provenance.json",
+      "provenance_sha256": "233731c007842b74aa53c746be05c1007b43220eb6f5fa4a397a0edb33dd206f",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "63c53955-e145-5793-b49c-1ab462fe2574",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/06820e2c-9eb7-4e71-a1c3-976d561e659d.h5ad",
+      "artifact_sha256": "1554226b114220e844c48b9cf5b68143b1c495ba8ce78c789d508e4327a162ce",
+      "created_at": "2026-05-23T20:25:19.392200+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/06820e2c-9eb7-4e71-a1c3-976d561e659d_qc_provenance.json",
+      "provenance_sha256": "dbe724813784f27ed4b1891d028346edda5d31b51bfb72785dc8a5298a2ae38b",
+      "rule": "scrna_qc",
+      "artifact_id": "d1827db1-c51b-5feb-b18a-79a56a3d3289",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/06820e2c-9eb7-4e71-a1c3-976d561e659d_qc.h5ad",
+      "artifact_sha256": "388521c40bdaae76c3b670afc30e1688c913bf39a2be5a8b9747070656b9f633",
+      "created_at": "2026-05-23T20:25:39.220900+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/08418175-0464-4b33-86e3-416c30189bd2_ingest_provenance.json",
+      "provenance_sha256": "2f408fc86e7a66a5baf0a571dae707b23d89025e420e9abcb0efe0752f9d5498",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "19bae94a-8edd-571f-80f2-cfc45596cf4a",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/08418175-0464-4b33-86e3-416c30189bd2.h5ad",
+      "artifact_sha256": "1c5bec96db5df4180f720f662cdb57fe8647d04dce45d8b59c7884fd3d74520c",
+      "created_at": "2026-05-23T20:25:04.528372+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/08418175-0464-4b33-86e3-416c30189bd2_qc_provenance.json",
+      "provenance_sha256": "9d3d707261c4e7e275e5e92cb7cdc2a1fc347c6aec97f954bada7fc465fe1bfc",
+      "rule": "scrna_qc",
+      "artifact_id": "8bc0e63a-c1ae-578f-a444-19557b783309",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/08418175-0464-4b33-86e3-416c30189bd2_qc.h5ad",
+      "artifact_sha256": "4bd07eb1db24573072dffe2114966bc33c7fbd06cc748cf1213a8409221116a9",
+      "created_at": "2026-05-23T20:25:12.165078+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/18d92af9-a7d0-47f2-84e2-6f4cc0dee298_ingest_provenance.json",
+      "provenance_sha256": "5150714f64d90c5bbfc55c69f8e1d2e2ae14ace8d3aed52fac1452b576412c32",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "4926e2f8-4851-5a1e-8a4e-af132afddd7c",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/18d92af9-a7d0-47f2-84e2-6f4cc0dee298.h5ad",
+      "artifact_sha256": "5a66ae20d98d24e53e1e3efebbaea1f7a80cb1243b5568159621a30e138159b3",
+      "created_at": "2026-05-23T20:25:10.394528+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/18d92af9-a7d0-47f2-84e2-6f4cc0dee298_qc_provenance.json",
+      "provenance_sha256": "1e1f9755ac2ec91303fb108bc377e5cd837504f86dd8ad7ca3fa970b86a007a9",
+      "rule": "scrna_qc",
+      "artifact_id": "d6d89ddf-ea28-5f0c-9a5b-ae737b59aec2",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/18d92af9-a7d0-47f2-84e2-6f4cc0dee298_qc.h5ad",
+      "artifact_sha256": "5ed3812a0120f725d14adcf879d9ffcd1fc99c471baf6af6713f3ded6dd830c1",
+      "created_at": "2026-05-23T20:25:39.124642+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/20e86156-cdd7-4bea-8b17-2e630720df44_ingest_provenance.json",
+      "provenance_sha256": "ba8190de432721cc8a5d3b51133e0a2237c9a3ef5674921a6f560636f98f7613",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "18d60c9d-8d98-5da2-ad09-7dec791a2bcf",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/20e86156-cdd7-4bea-8b17-2e630720df44.h5ad",
+      "artifact_sha256": "3306904bcd1d2e254f24af9f764797f390e3b90886e66c3bcd41c6f6b9c166a2",
+      "created_at": "2026-05-23T20:26:30.031060+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/20e86156-cdd7-4bea-8b17-2e630720df44_qc_provenance.json",
+      "provenance_sha256": "7de7a47020a6eb10750f04aa2179c0cd0bac8e4fcad01f0c0787605acb3b2e2c",
+      "rule": "scrna_qc",
+      "artifact_id": "f219df9e-8a0c-5889-85e1-1a9984cd7fcf",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/20e86156-cdd7-4bea-8b17-2e630720df44_qc.h5ad",
+      "artifact_sha256": "787d578e69db67b272a153ee660fe1383d3357a944345d18de16142a6a174d64",
+      "created_at": "2026-05-23T20:26:46.569674+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/21521784-3a62-4989-bd29-0f920e1eaa2b_ingest_provenance.json",
+      "provenance_sha256": "e78c38d4782fce8d36b1235de7969cf0c4b48bd599777b10be96e026bedfeab7",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "5c70e089-8963-5a07-b441-d84d8419baaa",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/21521784-3a62-4989-bd29-0f920e1eaa2b.h5ad",
+      "artifact_sha256": "6beaa7e9f0c684d60ad6b60d4ced9281c6deefc0bb8d551b199d1377b5f4df27",
+      "created_at": "2026-05-23T20:25:37.370756+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/21521784-3a62-4989-bd29-0f920e1eaa2b_qc_provenance.json",
+      "provenance_sha256": "a0bccb03784ccf9ffc4bd77c981a929e034dc9ff319f08f22d014f444cb94460",
+      "rule": "scrna_qc",
+      "artifact_id": "fcffff15-18c3-5b8e-9ee3-687c2d78b2ac",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/21521784-3a62-4989-bd29-0f920e1eaa2b_qc.h5ad",
+      "artifact_sha256": "3ffca85f3d364d74568bf51d348215da543d3d582baa31fcfc0758b6ee5425e3",
+      "created_at": "2026-05-23T20:26:27.948130+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/44dcf3b7-977a-410f-8901-412697377924_ingest_provenance.json",
+      "provenance_sha256": "947b60e9a8c0e52f5a77c47696adde8f301024e31a804d3a7af088642660e722",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "45bcd70c-e22c-5ce2-b4ff-574872e72cf3",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/44dcf3b7-977a-410f-8901-412697377924.h5ad",
+      "artifact_sha256": "f1125e06197405dc1a124cfbd206f012d75c99d314eb01817fa02efc984eab03",
+      "created_at": "2026-05-23T20:25:28.448774+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/44dcf3b7-977a-410f-8901-412697377924_qc_provenance.json",
+      "provenance_sha256": "4886cf551350b597947d3b1a69462a0d1bd0cbcd5a431e3fe3c14e16c60766c3",
+      "rule": "scrna_qc",
+      "artifact_id": "4a06b018-0e70-560c-b4f8-04c4995bbfba",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/44dcf3b7-977a-410f-8901-412697377924_qc.h5ad",
+      "artifact_sha256": "7818d4927a6b2912dfbd89ea9d348ec455976cdd68b81c969e0a416c7400b07f",
+      "created_at": "2026-05-23T20:26:11.852829+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/4a0d48cd-1c46-4d59-b4b0-ae842bf1323c_ingest_provenance.json",
+      "provenance_sha256": "980337f0a083ca63d3cf46994876ee387295e848d5d4eebeaf8f0d0606cec299",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "ec0bf143-19f0-59d1-819b-ee2444e1c605",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/4a0d48cd-1c46-4d59-b4b0-ae842bf1323c.h5ad",
+      "artifact_sha256": "d18b5ab1a0230629d4716cc0d3a87e60174f8353d0d9827c167c2fb2cd119c7b",
+      "created_at": "2026-05-23T20:25:27.478476+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/4a0d48cd-1c46-4d59-b4b0-ae842bf1323c_qc_provenance.json",
+      "provenance_sha256": "0da8753e4042743d20d34b2651d5c61c2acfbdcc33efbeca6fece12a2c75e6b4",
+      "rule": "scrna_qc",
+      "artifact_id": "b0a3f49f-f4f6-5fa5-8fbc-df2de6081f3b",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/4a0d48cd-1c46-4d59-b4b0-ae842bf1323c_qc.h5ad",
+      "artifact_sha256": "10b2dee4763a042aefd27ede92f3033a888bd34040a802413a737922664979ef",
+      "created_at": "2026-05-23T20:25:49.326921+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/5212fe36-192c-44a3-88f4-4c6e696b583c_ingest_provenance.json",
+      "provenance_sha256": "fb0492fed606860d409945b7f4a9be49cb546a304dc71739cc859f28e8529e59",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "fe044fb1-29dd-51cb-b887-4d1619812618",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/5212fe36-192c-44a3-88f4-4c6e696b583c.h5ad",
+      "artifact_sha256": "4c55d8833712b86470ba2c3b64e1925809b9dc7092a96d30f26a007a3a9e57d3",
+      "created_at": "2026-05-23T20:25:03.246345+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/5212fe36-192c-44a3-88f4-4c6e696b583c_qc_provenance.json",
+      "provenance_sha256": "c7f6c3347a8803a5e598f1149e69213955d3da81b44fe55eb533a301ef8002ce",
+      "rule": "scrna_qc",
+      "artifact_id": "8cd01429-b18b-539c-b761-2c4484ba409b",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/5212fe36-192c-44a3-88f4-4c6e696b583c_qc.h5ad",
+      "artifact_sha256": "05e9af1bc9fa156ca84bc69e535922f7205964b5b9ba811861fe29c97919e0a6",
+      "created_at": "2026-05-23T20:25:23.003910+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/7eac574d-04fa-435d-8b4d-35da0100ecb9_ingest_provenance.json",
+      "provenance_sha256": "ba9fb3528bc7a939df2ff8866217dfb038dbdc6582a75c21f9417c3453088326",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "7dd2701f-c073-5edd-b5ad-ec7916be9662",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/7eac574d-04fa-435d-8b4d-35da0100ecb9.h5ad",
+      "artifact_sha256": "0e7cb6f0d6c49723b2641e7938a64ff03fcfc2da69ef448627a680806d5c84e2",
+      "created_at": "2026-05-23T20:25:53.562917+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/7eac574d-04fa-435d-8b4d-35da0100ecb9_qc_provenance.json",
+      "provenance_sha256": "1b5d41941c2c931b02de047f1f216fac57eb84178f75679e61e3a57449bf15a1",
+      "rule": "scrna_qc",
+      "artifact_id": "e1823ee9-1e65-5529-bf99-1495a4ab6f3f",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/7eac574d-04fa-435d-8b4d-35da0100ecb9_qc.h5ad",
+      "artifact_sha256": "740eb7a576844dd842d8d65b06c3bd5ad4563571557bbbaed82d73506c8b0851",
+      "created_at": "2026-05-23T20:26:30.844748+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/8c0685b3-521e-45a6-9677-f8e3f186e09b_ingest_provenance.json",
+      "provenance_sha256": "56047b0d4dfc825c8175ec10421aec47a1e018a1db20badf2e22f9728610294e",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "6c31295c-9219-5017-a9b6-8edd45bde0b0",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/8c0685b3-521e-45a6-9677-f8e3f186e09b.h5ad",
+      "artifact_sha256": "1f878efc7bc481e16c8333d4b491255be883899da38c696d474b279b1c7aa32b",
+      "created_at": "2026-05-23T20:25:25.501946+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/8c0685b3-521e-45a6-9677-f8e3f186e09b_qc_provenance.json",
+      "provenance_sha256": "4cdb2619902063a0010b1002c9e7f0f36a7d4b399b4fc9309debb77df482e8de",
+      "rule": "scrna_qc",
+      "artifact_id": "6246a886-410d-58ea-9904-eabbff32c563",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/8c0685b3-521e-45a6-9677-f8e3f186e09b_qc.h5ad",
+      "artifact_sha256": "531dffd5d212b5a46639c83ab951bce775d0f9c4cd2b27bfbf5db905d9f98888",
+      "created_at": "2026-05-23T20:26:20.048587+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/903b7af4-a936-4c0e-8cff-87085c3faa31_ingest_provenance.json",
+      "provenance_sha256": "371a5cdaf0715e5710d860382a155cb6a062b73baa9a96e0cc618a5afe979361",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "d53c6bf3-789d-52e3-899b-ab1b70ad2d12",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/903b7af4-a936-4c0e-8cff-87085c3faa31.h5ad",
+      "artifact_sha256": "2b3c80d0dec587b250cf3751499173e73360a9a734d62854e81ebe66f4feb8a8",
+      "created_at": "2026-05-23T20:25:30.111508+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/903b7af4-a936-4c0e-8cff-87085c3faa31_qc_provenance.json",
+      "provenance_sha256": "e3e6092086ba0c9c57e6361d8427a426df2cacef673b56499adc5d5e65ec686e",
+      "rule": "scrna_qc",
+      "artifact_id": "f31cdacc-784c-5ea1-a6c2-bf8f30e0c3d0",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/903b7af4-a936-4c0e-8cff-87085c3faa31_qc.h5ad",
+      "artifact_sha256": "a1393f8b06fd6bd493d895c2ed1e4dbce2225e9c57e4a1110d019afaa42a3e89",
+      "created_at": "2026-05-23T20:26:24.380193+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/9079231e-6906-4548-9f4f-684a86ed9b16_ingest_provenance.json",
+      "provenance_sha256": "7686d21d54da96a8a699acb39ba801af811b34328a88370e013e59d60f9b4e63",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "a553065b-d3fe-5e9f-af1c-99f91d1d8b07",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/9079231e-6906-4548-9f4f-684a86ed9b16.h5ad",
+      "artifact_sha256": "d339a10eb99d8c13873b130149a44420369bc54e7058d564e2d48a79ec4c606e",
+      "created_at": "2026-05-23T20:25:10.503441+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/9079231e-6906-4548-9f4f-684a86ed9b16_qc_provenance.json",
+      "provenance_sha256": "3c8a5d30a65e00f3f89f0beaaac75ceb221c4e088e0c29ea71782ee5221610d5",
+      "rule": "scrna_qc",
+      "artifact_id": "02385c32-f6ba-57d9-acc1-d782869d9f4b",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/9079231e-6906-4548-9f4f-684a86ed9b16_qc.h5ad",
+      "artifact_sha256": "49b098fd7ebff57b5617acdc2351d906eada83111f5b1f324c6e1157c4e3f8aa",
+      "created_at": "2026-05-23T20:25:20.289720+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/9f0f5520-2bc4-47ba-9966-0831f11ae5fd_ingest_provenance.json",
+      "provenance_sha256": "e52da2d3241e1bf5862e6575fc3ad045e2931150d3113120072f397311f9ce9d",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "30c0e320-9d70-5557-828c-7eb94d90c93c",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/9f0f5520-2bc4-47ba-9966-0831f11ae5fd.h5ad",
+      "artifact_sha256": "d413479a166dd09e3386389eb4d64cd4bfe1fd1fb4859f837e91bae45c808783",
+      "created_at": "2026-05-23T20:26:16.683927+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/9f0f5520-2bc4-47ba-9966-0831f11ae5fd_qc_provenance.json",
+      "provenance_sha256": "c514f1fe2f61f584f644873397924d99e2b39f315b157a7e5d4acf04cdf0d471",
+      "rule": "scrna_qc",
+      "artifact_id": "bc652c39-7048-5cc6-bef4-9cd5c9bd54a8",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/9f0f5520-2bc4-47ba-9966-0831f11ae5fd_qc.h5ad",
+      "artifact_sha256": "b9e4c22ab1098600c29fc07548af466a3fb5063a4cdc6b9d2b48dea3b1d99545",
+      "created_at": "2026-05-23T20:26:38.266619+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/ae4dc06f-fc6d-4557-9a22-ab81504c2953_ingest_provenance.json",
+      "provenance_sha256": "b1a8978613f040bce0d8ce1f22104035dc76ca28b86bc1ce3d53bfc03b8b38f2",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "b33fa5a9-59b3-506f-b74f-7e5f46236aa9",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/ae4dc06f-fc6d-4557-9a22-ab81504c2953.h5ad",
+      "artifact_sha256": "b8d745b9ff8dd1beb6ab51a95286e95f277f83e5e7ed7a703daf34f84f1fc56e",
+      "created_at": "2026-05-23T20:25:06.989327+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/ae4dc06f-fc6d-4557-9a22-ab81504c2953_qc_provenance.json",
+      "provenance_sha256": "218503e830596df9568a89bc8267c0b19c92f9641e408746f8d460c554d732f2",
+      "rule": "scrna_qc",
+      "artifact_id": "7a33169d-176e-556f-a5e5-2da8d0174b65",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/ae4dc06f-fc6d-4557-9a22-ab81504c2953_qc.h5ad",
+      "artifact_sha256": "25e48e2d429a8221da15263bfba51891372c71dcf037f00d1302d52a67c6aebc",
+      "created_at": "2026-05-23T20:25:15.141413+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/annotate_cluster_qc_provenance.json",
+      "provenance_sha256": "dff86c6990f77b056e4b192e0b63f512a3a4372445ab57edbf5e0157e70c3c17",
+      "rule": "annotate_cluster_qc",
+      "artifact_id": "4f586b62-c625-528b-af72-9ae0280e7c37",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/provenance/annotate_cluster_qc_provenance.json",
+      "artifact_sha256": null,
+      "created_at": "2026-05-24T14:10:54.086526+00:00",
+      "ontology_operation": "operation:3436",
+      "tool_versions": {
+        "pandas": "2.3.3"
+      }
+    },
+    {
+      "provenance_file": "provenance/annotation_provenance.json",
+      "provenance_sha256": "3119e12f45f4791b0b5b7226d4a7f4fdd92839bfca652a2ddfd55c640c3a0ddc",
+      "rule": "scrna_annotate",
+      "artifact_id": "37106d98-d955-5116-8820-7c667b17cf59",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/annotated.h5ad",
+      "artifact_sha256": "5801266609032b016f22abc30dc015f2c42023b101c763523fa5803466fc93aa",
+      "created_at": "2026-05-24T12:56:25.897622+00:00",
+      "ontology_operation": "operation:3432",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/c8ea9c15-368d-460c-9775-5037a5f1790a_ingest_provenance.json",
+      "provenance_sha256": "4314a1e7acdbd88dcd297faa93130ab631d9bbbf03fd3edae351a4dea6e34727",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "f14acef1-3394-58e5-a962-48719a75ae8d",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/c8ea9c15-368d-460c-9775-5037a5f1790a.h5ad",
+      "artifact_sha256": "11f95c042157eded61e2233c506d38a360ae8196efc087b1f62ff1565506a607",
+      "created_at": "2026-05-23T20:25:31.115901+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/c8ea9c15-368d-460c-9775-5037a5f1790a_qc_provenance.json",
+      "provenance_sha256": "b01b8a997aedb248563dfd50c727866d810371597980103b72e790c01cdb8ecd",
+      "rule": "scrna_qc",
+      "artifact_id": "13e3e564-18a2-5c8b-8b96-2545b7ca9a8c",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/c8ea9c15-368d-460c-9775-5037a5f1790a_qc.h5ad",
+      "artifact_sha256": "e4ed0eaa2874467d465fe43a53993ba44eedd974d76684f71ff7b950b252a568",
+      "created_at": "2026-05-23T20:26:05.619850+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/da98ea54-62c1-4b95-acaa-1dcd98e53c12_ingest_provenance.json",
+      "provenance_sha256": "1499f5f15110b5ee6317234bf0d598c2d4b69d2e51c82a45be2d43467d3c5bad",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "5984a46a-c488-535c-94c4-11eed57df00e",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/da98ea54-62c1-4b95-acaa-1dcd98e53c12.h5ad",
+      "artifact_sha256": "d4c58873eec62ed77fea762d46c5302242dfacff8246b6b583095c9bd6c98503",
+      "created_at": "2026-05-23T20:25:22.665812+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/da98ea54-62c1-4b95-acaa-1dcd98e53c12_qc_provenance.json",
+      "provenance_sha256": "6e4c476af27aa92fef7706fb5ba818d84a035bf1a9d6111e56f0b97def0a3125",
+      "rule": "scrna_qc",
+      "artifact_id": "9f530661-d5d5-5659-a371-569912847a4d",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/da98ea54-62c1-4b95-acaa-1dcd98e53c12_qc.h5ad",
+      "artifact_sha256": "ecdfe5a76405d7461307c5706cc7ce6a0d2ec55b24656989742e147b2a4dd268",
+      "created_at": "2026-05-23T20:26:03.214634+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/explore_gbm_notebook_provenance.json",
+      "provenance_sha256": "aa6b364004f795ca99d4267e473422cff1e93441a89db8d9f7719c31e5291a33",
+      "rule": "explore_gbm_notebook",
+      "artifact_id": null,
+      "artifact_path": null,
+      "artifact_sha256": null,
+      "created_at": null,
+      "ontology_operation": null,
+      "tool_versions": null
+    },
+    {
+      "provenance_file": "provenance/f8b54be7-f58e-4881-9147-40df9cef487b_ingest_provenance.json",
+      "provenance_sha256": "ad691b0de653edd0b1202b030738a66bde7e43fc583d9e22d75115541bcb6b66",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "8975fb9a-22da-5ad6-9969-a505abcc2a65",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/f8b54be7-f58e-4881-9147-40df9cef487b.h5ad",
+      "artifact_sha256": "d5158abd8908db05af7597f5f8fbf0a23a151309d789bc31a6efcf90c5b67d1b",
+      "created_at": "2026-05-23T20:25:31.559457+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/f8b54be7-f58e-4881-9147-40df9cef487b_qc_provenance.json",
+      "provenance_sha256": "13f3cd417a6ab5c437a568e391d54cf4d2645d34e1a9ceebf7c830d5f471e898",
+      "rule": "scrna_qc",
+      "artifact_id": "acb2f091-f31a-5138-8dda-b88ce0a88036",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/f8b54be7-f58e-4881-9147-40df9cef487b_qc.h5ad",
+      "artifact_sha256": "45a7136e74edef081f6739464b9ed3791e2f27a0bdee65d92c539d6d7cb6d3e7",
+      "created_at": "2026-05-23T20:26:23.657022+00:00",
+      "ontology_operation": "operation:3435",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/gdc_clinical_provenance.json",
+      "provenance_sha256": "261da88677d76bfd1280a4812b58637ee52dab3236dd7eec1067cc0416fbcab6",
+      "rule": "gdc_clinical_fetch",
+      "artifact_id": null,
+      "artifact_path": null,
+      "artifact_sha256": null,
+      "created_at": null,
+      "ontology_operation": null,
+      "tool_versions": null
+    },
+    {
+      "provenance_file": "provenance/gene_symbol_map_provenance.json",
+      "provenance_sha256": "333651b472146e9e581e6043c65c0517bee81c3638b51a3376febcd236bb8ae1",
+      "rule": "build_gene_symbol_map",
+      "artifact_id": "e04a2072-2556-5097-9f05-cca47d854448",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/external/mygene_ensembl_to_symbol.tsv",
+      "artifact_sha256": "99ea55f1fdc1bbe8f563fb46305c2d1b6d7e3fa6a8a0f86065ad018c14689762",
+      "created_at": "2026-05-22T21:42:43.995005+00:00",
+      "ontology_operation": "operation:2497",
+      "tool_versions": {
+        "requests": "2.32.3",
+        "pandas": "2.3.3",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/heterogeneity_provenance.json",
+      "provenance_sha256": "d496fd009e8e0c7c5306c265ecf5a25364e162d69d7085cfb9aa06cda1919531",
+      "rule": "nerve_cell_heterogeneity",
+      "artifact_id": "d99be0e1-286a-5151-a57d-71eaa8737afd",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/results/tables/nerve_cluster_markers.csv",
+      "artifact_sha256": "888e4a39fec3bfef2eb99a63e427c6f3db71c5054ba0dd7f74960c88398ea83b",
+      "created_at": "2026-05-24T14:10:42.798425+00:00",
+      "ontology_operation": "operation:3223",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10",
+        "gseapy": "1.1.3"
+      }
+    },
+    {
+      "provenance_file": "provenance/loom_to_h5ad_20260418T175138Z_63c53955.json",
+      "provenance_sha256": "59ee5f16a33ef2755cc382a750bd53ae2671206d714797ef2fb7d0181ae5badd",
+      "rule": "loom_to_h5ad",
+      "artifact_id": "63c53955-e145-5793-b49c-1ab462fe2574",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/06820e2c-9eb7-4e71-a1c3-976d561e659d.h5ad",
+      "artifact_sha256": "9c4458f3b2032cac38ff18ca63a64c539da62bccd00b4b001245ff1c325c837a",
+      "created_at": "2026-04-18T17:51:38.487349+00:00",
+      "ontology_operation": "operation:2409",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "loompy": "3.0.8"
+      }
+    },
+    {
+      "provenance_file": "provenance/malignancy_provenance.json",
+      "provenance_sha256": "86e7f6a2f33cbd3aa3d6b1dd8d9e7514fff0b49e9d975f5ee305e8f018a78f74",
+      "rule": "scrna_malignancy",
+      "artifact_id": "f6d51a56-bb23-5abf-aae4-99bfa50e5941",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/malignancy_labeled.h5ad",
+      "artifact_sha256": "8e7a2ca4248e041ea16e84359bf00fe170e7264669ae4d3065fa80b366936841",
+      "created_at": "2026-05-24T12:59:01.158561+00:00",
+      "ontology_operation": "operation:3225",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10",
+        "numpy": "2.3.5"
+      }
+    },
+    {
+      "provenance_file": "provenance/msigdb_download_provenance.json",
+      "provenance_sha256": "3634776475466e28a950f073eb66c83e6b60cead82061d78d87d165d9623e2fb",
+      "rule": "download_msigdb_gmt",
+      "artifact_id": "2b0957d3-7cb1-5c42-8540-7cd75a3ca78b",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/external/msigdb/msigdb_manifest.json",
+      "artifact_sha256": "1999662a15734e9cd14de5b3bf7c559e82595d0b9e0b2d0cb7083cbc2807280f",
+      "created_at": "2026-05-09T15:48:48.922386+00:00",
+      "ontology_operation": "operation:2422",
+      "tool_versions": {
+        "requests": "2.32.3"
+      }
+    },
+    {
+      "provenance_file": "provenance/nerve_assemble_counts_provenance.json",
+      "provenance_sha256": "cd03d6e0a46dfda7be983f8717f241b9f42327988f6d48cb653db0575ca81a5d",
+      "rule": "nerve_assemble_counts",
+      "artifact_id": "a32031bf-2ffe-5c20-8e58-d92085f48023",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/nerve_cells_counts.h5ad",
+      "artifact_sha256": "2a86be3e965e22aa77a515dff3eb24ea16f1a3f91ad6c54d6a8e24a70b596d5d",
+      "created_at": "2026-05-24T13:03:16.764620+00:00",
+      "ontology_operation": "operation:3431",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "numpy": "2.3.5",
+        "scipy": "scipy.sparse@n/a"
+      }
+    },
+    {
+      "provenance_file": "provenance/nerve_batch_qc_provenance.json",
+      "provenance_sha256": "da2cc473751e1ecc63c30751bc9f68a4ccaac0dd9966df239cdb000f70869c38",
+      "rule": "nerve_batch_qc",
+      "artifact_id": "3f3ca396-b21a-54ad-8bf3-9cc11009f778",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/results/tables/nerve_cluster_sample_purity.csv",
+      "artifact_sha256": "fcd0a111b9daa3f9ab5000aaf192d2a18f9fc21a9f2aeda3f677a9123c2a388e",
+      "created_at": "2026-05-24T13:02:35.737778+00:00",
+      "ontology_operation": "operation:3186",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "matplotlib": "3.10.8",
+        "pandas": "2.3.3"
+      }
+    },
+    {
+      "provenance_file": "provenance/nerve_batch_qc_v2_provenance.json",
+      "provenance_sha256": "ef25e43117a7ef5a3c478a51bb20a7ea0b3ff7d78090b3c5fc7efb9d20241d3f",
+      "rule": "nerve_batch_qc_v2",
+      "artifact_id": "0610be88-4707-56fe-a059-3313dd026410",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/results/tables/nerve_cluster_sample_purity_v2.csv",
+      "artifact_sha256": "bf3542be0cc603ded81ba823b9dfe06a29726551f95a611a408029947f37b185",
+      "created_at": "2026-05-24T14:51:58.204555+00:00",
+      "ontology_operation": "operation:3186",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "scanpy": "1.12.1",
+        "matplotlib": "3.10.8",
+        "pandas": "2.3.3"
+      }
+    },
+    {
+      "provenance_file": "provenance/nerve_celltype_labels_provenance.json",
+      "provenance_sha256": "bd4f227c24b466d4bea60f32f15cb82ffef693eaca23842cf88c9a95dce3b2d0",
+      "rule": "nerve_celltype_labels",
+      "artifact_id": "68cd5211-4fda-5a5f-9803-9855bb54f57e",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/nerve_cells_counts_labeled.h5ad",
+      "artifact_sha256": "c740a06cadf7c95c5bdc9620d18c401823cd3bdb541b8066da939e58e12dd522",
+      "created_at": "2026-05-24T13:03:56.332047+00:00",
+      "ontology_operation": "operation:2962",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "scanpy": "1.12.1",
+        "numpy": "2.3.5",
+        "pandas": "2.3.3"
+      }
+    },
+    {
+      "provenance_file": "provenance/nerve_clinical_association_provenance.json",
+      "provenance_sha256": "bfc6d5945eedc55b2d749e63e8d1893e955eeea13e9889cb1efc487c50561399",
+      "rule": "nerve_clinical_association",
+      "artifact_id": "98f7936c-cdd6-5eb6-9527-05e032ba5a1c",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/results/tables/nerve_clinical_association.csv",
+      "artifact_sha256": "6e25cfdaff083f17979d544e2cb9d6d2447c001d2b75134ff2d9c2047e7fba60",
+      "created_at": "2026-05-24T13:02:44.827655+00:00",
+      "ontology_operation": "operation:2238",
+      "tool_versions": {
+        "scanpy": "0.12.10",
+        "anndata": "0.12.10",
+        "pandas": "2.3.3",
+        "scipy": "scipy.stats@1.17.1"
+      }
+    },
+    {
+      "provenance_file": "provenance/nerve_cluster_annotations_provenance.json",
+      "provenance_sha256": "ce6e9ce43c8bf1e125bf91b1e46d771e21e57ca70e0f13fc1300277318aa75c4",
+      "rule": "nerve_cluster_annotations",
+      "artifact_id": "bc17a44c-87c5-59f3-a79f-d374d4482802",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/results/tables/nerve_cluster_annotations.csv",
+      "artifact_sha256": "f5ab1ec4cad7858f4a09d057d07292c61ff20d817567d9df5a40e1060164347f",
+      "created_at": "2026-05-24T14:11:28.588685+00:00",
+      "ontology_operation": "operation:3431",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10",
+        "pandas": "2.3.3"
+      }
+    },
+    {
+      "provenance_file": "provenance/nerve_enrichment_notebook_provenance.json",
+      "provenance_sha256": "2348b54be6339a7b08f4ed0419305995f928174d4c87f770407baae2362e772d",
+      "rule": "nerve_enrichment_notebook",
+      "artifact_id": null,
+      "artifact_path": null,
+      "artifact_sha256": null,
+      "created_at": null,
+      "ontology_operation": null,
+      "tool_versions": null
+    },
+    {
+      "provenance_file": "provenance/nerve_leiden_resolution_sweep_provenance.json",
+      "provenance_sha256": "2ef36ea07278f893d7877676e1d2ed6930776a778cb57ca2bbff0e310858bd55",
+      "rule": "nerve_leiden_resolution_sweep",
+      "artifact_id": "66a9682e-4de8-57b2-acdc-0d27034d9d52",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/results/tables/nerve_leiden_resolution_sweep.csv",
+      "artifact_sha256": "242c02acf7ae0a5cc6922e10fa13858a2ffd7fdbfba80f6c3ada7da9bad945a5",
+      "created_at": "2026-05-24T13:18:47.022185+00:00",
+      "ontology_operation": "operation:3432",
+      "tool_versions": {
+        "anndata": "0.12.10",
+        "scanpy": "1.12.1",
+        "scikit-learn": "1.8.0",
+        "matplotlib": "3.10.8",
+        "pandas": "2.3.3",
+        "numpy": "2.3.5"
+      }
+    },
+    {
+      "provenance_file": "provenance/nerve_scanvi_retrain_provenance.json",
+      "provenance_sha256": "5ab142fd5fe47291b3a9b67ea9a54f5ec979c7d40fffc1a1b862a222e61b7680",
+      "rule": "nerve_scanvi_retrain",
+      "artifact_id": "edcbf3e6-81b6-5010-b53c-0b1c4f5a1f83",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/nerve_cells_v2.h5ad",
+      "artifact_sha256": "7cc5410172f05c6f50a7aaa6e908b8f5752121d7cbe89e1038f82564b188a12d",
+      "created_at": "2026-05-24T14:50:30.586893+00:00",
+      "ontology_operation": "data:3917",
+      "tool_versions": {
+        "scvi-tools": "1.4.2",
+        "torch": "2.12.0",
+        "anndata": "0.12.10",
+        "scanpy": "1.12.1"
+      }
+    },
+    {
+      "provenance_file": "provenance/nerve_subset_provenance.json",
+      "provenance_sha256": "4c63b0c463788f5a93f7a8750b44c55707e1a1103981ff673479aa7793aa6715",
+      "rule": "nerve_cell_subset",
+      "artifact_id": "6119a339-a1c1-501d-a543-c5b5eb7a25f1",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/nerve_cells.h5ad",
+      "artifact_sha256": "cc4eda667919fe269e84a828e317697f7af0f77b1da4977d5054382c8ce8a5ce",
+      "created_at": "2026-05-24T13:02:21.672000+00:00",
+      "ontology_operation": "operation:3432",
+      "tool_versions": {
+        "scanpy": "1.12.1",
+        "anndata": "0.12.10"
+      }
+    },
+    {
+      "provenance_file": "provenance/nerve_tumor_exploration_notebook_provenance.json",
+      "provenance_sha256": "6322ffa6bff40e26e1eac039332e7d8475d07cafe3468e0f05cadc5e9234d62f",
+      "rule": "nerve_tumor_exploration_notebook",
+      "artifact_id": null,
+      "artifact_path": null,
+      "artifact_sha256": null,
+      "created_at": null,
+      "ontology_operation": null,
+      "tool_versions": null
+    },
+    {
+      "provenance_file": "provenance/nerve_tumor_interaction_provenance.json",
+      "provenance_sha256": "e23e42bd43f3727028d79011e00fe7697b72d8d1738dfe9a20edbf00101c5606",
+      "rule": "nerve_tumor_interaction",
+      "artifact_id": "7b81b23a-e65f-5073-8d2f-e5b71bff9295",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/results/tables/nerve_tumor_interactions.csv",
+      "artifact_sha256": "22e2f7aa15973ac16a072f63893dd68c1f5d033c3ed281bf017f2b074b5962fe",
+      "created_at": "2026-05-24T13:05:34.276130+00:00",
+      "ontology_operation": "operation:3501",
+      "tool_versions": {
+        "liana": "1.7.1",
+        "anndata": "0.12.10",
+        "pandas": "2.3.3"
+      }
+    },
+    {
+      "provenance_file": "provenance/scvi_integration_provenance.json",
+      "provenance_sha256": "872a2aaf95e6ef62938afddc6a284f96effd8e1b1c623397afe058f2e6879baf",
+      "rule": "scrna_integration",
+      "artifact_id": "7ecfae4b-b85a-5c5d-a2f2-9b069314dcee",
+      "artifact_path": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/data/processed/integrated_latent.h5ad",
+      "artifact_sha256": "0bbba44e051a265e3e7a4f35c799d58cbc58c5c8789367260c798b1466cb5927",
+      "created_at": "2026-05-23T23:40:24.970903+00:00",
+      "ontology_operation": "data:3917",
+      "tool_versions": {
+        "scvi-tools": "1.4.2",
+        "torch": "2.12.0",
+        "anndata": "0.12.10"
+      }
+    }
+  ]
+}

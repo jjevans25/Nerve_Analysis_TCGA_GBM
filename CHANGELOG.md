@@ -652,3 +652,48 @@ Next Action:    Re-run pipeline end-to-end (requires network for first MyGene.in
 - Accessible: diagnosis output is plain markdown + JSON; no special tooling needed.
 - Interoperable: `exclude_clusters` mechanism generalises — any future cluster-level artifact can be dropped from `_with_qc.csv` outputs by listing its id in `config.yaml`.
 - Reusable: ependymal markers are config-driven, so future cohorts with different ciliated-cell repertoires can swap the gene list without touching scripts.
+
+---
+
+### [2026-05-24] | Phase: v1.1.0 Cut — Full Rerun, Config Gap Patch, Ependymal Multi-Cluster Discovery | Status: COMPLETE
+
+**Action:** Executed the v1.1.0 cut planned in `markdowns/DO_THIS_NEXT_v1.1.0_cut.md` plus one config patch that the cut doc missed. Ran the full pipeline (`snakemake --use-conda --cores all`, ~2 h on M4 Max), verified the gates, bumped `config.baseline.version` to `v1.1.0`, froze `provenance/baseline_v1.1.0.json` alongside the untouched `baseline_v1.0.0.json`, and updated `markdowns/project_overview.md`. Then ran a verification pass against the cut doc's gates that surfaced a config-omission bug: `config.nerve_cells.cell_types` listed only the original four nerve types, so the 5,713 ependymal cells `scrna_annotate.py` correctly identified in `annotated.h5ad` were being filtered out at `nerve_cell_subset.py` and never reached `nerve_cells.h5ad`. Added `"ependymal"` to `config.nerve_cells.cell_types` and re-ran the pipeline from `nerve_cell_subset` onwards (full default-trigger rerun; ~2 h).
+
+Also: applied the matching notebook edit `notebooks/02_nerve_enrichment_explorer.py` — added an `"ependymal"` entry to the `_theme_definitions` THEMES dict (patterns CILIUM / CILIARY / CILIA / CILIOGENESIS / AXONEMAL / DYNEIN / EPENDYM) so the new cl11 / cl15 / cl19 ciliary GSEA hits get categorised in the theme roll-up rather than dropping into "other".
+
+**Outcome:** All four cut-doc verification gates PASS. Plus a biological discovery the cut doc did not anticipate — **ependymal is a three-cluster lineage in this cohort, not a single cluster.** Per-cluster breakdown after re-clustering with the +5,713 ependymal cells included:
+- **cl19** (1,020 cells, 83% ependymal): clean motile-cilia signature — top markers CFAP54 / DNAH7 / HIPK3 / DNAH9 / TMEM232. This is the cluster the cut doc predicted.
+- **cl15** (1,854 cells, 89% ependymal): mixed signal — top markers FGF14 / SORCS1 / CNTNAP5 / TNR / NBEA. The marker panel looks more neuronal-adhesion than ciliary, so the "ependymal" label here comes from canonical-score winning rather than visible motile-cilia program. Worth a follow-up sanity check.
+- **cl11** (2,585 cells, 72% ependymal): ependymal regulators — top markers PARAIL / GLIS3 / DTNA / FNDC3B / YAP1. GLIS3 + YAP1 are documented ependymal transcription / Hippo-pathway regulators; possibly a precursor or non-ciliated ependymal-lineage subpopulation.
+- **cl21** still 100% excitatory_neuron with stress markers (MT-RNR2, MT-RNR1, RPL41, FTH1, B2M) — dissociation-artifact diagnosis confirmed; cl21 absent from all four `_with_qc.csv` tables (0 rows each).
+- scANVI v2 trained on 5 labels: astrocyte 22,600 / neuron 20,538 / ependymal 14,545 / oligodendrocyte 14,380 / opc 13,219 + Unknown 21,321. Classifier accuracy **0.85** (was 0.84 on the prior 4-label run).
+
+Total nerve subset grew from ~101k to **106,603 cells** with the ependymal inclusion.
+
+**Decisions / Diagnosis trail:**
+- **First diagnosis attempt was wrong.** Initial gate-1 failure (`cell_type_predicted` showed 0 ependymal cells in `nerve_cells.h5ad`) was misattributed to `scrna_annotate.py`'s cluster-mean argmax algorithm hiding rare cell types. I edited `scrna_annotate.py` to per-cell argmax, then realised `annotated.h5ad` already had 5,713 ependymal cells (the cluster-mean was working fine) and the gap was downstream filtering. **Reverted the `scrna_annotate.py` edit** (file is byte-identical to v1.0.0). Lesson: gate-failure diagnosis should walk the artifact chain (annotated.h5ad → nerve_cells.h5ad → counts_labeled.h5ad) rather than jumping to the first plausible script-level cause.
+- **Config gap rather than algorithm gap.** The cut doc's "no manual file edits required" claim (DO_THIS_NEXT_v1.1.0_cut.md:22) overlooked that `nerve_cells.cell_types` is a separate selection list from the marker config; both needed `ependymal` added. The marker config was updated in the 2026-05-23 session; the cell_types list was not.
+- **Took the full default-trigger rerun** instead of trying to surgically rerun only `nerve_cell_subset` onwards. Cost: +3 min `scrna_annotate` rerun (Snakemake's mtime trigger fires on the script even though content was byte-reverted). Benefit: clean FAIR-provenance chain — every downstream artifact's SHA-256 traces to a single contemporaneous run.
+- **Disk pre-flight required deletion of 4 regenerable artifacts** (annotated.h5ad / malignancy_labeled.h5ad / nerve_cells.h5ad / nerve_cells_v2.h5ad ≈ 58 GB) — pre-rerun disk was at 22 GiB free / 95% full, below the cut doc's 35 GiB safety threshold. Did NOT delete `integrated_latent.h5ad` (deleting that would force the 8 h+ scVI integration step to rerun).
+
+**Artifacts:**
+- `provenance/baseline_v1.1.0.json` (NEW, tracked; 42,775 bytes; 50 rule records). Anchors to the v1.1.0 git commit and the run completed at `2026-05-24T10:51:58Z`. Bundle alongside `baseline_v1.0.0.json` (SHA-256 `51f08cc1…`, **unchanged**).
+- `config/config.yaml` (bumped `baseline.version` to v1.1.0, appended v1.1.0 deltas paragraph; added `"ependymal"` to `nerve_cells.cell_types`).
+- `notebooks/02_nerve_enrichment_explorer.py` (added `ependymal` THEMES entry at the `_theme_definitions` cell).
+- `markdowns/project_overview.md` (refreshed header tag line + Current-state section + Reproduce snippet; v1.0.0 baseline section retained verbatim below v1.1.0).
+- Regenerated downstream: `annotated.h5ad`, `malignancy_labeled.h5ad`, `nerve_cells.h5ad` (106,603 cells), `nerve_cells_counts.h5ad`, `nerve_cells_counts_labeled.h5ad`, `nerve_cells_v2.h5ad`, plus all `_with_qc.csv` tables, `nerve_cluster_annotations.csv`, scANVI v2 model, and the three notebook HTML exports.
+- Annotated git tag `v1.1.0` (pending after this commit).
+
+**Tool Versions:** snakemake==9.20.0, python==3.12, scvi-tools==1.4.2, torch==2.12.0 (MPS backend, Float32), anndata==0.12.10, scanpy==1.12.1, pandas==2.3.x. No new dependencies vs v1.0.0.
+
+**Open Issues:**
+- **cl15's ependymal label is suspect.** 89% of cells get the ependymal score winning, but top DE markers (FGF14/SORCS1/CNTNAP5/TNR/NBEA) read more like a neuronal-adhesion subtype than ciliated ependyma. Possible interpretations: (a) the canonical-score argmax in `nerve_celltype_labels.py` is fragile when cells score moderately on multiple labels, (b) cl15 is a genuine ependymal subpopulation lacking the motile-cilia program (e.g. tanycytes), or (c) a marker-set crosstalk artefact. Recommend a manual marker-score boxplot per cluster (cl11 vs cl15 vs cl19) as the v1.2 first follow-up.
+- **`markdowns/failing_cluster_diagnosis.md`** was written against the pre-v1.1.0 cluster numbering. Cluster IDs are stable across this re-clustering (still 0–23), but composition shifted with the +5,713 ependymal cells. Not auto-updated here — needs a researcher pass to confirm the per-cluster verdicts still hold under the new composition.
+- **scrna_malignancy reference set** (`cell_type_predicted.isin({"t_cell", "endothelial"})`) is unchanged in count vs the prior run — but a per-cell-argmax alternative would yield ~14k reference cells vs the current ~1k. Larger reference set could improve CNV calling robustness; deferred as v1.2 candidate alongside the cl15 sanity check.
+- v1.2 backlog from the cut doc still stands: tier-3 scVI retrain with `categorical_covariate_keys` (rejected for v1.1.0), tighter upstream QC thresholds in `scrna_qc.py` to catch cl21-style stress at filter time, cl22 re-examination.
+
+**FAIR Notes:**
+- Findable: both `baseline_v1.0.0.json` and `baseline_v1.1.0.json` are tracked artifacts under the `provenance/baseline_*.json` `.gitignore` exception; reachable via the annotated git tags `v1.0.0` and `v1.1.0`.
+- Accessible: `baseline_v1.1.0.json` records every per-rule artifact's SHA-256 + tool versions + parameters; a collaborator cloning at `git checkout v1.1.0` can verify the bundle without rerunning. Reproduction snippet in `markdowns/project_overview.md` now covers both tags.
+- Interoperable: ependymal cell type added consistently across `nerve_cells.markers` (scoring), `nerve_cells.cell_types` (subset filter), and `LABEL_GROUPS` (scANVI anchoring) — the three places that need to agree.
+- Reusable: the config-gap that bit this cut (markers config and cell_types config drift) is now self-documenting via this CHANGELOG entry; future cell-type additions must update both keys.

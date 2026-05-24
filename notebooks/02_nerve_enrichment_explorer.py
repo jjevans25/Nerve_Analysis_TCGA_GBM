@@ -608,6 +608,7 @@ def _theme_definitions():
         "axon_dendrite": [r"AXON", r"DENDRIT", r"NEURITE", r"GROWTH_CONE"],
         "synapse": [r"SYNAP", r"NEUROTRANSMIT", r"POSTSYNAP", r"PRESYNAP"],
         "myelin_glia": [r"MYELIN", r"GLIAL", r"OLIGODENDR", r"ASTROCYT", r"SCHWANN"],
+        "ependymal": [r"CILIUM", r"CILIARY", r"CILIA", r"CILIOGENESIS", r"AXONEMAL", r"DYNEIN", r"EPENDYM"],
         "neuron_dev": [r"NEURON_DIFFERENTIATION", r"NEUROGENESIS", r"NEURONAL_DEV"],
         "immune": [
             r"IMMUNE",

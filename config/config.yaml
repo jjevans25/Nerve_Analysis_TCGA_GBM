@@ -131,6 +131,7 @@ nerve_cells:
     - "oligodendrocyte precursor cell"
     - "oligodendrocyte"
     - "astrocyte"
+    - "ependymal"
   markers:
     neuron:
       - "SYN1"
@@ -209,7 +210,7 @@ nerve_scanvi:
 # Bump `version` and append a new `summary` line whenever the science changes.
 # -------------------------------------------------------------
 baseline:
-  version: "v1.0.0"
+  version: "v1.1.0"
   summary: |
     First reproducible baseline of the TCGA-GBM nerve-cell pipeline.
     Pipeline: GDC loom → QC → scVI integration → CNV-based malignancy labelling →
@@ -219,6 +220,28 @@ baseline:
     interactive marimo enrichment explorer.
     Batch-correction QC: 18 / 24 clusters PASS (median dominant-sample fraction 0.313;
     median normalised entropy 0.722 of 4.087 bits).
+
+    v1.1.0 deltas (2026-05-24, post failing-cluster diagnosis):
+    - cl21 dropped from downstream _with_qc.csv tables via
+      nerve_cells.batch_qc.exclude_clusters (dissociation artifact:
+      stress-marker dominant — MT-RNR2/1, RPL41, B2M, FTH1; see
+      markdowns/failing_cluster_diagnosis.md).
+    - Ependymal added as 5th cell-type label (FOXJ1/RFX3/DNAH7-9-11/
+      CFAP54/PIFO/RSPH1 marker set) and to nerve_cells.cell_types so
+      cells pass the nerve_cell_subset filter. After re-clustering with
+      the +5,713 ependymal cells, three ependymal-dominant clusters
+      emerged: cl11 (72% ependymal, 2,585 cells), cl15 (89%, 1,854 cells),
+      and cl19 (83%, 1,020 cells; clean motile-cilia signature CFAP54/
+      DNAH7/DNAH9). cl11 and cl15 were not predicted by the cut doc;
+      they represent biologically distinct ependymal subpopulations.
+    - scANVI v2 retrained on 5 labels (was 4 + Unknown): astrocyte 22,600
+      / neuron 20,538 / ependymal 14,545 / oligodendrocyte 14,380 /
+      opc 13,219 + Unknown 21,321. Classifier accuracy 0.85 (was 0.84).
+    - notebooks/02_nerve_enrichment_explorer.py: added 'ependymal' theme
+      regex (CILIUM/CILIARY/AXONEMAL/DYNEIN/EPENDYM) to surface cl11/15/19
+      ciliary GSEA hits in the theme roll-up.
+    - v1.0.0 baseline (provenance/baseline_v1.0.0.json) remains frozen
+      and citable.
 
 # -------------------------------------------------------------
 # MSigDB gene-set collections (offline GSEA via gseapy.prerank)

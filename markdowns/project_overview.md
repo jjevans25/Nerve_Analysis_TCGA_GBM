@@ -1,6 +1,6 @@
 # TCGA-GBM Nerve-Cell Pipeline — Project Overview
 
-*Landing page for the project. Baseline tag: `v1.0.0` (2026-05-09).*
+*Landing page for the project. Current cut: `v1.1.0` (2026-05-24). Original frozen baseline: `v1.0.0` (2026-05-09).*
 
 ---
 
@@ -39,7 +39,11 @@ gdc_clinical_fetch ────────┤
 
 Every rule writes a JSON provenance record to `provenance/<rule>_provenance.json` (UUID5 + SHA-256 + tool versions + parameters), and the `freeze_baseline_provenance` rule bundles all of those into `provenance/baseline_<version>.json` for citable snapshots. GSEA runs **offline** against pinned MSigDB C5 GO BP+MF `.gmt` files (release `2024.1.Hs`, SHA-256-verified) to keep results deterministic and reproducible.
 
-## Current state — `v1.0.0` baseline
+## Current state — `v1.1.0` cut (v1.0.0 frozen baseline retained)
+
+**v1.1.0 deltas (2026-05-24, post failing-cluster diagnosis):** cl21 dropped from downstream `_with_qc.csv` tables as a dissociation artifact (stress-marker dominant). Ependymal added as the 5th nerve cell type (FOXJ1 / RFX3 / DNAH / CFAP / PIFO / RSPH1 markers + added to `nerve_cells.cell_types` so cells survive the nerve_cell_subset filter). After re-clustering with the +5,713 ependymal cells, **three** ependymal-dominant clusters emerged: **cl11** (72% ependymal, 2,585 cells; ependymal regulators PARAIL/GLIS3/DTNA/YAP1), **cl15** (89%, 1,854 cells), and **cl19** (83%, 1,020 cells; clean motile-cilia signature CFAP54/DNAH7/DNAH9). scANVI v2 retrained on 5 labels (was 4) with classifier accuracy 0.85. The `02_nerve_enrichment_explorer.py` theme regex now includes `ependymal` (CILIUM/CILIARY/AXONEMAL/DYNEIN/EPENDYM patterns). v1.0.0 baseline (`provenance/baseline_v1.0.0.json`) remains frozen and citable.
+
+### v1.0.0 baseline (unchanged)
 
 - **24 nerve-cell Leiden clusters** computed on the scVI latent space (`X_scVI`).
 - **Batch-correction QC: 18 / 24 clusters PASS.** Median dominant-sample fraction `0.313`; median normalised entropy `0.722` of the uniform-distribution maximum `4.087` bits.
@@ -118,12 +122,18 @@ Interactive exploration of LIANA-computed L–R pairs between malignant cells an
 | Pending work + remediation status | `markdowns/next_steps_interpretation.md` (§6 checklist) |
 | Stratification follow-ups | `markdowns/stratifying_open_issues.md` |
 | Lab-notebook session-by-session audit | `CHANGELOG.md` |
+| Verify provenance of v1.1.0 outputs | `provenance/baseline_v1.1.0.json` |
 | Verify provenance of v1.0.0 outputs | `provenance/baseline_v1.0.0.json` |
 | Project rules / conventions | `CLAUDE.md` (project constitution) |
 
-## Reproduce v1.0.0
+## Reproduce
 
 ```bash
+# v1.1.0 (current cut)
+git checkout v1.1.0
+snakemake --use-conda --cores all
+
+# v1.0.0 (original frozen baseline)
 git checkout v1.0.0
 snakemake --use-conda --cores all
 ```
