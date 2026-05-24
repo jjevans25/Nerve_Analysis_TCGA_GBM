@@ -9,6 +9,10 @@ rule nerve_cell_subset:
     input:
         h5ad     = os.path.join(config["dirs"]["data_processed"],  "malignancy_labeled.h5ad"),
         clinical = os.path.join(config["dirs"]["data_external"],   "gdc_clinical.tsv"),
+        # Conditional input — present only when the v1.2.0 freeze insulator is
+        # configured. Triggers a DAG rerun if the freeze file content changes.
+        **({"frozen_subset_file": config["nerve_cells"]["frozen_subset_file"]}
+           if config["nerve_cells"].get("frozen_subset_file") else {}),
     output:
         h5ad        = os.path.join(config["dirs"]["data_processed"], "nerve_cells.h5ad"),
         umap        = os.path.join(config["dirs"]["figures"],        "nerve_cells_umap.png"),
@@ -22,11 +26,15 @@ rule nerve_cell_subset:
         mem_mb  = config["resources"]["default_mem_mb"],
         threads = config["resources"]["default_threads"],
     params:
-        leiden_resolution = config["nerve_cells"]["leiden_resolution"],
-        cell_types        = config["nerve_cells"]["cell_types"],
-        markers           = config["nerve_cells"]["markers"],
-        random_seed       = config["scrna"]["random_seed"],
-        n_top_genes       = config["scrna"]["n_top_genes"],
+        leiden_resolution  = config["nerve_cells"]["leiden_resolution"],
+        cell_types         = config["nerve_cells"]["cell_types"],
+        markers            = config["nerve_cells"]["markers"],
+        random_seed        = config["scrna"]["random_seed"],
+        n_top_genes        = config["scrna"]["n_top_genes"],
+        # Path-or-None; consumed via getattr in the script. When set, the
+        # script bypasses cell_type_predicted/is_malignant filtering and
+        # selects cells by frozen barcode list.
+        frozen_subset_file = config["nerve_cells"].get("frozen_subset_file"),
     script:
         "../scripts/nerve_cell_subset.py"
 

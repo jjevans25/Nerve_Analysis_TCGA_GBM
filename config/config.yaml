@@ -125,6 +125,14 @@ samples:
 nerve_cells:
   leiden_resolution: 1.0
   include_astrocytes: true
+  # v1.2.0 panel-tightening insulator. Anchors the nerve-subset cell roster to
+  # the v1.1.0 cut so the ependymal-panel change below does not cascade through
+  # cell_type_predicted → nerve_cell_subset → nerve_leiden cluster IDs. Set to
+  # null (or remove the key) when v1.3.0 is prepared to absorb a cluster
+  # renumber + full failing-cluster-diagnosis refresh. Regenerate the file via
+  # scripts/freeze_nerve_subset_v1_1_0.py against the v1.1.0 tag artifact.
+  # SHA256 (v1.1.0 freeze): 26ea29171a6807efa6a7ed05c18cbc60578f3434f76033bb56a06677d8581a79
+  frozen_subset_file: "provenance/nerve_subset_v1_1_0.txt"
   cell_types:
     - "excitatory neuron"
     - "inhibitory neuron"
@@ -165,10 +173,13 @@ nerve_cells:
       - "VIM"
     # Motile-ciliated cells lining the ventricles. Added in v1.1.0 after the
     # failing-cluster diagnosis identified cl19 as ependymal (DNAH/CFAP-dominated
-    # markers) mislabeled as astrocyte. See markdowns/failing_cluster_diagnosis.md.
+    # markers) mislabeled as astrocyte. Tightened in v1.2.0: FOXJ1 dropped
+    # (absent from var_names — filtered upstream of HVG selection) and RFX3
+    # dropped (broadly expressed across astrocyte clusters at 61–97%, not
+    # discriminating). PIFO retained for intent even though also absent from
+    # current var_names. See markdowns/failing_cluster_diagnosis.md
+    # v1.1.0-supplement and results/tables/cl15_ependymal_diagnosis.json.
     ependymal:
-      - "FOXJ1"
-      - "RFX3"
       - "DNAH7"
       - "DNAH9"
       - "DNAH11"

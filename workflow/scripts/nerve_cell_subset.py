@@ -2,6 +2,7 @@
 
 import os
 import sys
+from pathlib import Path
 
 import anndata as ad
 import matplotlib
@@ -26,6 +27,7 @@ n_total = adata.n_obs
 # Step 1: Filter to non-malignant nerve cells
 # ---------------------------------------------------------------------------
 cell_types: list[str] = snakemake.params.cell_types
+frozen_path: str | None = getattr(snakemake.params, "frozen_subset_file", None)
 
 # Normalize type strings for comparison: lowercase, strip, collapse _↔space.
 # scrna_annotate emits labels like "excitatory_neuron"; config lists them as
@@ -33,21 +35,46 @@ cell_types: list[str] = snakemake.params.cell_types
 def _norm(s: str) -> str:
     return s.lower().strip().replace("_", " ")
 
-adata.obs["_ctype_norm"] = adata.obs["cell_type_predicted"].astype(str).map(_norm)
-type_targets = {_norm(t) for t in cell_types}
+if frozen_path:
+    # v1.2.0 panel-tightening insulator: select cells by frozen barcode list
+    # rather than by current cell_type_predicted / is_malignant. Keeps the
+    # nerve subset's composition (and therefore nerve_leiden cluster IDs)
+    # stable across ependymal-panel changes. Retire at v1.3.0 full rerun.
+    frozen_barcodes = set(Path(frozen_path).read_text().split())
+    log_transformation(log, "nerve_cell_subset",
+        f"Frozen subset active: {len(frozen_barcodes)} barcodes from {frozen_path}")
+    nerve_mask = adata.obs_names.isin(frozen_barcodes)
+    missing = frozen_barcodes - set(adata.obs_names)
+    if missing:
+        log_transformation(log, "nerve_cell_subset",
+            f"[FAIR-ALERT] {len(missing)} frozen barcodes missing from current "
+            f"annotated input — upstream cell roster has changed since the "
+            f"freeze. First 5: {list(missing)[:5]}", status="ERROR")
+        raise RuntimeError(
+            "Frozen subset incompatible with current annotated input. Either "
+            "regenerate the freeze (scripts/freeze_nerve_subset_v1_1_0.py) "
+            "against the current upstream artifact, or remove "
+            "nerve_cells.frozen_subset_file from config to fall back to "
+            "live cell_type_predicted-based subsetting."
+        )
+else:
+    # Default path: derive nerve mask from current cell_type_predicted.
+    adata.obs["_ctype_norm"] = adata.obs["cell_type_predicted"].astype(str).map(_norm)
+    type_targets = {_norm(t) for t in cell_types}
 
-# Also accept partial matches for flexibility (e.g., "excitatory neuron" matches "neuron")
-def _is_nerve(label: str) -> bool:
-    label = _norm(label)
-    if label in type_targets:
-        return True
-    # partial: scored as "neuron" covers both excitatory and inhibitory
-    return any(label in t or t in label for t in type_targets)
+    # Also accept partial matches for flexibility (e.g. "excitatory neuron" matches "neuron")
+    def _is_nerve(label: str) -> bool:
+        label = _norm(label)
+        if label in type_targets:
+            return True
+        # partial: scored as "neuron" covers both excitatory and inhibitory
+        return any(label in t or t in label for t in type_targets)
 
-nerve_mask = (
-    adata.obs["_ctype_norm"].apply(_is_nerve)
-    & (~adata.obs["is_malignant"])
-)
+    nerve_mask = (
+        adata.obs["_ctype_norm"].apply(_is_nerve)
+        & (~adata.obs["is_malignant"])
+    )
+
 adata_nerve = adata[nerve_mask].copy()
 n_nerve = adata_nerve.n_obs
 
@@ -195,6 +222,7 @@ prov = stamp_artifact(
     tool_versions={"scanpy": sc.__version__, "anndata": ad.__version__},
     parameters={
         "cell_types_selected":  cell_types,
+        "frozen_subset_file":   frozen_path,
         "leiden_resolution":    snakemake.params.leiden_resolution,
         "n_cells_total":        n_total,
         "n_cells_nerve":        n_nerve,

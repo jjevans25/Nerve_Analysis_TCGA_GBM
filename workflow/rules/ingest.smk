@@ -42,16 +42,20 @@ rule build_gene_symbol_map:
 
 
 rule loom_to_h5ad:
-    """Convert GDC loom to AnnData h5ad; assigns batch metadata and emits gene presence report."""
+    """Convert GDC loom to AnnData h5ad; assigns batch metadata + MyGene symbol map.
+
+    Nerve-cell marker annotation (is_nerve_marker + gene_presence) was moved
+    to scrna_qc in v1.2.0 so panel-config changes do not trigger sample-level
+    reruns. See markdowns/failing_cluster_diagnosis.md v1.1.0 supplement.
+    """
     wildcard_constraints:
         sample = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
     input:
         loom       = _find_loom,
         symbol_map = config["gene_symbol_map"]["cache_tsv"],
     output:
-        h5ad          = os.path.join(config["dirs"]["data_processed"], "{sample}.h5ad"),
-        gene_presence = os.path.join(config["dirs"]["tables"],         "{sample}_gene_presence.csv"),
-        provenance    = os.path.join(config["dirs"]["provenance"],     "{sample}_ingest_provenance.json"),
+        h5ad       = os.path.join(config["dirs"]["data_processed"], "{sample}.h5ad"),
+        provenance = os.path.join(config["dirs"]["provenance"],     "{sample}_ingest_provenance.json"),
     log:
         os.path.join(config["dirs"]["logs"], "{sample}_ingest.log"),
     conda:
@@ -60,8 +64,7 @@ rule loom_to_h5ad:
         mem_mb  = config["resources"]["default_mem_mb"],
         threads = 2,
     params:
-        sample_id     = lambda wc: wc.sample,
-        nerve_markers = config["nerve_cells"]["markers"],
+        sample_id = lambda wc: wc.sample,
     script:
         "../scripts/loom_to_h5ad.py"
 

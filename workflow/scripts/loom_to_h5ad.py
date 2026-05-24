@@ -1,7 +1,12 @@
-"""Convert a GDC loom file to AnnData h5ad; assigns batch metadata and emits gene presence report."""
+"""Convert a GDC loom file to AnnData h5ad; assigns batch metadata + symbol map.
+
+Nerve-cell marker annotation (is_nerve_marker var-column + gene_presence
+report) was moved to scrna_qc in v1.2.0 so panel-config changes do not
+trigger sample-level reruns. See markdowns/failing_cluster_diagnosis.md
+v1.1.0 supplement.
+"""
 
 import sys
-import warnings
 from pathlib import Path
 
 import anndata as ad
@@ -14,7 +19,6 @@ from fair_utils import log_transformation, stamp_artifact, verify_artifact, writ
 
 log = snakemake.log[0]
 sample_id = snakemake.params.sample_id
-nerve_markers: dict = snakemake.params.nerve_markers
 
 log_transformation(log, "loom_to_h5ad", f"Loading loom: {snakemake.input.loom}")
 
@@ -80,37 +84,7 @@ adata.var["mt"] = adata.var["chromosome"].fillna("").astype(str).str.upper() == 
 log_transformation(log, "loom_to_h5ad",
     f"Flagged {int(adata.var['mt'].sum())} mitochondrial genes (chromosome == 'MT')")
 
-# Mark gene set membership for nerve-cell markers (symbol-based)
-all_nerve_markers: list[str] = [
-    g for genes in nerve_markers.values() for g in genes
-]
-adata.var["is_nerve_marker"] = adata.var["gene_symbol"].isin(all_nerve_markers).fillna(False)
-
-log_transformation(log, "loom_to_h5ad",
-    f"batch='{sample_id}' assigned; {int(adata.var['is_nerve_marker'].sum())} nerve markers present")
-
-# --- Gene presence report -----------------------------------------------------
-symbol_set = set(adata.var["gene_symbol"].dropna().tolist())
-rows = []
-for cell_type, markers in nerve_markers.items():
-    for gene in markers:
-        rows.append({
-            "cell_type":  cell_type,
-            "gene":       gene,
-            "present":    gene in symbol_set,
-            "sample_id":  sample_id,
-        })
-
-presence_df = pd.DataFrame(rows)
-presence_df.to_csv(snakemake.output.gene_presence, index=False)
-
-missing = presence_df[~presence_df["present"]]["gene"].tolist()
-if missing:
-    warnings.warn(
-        f"[FAIR-ALERT] {len(missing)} nerve-cell markers absent from {sample_id}: {missing}"
-    )
-    log_transformation(log, "loom_to_h5ad",
-        f"WARNING: {len(missing)} nerve markers missing: {missing}", status="WARNING")
+log_transformation(log, "loom_to_h5ad", f"batch='{sample_id}' assigned")
 
 # --- Write h5ad ---------------------------------------------------------------
 adata.write_h5ad(snakemake.output.h5ad)
@@ -128,13 +102,11 @@ prov = stamp_artifact(
         "n_genes":             n_genes,
         "n_genes_mapped":      int(n_mapped),
         "n_mt_genes":          int(adata.var["mt"].sum()),
-        "nerve_markers_found": int(adata.var["is_nerve_marker"].sum()),
-        "nerve_markers_total": len(all_nerve_markers),
     },
-    description="GDC loom converted to AnnData h5ad with batch metadata, MyGene symbol map, and nerve-marker annotation",
+    description="GDC loom converted to AnnData h5ad with batch metadata and MyGene symbol map",
     ontology_operation="operation:2409",  # EDAM: Format conversion
 )
 write_provenance(prov, snakemake.output.provenance)
 
 log_transformation(log, "loom_to_h5ad", "Complete", status="SUCCESS",
-                   artifact_paths=[snakemake.output.h5ad, snakemake.output.gene_presence])
+                   artifact_paths=[snakemake.output.h5ad])
