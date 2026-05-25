@@ -775,3 +775,21 @@ Implementation:
 - Findable/Reusable: the split assignment is a committed, SHA256-stamped frozen artifact (`provenance/cl15_split_v1_3_0.csv`) — deterministic and re-applied by barcode, not re-derived live, mirroring the v1.2.0 `nerve_subset` freeze pattern.
 - Reusable: `cluster_overrides` is a generic config mechanism — future manual cluster splits drop a new frozen CSV + config block without code changes.
 - v1.0.0 / v1.1.0 / v1.2.0 baselines remain frozen and citable.
+
+---
+
+### [2026-05-25] | Phase: Backlog 2.2 Assessment — Freeze Insulator is a No-Op at v1.3.0 | Status: COMPLETE (documentation only)
+
+**Action:** Evaluated whether backlog item 2.2 (retire `nerve_cells.frozen_subset_file` + accept a full cluster renumber; see `markdowns/DO_THIS_NEXT_post_v1.2.0_rerun.md`) is necessary. Measured the actual roster delta read-only: applied the live `nerve_cell_subset` filter (`cell_type_predicted` ∈ `nerve_cells.cell_types` & `~is_malignant`, per `workflow/scripts/nerve_cell_subset.py` lines 60–76) to the current `data/processed/malignancy_labeled.h5ad` (which already carries the v1.2.0 tightened-panel `cell_type_predicted`) and compared the selected barcodes against the frozen list `provenance/nerve_subset_v1_1_0.txt`.
+
+**Outcome:** The live filter reproduces the frozen roster **exactly** — 106,603 live == 106,603 frozen, **0 added, 0 removed, 0 newly-classified-ependymal**. The freeze is therefore a **currently-dormant no-op**: retiring it today would change no cell, and (because `nerve_leiden` is deterministic — proven bit-exact in the v1.2.0 rerun) no cluster ID; the v1.3.0 cl15 split (cl24–27) would reproduce identically. The DO_THIS_NEXT premise for 2.2 ("includes cells newly-classified as ependymal under the tightened panel — likely a small number") is empirically **zero** at the current config.
+
+**Decision:** **Keep the freeze active** as a zero-cost safety net guarding cluster IDs against future upstream drift. Backlog 2.2 stays on the list but is **evidence-deferred** (not blocked, not necessary now). Retire it only when a change *legitimately* alters the nerve-subset roster:
+- adding or removing a sample,
+- changing QC or malignancy-calling thresholds,
+- changing the annotation marker sets enough to reclassify boundary cells into/out of the nerve types.
+At that point the freeze forces a deliberate retirement (it raises a `[FAIR-ALERT]` / `RuntimeError` if frozen barcodes go missing from the upstream roster).
+
+**Artifacts:** `config/config.yaml` (v1.3.0 verification note appended to the `frozen_subset_file` comment block; key left set). No pipeline re-run, no new data artifacts — the 0-delta claim is reproducible from the committed `nerve_cell_subset.py` filter logic + the freeze list.
+
+**FAIR Notes:** Reusable/verifiable — anyone can reproduce the 0-cell delta with the documented method; no bespoke script required. v1.0.0–v1.3.0 baselines remain frozen and citable.

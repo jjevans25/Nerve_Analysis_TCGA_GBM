@@ -128,10 +128,22 @@ nerve_cells:
   # v1.2.0 panel-tightening insulator. Anchors the nerve-subset cell roster to
   # the v1.1.0 cut so the ependymal-panel change below does not cascade through
   # cell_type_predicted → nerve_cell_subset → nerve_leiden cluster IDs. Set to
-  # null (or remove the key) when v1.3.0 is prepared to absorb a cluster
+  # null (or remove the key) when a future cut is prepared to absorb a cluster
   # renumber + full failing-cluster-diagnosis refresh. Regenerate the file via
   # scripts/freeze_nerve_subset_v1_1_0.py against the v1.1.0 tag artifact.
   # SHA256 (v1.1.0 freeze): 26ea29171a6807efa6a7ed05c18cbc60578f3434f76033bb56a06677d8581a79
+  #
+  # v1.3.0 verification (backlog 2.2 assessment): applying the live
+  # nerve_cell_subset filter (cell_type_predicted ∈ cell_types & ~is_malignant)
+  # to the current malignancy_labeled.h5ad — which already carries the v1.2.0
+  # tightened-panel cell_type_predicted — reproduces this frozen roster EXACTLY:
+  # 106,603 live == 106,603 frozen (0 added, 0 removed, 0 newly-ependymal). The
+  # freeze is therefore currently a NO-OP guard: retiring it today changes no
+  # cell and (nerve_leiden being deterministic) no cluster ID. KEEP it as a
+  # dormant safety net; retire only when a change legitimately alters the roster
+  # — adding/removing a sample, changing QC/malignancy thresholds, or changing
+  # the annotation marker sets enough to reclassify boundary cells. See
+  # CHANGELOG.md [2026-05-25] backlog-2.2 assessment.
   frozen_subset_file: "provenance/nerve_subset_v1_1_0.txt"
   cell_types:
     - "excitatory neuron"
