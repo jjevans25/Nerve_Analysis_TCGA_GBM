@@ -40,6 +40,11 @@ provenance/*
 # `freeze_baseline_provenance` rule so collaborators can verify any local copy
 # of the per-rule provenance JSONs against a frozen citable record.
 !provenance/baseline_*.json
+# Exception: track frozen cluster-override split assignments. Unlike the large
+# barcode-roster freeze (nerve_subset_*.txt, regenerated locally), these are
+# small config-referenced source-of-truth artifacts consumed by
+# nerve_cell_subset.py, so they must travel with the repo for reproducibility.
+!provenance/cl15_split_*.csv
 
 # ── macOS metadata ───────────────────────────────────────────────────────────
 .DS_Store

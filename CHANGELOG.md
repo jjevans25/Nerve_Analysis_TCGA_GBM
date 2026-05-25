@@ -741,3 +741,37 @@ scANVI v2 sanity check PASS: `nerve_cells_v2.h5ad` is 106,603 cells, `_scvi_labe
 **FAIR Notes:**
 - Findable: `baseline_v1.2.0.json` tracked under the `provenance/baseline_*.json` `.gitignore` exception; reachable via the annotated `v1.2.0` tag. Both cl15 evidence JSONs retained side-by-side for provenance.
 - Reusable: the diagnostic's new `--version-tag` arg makes the evidence pack re-runnable against future cuts without clobbering prior artifacts — reused directly by the v1.3.0 refresh.
+
+---
+
+### [2026-05-25] | Phase: v1.3.0 — cl15 Surgical Sub-Cluster Split (freeze retained) | Status: COMPLETE
+
+**Action:** Executed backlog items 2.1 (cl15 surgical relabel) and 2.5 (failing-cluster diagnosis refresh) from `markdowns/DO_THIS_NEXT_post_v1.2.0_rerun.md`. The v1.2.0 closeout proved that ependymal-panel methodology alone cannot resolve cl15's MIXED status (cluster-level argmax is robust to per-cell score shifts), so cl15 (1,854 cells) was split into its four sub-Leiden subpopulations and each relabeled to a new `nerve_leiden` ID. Per the researcher's decisions: **standalone new IDs** (no merging into existing pools), **freeze retained** (full renumber / backlog 2.2 deferred to v1.4.0), and backlog 2.3 (`score_genes` panel-size investigation) and 2.4 (FOXJ1/PIFO HVG rescue) **out of scope**.
+
+Implementation:
+- **Frozen split artifact.** `scripts/freeze_cl15_split_v1_3_0.py` (one-shot, mirrors `freeze_nerve_subset_v1_1_0.py`) re-derives the cl15 sub-Leiden split with the *identical* params from `diagnose_cl15_ependymal.py` (res=0.5 on X_scVI, igraph, seed 0), maps each sub-cluster to a target ID by **score signature** (number-agnostic), and writes `provenance/cl15_split_v1_3_0.csv` (SHA256 `0bfc2e2650f9500904ea9bb96285d3ad15320b08b664d715caa9055f258ff39c`, 1,854 barcodes). A falsification gate asserts the sub-population sizes still match the v1.1.0 evidence pack `{773, 692, 378, 11}` — **PASS, reproduced exactly** → the freeze is not leaking (resolves the v1.2.0 NEW falsification claim).
+- **Split applied in-pipeline.** `nerve_cell_subset.py` gained a Step 3b that, when `config.nerve_cells.cluster_overrides.split_assignments_file` is set, remaps `nerve_leiden` **by barcode** after clustering, drops the now-empty source category, and runs a freeze-integrity check (asserts no non-source cluster changed size). Rule log: `Split applied: source cluster(s) ['15'] → new IDs {'24': 692, '25': 773, '26': 378, '27': 11}; 1854 cells relabeled; all other clusters unchanged.`
+- **cl15 → {cl24 ependymal (692, CFAP54/DNAH), cl25 neuron (773, NAV3/SCN1A/NRXN3), cl26 transitional (378, MALAT1/LSAMP/NFIA, flagged), cl27 immune artifact (11, PTPRC)}.** cl27 added to `batch_qc.exclude_clusters` (cl21-style). cl15 now empty (gap retained for traceability); cluster set `{0–14, 16–27}` (27 clusters).
+
+**Outcome:** Freeze integrity held — every cluster 0–23 (minus the now-empty 15) kept its exact v1.2.0 cell count (cl11=2585, cl13=2306, cl19=1020, cl21=569, cl22=327, cl23=242); 0 cells drifted. All four new clusters fail the batch-QC dominance test (cl24=0.886, cl25=0.894, cl26=0.855, cl27=0.636 dominant-sample fraction) — they inherit cl15's ~88% single-patient dominance (`20e86156`), i.e. patient-anatomy-specific subtypes, same framing as cl13/cl19/cl22/cl23. Failing set moved from `{13,15,19,21,22,23}` → `{13,19,21,22,23,24,25,26}` (cl27 omitted: artifact, n=11, excluded). **scANVI v2 NOT re-run** — it keys on per-cell `cell_type` (marker-score argmax), not `nerve_leiden`, and the cell roster is unchanged, so the v2 model/labels are provably identical; targeted re-run of the 8 `nerve_leiden`-dependent cluster-table jobs only.
+
+**Artifacts:**
+- `scripts/freeze_cl15_split_v1_3_0.py` (NEW), `provenance/cl15_split_v1_3_0.csv` (NEW, tracked).
+- `workflow/scripts/nerve_cell_subset.py` (Step 3b barcode-keyed relabel + integrity check), `workflow/rules/nerve_cells.smk` (conditional split-file input + param).
+- `config/config.yaml` (`nerve_cells.cluster_overrides` block, `batch_qc.exclude_clusters += "27"`, `baseline.version` → v1.3.0 + v1.3.0 deltas).
+- Regenerated cluster-level tables under the new IDs: `nerve_cluster_composition.csv`, `nerve_cluster_markers.csv`, `nerve_enrichment.csv` (+ `_with_qc` variants), `nerve_cluster_sample_purity.csv`, `nerve_cluster_annotations.csv`, `nerve_clinical_association.csv`, `nerve_tumor_interactions.csv`, `nerve_leiden_resolution_sweep.csv`, + figures.
+- `scripts/diagnose_failing_clusters.py` (FAILING/CONTROLS updated for post-split set); `results/tables/failing_cluster_diagnosis.json` (refreshed).
+- `markdowns/failing_cluster_diagnosis.md` (v1.3.0 supplement + v1.2.0→v1.3.0 ID mapping), `markdowns/project_overview.md` (v1.3.0 deltas, 27 clusters).
+- `provenance/baseline_v1.3.0.json` (regenerated bundle).
+- Annotated git tag `v1.3.0` (pending after this commit).
+
+**Tool Versions:** snakemake==9.20.0, python==3.12, anndata==0.12.10, scanpy==1.12.1, igraph==0.11.8. Split + pipeline run in the `scrna` Snakemake conda env.
+
+**Open Issues (→ v1.4.0 backlog):**
+- Retire the freeze (`frozen_subset_file: null`), accept full cluster renumber, document the v1.3.0 → v1.4.0 cluster-ID mapping (backlog 2.2).
+- Investigate why `sc.tl.score_genes` mean rose under a smaller panel (backlog 2.3, control-gene resampling hypothesis).
+
+**FAIR Notes:**
+- Findable/Reusable: the split assignment is a committed, SHA256-stamped frozen artifact (`provenance/cl15_split_v1_3_0.csv`) — deterministic and re-applied by barcode, not re-derived live, mirroring the v1.2.0 `nerve_subset` freeze pattern.
+- Reusable: `cluster_overrides` is a generic config mechanism — future manual cluster splits drop a new frozen CSV + config block without code changes.
+- v1.0.0 / v1.1.0 / v1.2.0 baselines remain frozen and citable.

@@ -17,7 +17,15 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 
-FAILING = ["13", "15", "19", "21", "22", "23"]
+# v1.3.0 post-split failing set (batch-QC pass_overall == False in
+# results/tables/nerve_cluster_sample_purity.csv). cl15 was split into the
+# four new clusters cl24-27 (see markdowns/failing_cluster_diagnosis.md v1.3.0
+# supplement); cl24/25/26 inherit cl15's ~88% single-patient dominance and so
+# fail the dominance test. cl27 (cl15.sub-2 immune tail, n=11) is omitted: it is
+# already classified as an artifact, excluded via config.batch_qc.exclude_clusters
+# (so it has no rows in the _with_qc marker table), and 11 cells are too few for
+# meaningful DE.
+FAILING = ["13", "19", "21", "22", "23", "24", "25", "26"]
 # size-matched passing controls (242-2306 cells in failing → pick passing
 # clusters in the same range): cl17 (1168), cl18 (1159), cl20 (868), cl12 (2480)
 CONTROLS = ["12", "17", "18", "20"]

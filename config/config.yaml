@@ -187,6 +187,24 @@ nerve_cells:
       - "PIFO"
       - "RSPH1"
   reference_dataset: "cellxgene_census"
+  # v1.3.0 cl15 surgical sub-cluster split. The v1.2.0 rerun confirmed that
+  # ependymal-panel methodology alone could not resolve cl15's MIXED status
+  # (cluster-level argmax is robust to per-cell score shifts), so cl15 is split
+  # into its four sub-Leiden subpopulations. The per-barcode assignment is
+  # frozen in the CSV below (generated once by scripts/freeze_cl15_split_v1_3_0.py,
+  # SHA256 0bfc2e2650f9500904ea9bb96285d3ad15320b08b664d715caa9055f258ff39c) and
+  # applied AFTER nerve_leiden in nerve_cell_subset.py — only the listed cl15
+  # barcodes are relabeled, so every other cluster's ID (and its v1.0.0 verdict)
+  # stays bit-exact. new_clusters is informational FAIR metadata; the CSV is the
+  # source of truth. Remove this block to retire the split. cl27 (immune tail) is
+  # added to batch_qc.exclude_clusters below, cl21-style.
+  cluster_overrides:
+    split_assignments_file: "provenance/cl15_split_v1_3_0.csv"
+    new_clusters:
+      "24": {source: "cl15.sub-1", cell_type: ependymal,    n: 692, markers: [CFAP54, DNAH6, DNAH7, PACRG]}
+      "25": {source: "cl15.sub-0", cell_type: neuron,       n: 773, markers: [NAV3, SCN1A, NRXN3]}
+      "26": {source: "cl15.sub-3", cell_type: transitional, n: 378, markers: [MALAT1, LSAMP, NFIA]}
+      "27": {source: "cl15.sub-2", cell_type: artifact,     n: 11,  markers: [PTPRC, SKAP1, ARHGAP15]}
   batch_qc:
     # Cluster passes if its largest single-sample fraction is below this:
     dominant_fraction_max: 0.5
@@ -200,6 +218,7 @@ nerve_cells:
     # untouched so the audit trail of the artifact is preserved.
     exclude_clusters:
       - "21"  # dissociation stress (MT-RNR2/MT-RNR1/MT-CO1/RPL41/RPS12 markers; n_genes=1099)
+      - "27"  # v1.3.0 cl15.sub-2 immune tail (n=11; PTPRC/SKAP1/ARHGAP15) — artifact, dropped from _with_qc tables
 
 # -------------------------------------------------------------
 # scANVI re-train on the nerve subset (v2 model)
@@ -221,7 +240,7 @@ nerve_scanvi:
 # Bump `version` and append a new `summary` line whenever the science changes.
 # -------------------------------------------------------------
 baseline:
-  version: "v1.2.0"
+  version: "v1.3.0"
   summary: |
     First reproducible baseline of the TCGA-GBM nerve-cell pipeline.
     Pipeline: GDC loom → QC → scVI integration → CNV-based malignancy labelling →
@@ -281,6 +300,33 @@ baseline:
       deferred to v1.3.0. See markdowns/DO_THIS_NEXT_post_v1.2.0_rerun.md
       and the supplement's "Post-rerun reality check" subsection.
     - v1.0.0 and v1.1.0 baselines remain frozen and citable.
+
+    v1.3.0 deltas (cl15 surgical sub-cluster split; freeze retained):
+    - cl15 (MIXED, 1,854 cells) split into four separately-labeled
+      nerve_leiden IDs via nerve_cells.cluster_overrides, applied AFTER
+      nerve_leiden by frozen per-barcode assignment
+      (provenance/cl15_split_v1_3_0.csv, SHA256 0bfc2e2650f9500904ea9bb9
+      6285d3ad15320b08b664d715caa9055f258ff39c): cl24 ependymal (sub-1,
+      n=692, CFAP54/DNAH signature), cl25 neuron (sub-0, n=773,
+      NAV3/SCN1A), cl26 transitional (sub-3, n=378, MALAT1/LSAMP/NFIA),
+      cl27 immune artifact (sub-2, n=11, PTPRC) added to
+      batch_qc.exclude_clusters. cl15 is now empty (gap retained for
+      traceability); final cluster set {0-14, 16-27}.
+    - The split was re-derived deterministically (sub-Leiden res=0.5 on
+      X_scVI, igraph, seed 0) and reproduced the v1.1.0 evidence-pack
+      sub-population sizes exactly {773,692,378,11} — the freeze is NOT
+      leaking (DO_THIS_NEXT_post_v1.2.0_rerun.md falsification claim,
+      lines 90-94: resolved, not triggered).
+    - Freeze insulator (frozen_subset_file) RETAINED: cluster IDs 0-23
+      and their v1.0.0 verdicts stay bit-exact; only cl15's cells were
+      relabeled. Full freeze retirement + cluster renumber (backlog 2.2)
+      deferred to v1.4.0.
+    - scANVI v2 (nerve_scanvi_retrain) keys on cell_type, not nerve_leiden,
+      so v2 latent/labels are unaffected by the split.
+    - Failing-cluster diagnosis refreshed for the post-split set
+      (markdowns/failing_cluster_diagnosis.md v1.3.0 supplement;
+      results/tables/failing_cluster_diagnosis.json).
+    - v1.0.0, v1.1.0, v1.2.0 baselines remain frozen and citable.
 
 # -------------------------------------------------------------
 # MSigDB gene-set collections (offline GSEA via gseapy.prerank)

@@ -1,6 +1,6 @@
 # TCGA-GBM Nerve-Cell Pipeline — Project Overview
 
-*Landing page for the project. Current cut: `v1.2.0` (2026-05-24). Prior cuts: `v1.1.0` (2026-05-24), original frozen baseline `v1.0.0` (2026-05-09).*
+*Landing page for the project. Current cut: `v1.3.0` (2026-05-25). Prior cuts: `v1.2.0` (2026-05-24), `v1.1.0` (2026-05-24), original frozen baseline `v1.0.0` (2026-05-09).*
 
 ---
 
@@ -15,7 +15,7 @@ This repository implements an autonomous, FAIR-compliant single-cell RNA-seq pip
 
 The pipeline approaches this in three passes: (1) characterise the **distribution** of neural / glial cells across patients; (2) identify the **molecular programs** active in each cluster via differential expression and GO BP / GO MF enrichment; (3) surface candidate **paracrine signaling axes** linking malignant GBM cells to the surrounding nerve-cell compartment via ligand–receptor inference.
 
-**Cohort:** 17 TCGA-GBM scRNA-seq samples (GDC loom files) → 184,494 cells post-QC → **106,603 non-malignant nerve cells across 24 Leiden clusters** 
+**Cohort:** 17 TCGA-GBM scRNA-seq samples (GDC loom files) → 184,494 cells post-QC → **106,603 non-malignant nerve cells across 27 Leiden clusters** (v1.3.0: cl15 split into cl24–27; cluster IDs `{0–14, 16–27}`)
 
 ## Pipeline architecture
 
@@ -39,7 +39,9 @@ gdc_clinical_fetch ────────┤
 
 Every rule writes a JSON provenance record to `provenance/<rule>_provenance.json` (UUID5 + SHA-256 + tool versions + parameters), and the `freeze_baseline_provenance` rule bundles all of those into `provenance/baseline_<version>.json` for citable snapshots. GSEA runs **offline** against pinned MSigDB C5 GO BP+MF `.gmt` files (release `2024.1.Hs`, SHA-256-verified) to keep results deterministic and reproducible.
 
-## Current state — `v1.2.0` cut (v1.0.0 frozen baseline retained)
+## Current state — `v1.3.0` cut (v1.0.0 frozen baseline retained)
+
+**v1.3.0 deltas (2026-05-25, cl15 surgical sub-cluster split; freeze retained):** the v1.2.0 "Post-rerun reality check" proved that panel methodology alone cannot resolve cl15's MIXED status, so cl15 (1,854 cells) was **surgically split into its four sub-Leiden subpopulations**: **cl24** ependymal (692 cells, the clean CFAP54/DNAH motile-cilia core), **cl25** neuron (773 cells, NAV3/SCN1A/NRXN3 neuronal-adhesion), **cl26** transitional (378 cells, MALAT1/LSAMP/NFIA, flagged), and **cl27** immune artifact (11 cells, dropped via `exclude_clusters`). The split is frozen per-barcode in `provenance/cl15_split_v1_3_0.csv` and applied **after** `nerve_leiden` inside `nerve_cell_subset.py`, so every other cluster's ID (and its v1.0.0 verdict) stays bit-exact — confirmed by the integrity check (0 cells drifted) and by the sub-Leiden split re-deriving the v1.1.0 sizes `{773,692,378,11}` exactly (the freeze is not leaking). cl15 is now empty; the cluster set is `{0–14, 16–27}` (**27 clusters**). The freeze insulator is **retained**; full freeze retirement + cluster renumber is deferred to v1.4.0. scANVI v2 was not re-run (it keys on `cell_type`, not `nerve_leiden`, and the roster is unchanged). See `markdowns/failing_cluster_diagnosis.md` § "v1.3.0 supplement".
 
 **v1.2.0 deltas (2026-05-24, ependymal panel tightening + freeze insulator):** the ependymal marker panel was tightened to `DNAH7 / DNAH9 / DNAH11 / CFAP54 / PIFO / RSPH1` — `FOXJ1` dropped (absent from `var_names`, unscoreable) and `RFX3` dropped (non-discriminating: 61–97% across astrocyte clusters). A **freeze insulator** (`nerve_cells.frozen_subset_file`) pins the 106,603-cell nerve roster to the v1.1.0 cut so the panel change cannot renumber clusters; the rerun was bit-exact (0 cells drifted, identical per-cluster sizes). scANVI v2 retrained on the tightened-panel labels, classifier accuracy 0.8446. **Important:** the predicted effect of panel tightening did not materialise — cl15 stayed ependymal-predicted at 90.1% (not 30–60% as forecast) because `sc.tl.score_genes` is non-monotonic in panel size and `cell_type_predicted` is a robust cluster-level argmax. **cl15 is therefore a MIXED cluster** (a real 4-subpopulation mixture: ciliary / neuronal-adhesion / astro-leaning / immune-artifact), not cleanly ependymal — its surgical relabel is deferred to v1.3.0. See `markdowns/failing_cluster_diagnosis.md` § "Post-rerun reality check" and `markdowns/DO_THIS_NEXT_post_v1.2.0_rerun.md`.
 

@@ -186,6 +186,90 @@ log_transformation(log, "nerve_cell_subset",
     f"(resolution={snakemake.params.leiden_resolution})")
 
 # ---------------------------------------------------------------------------
+# Step 3b: Apply manual cluster split overrides (v1.3.0 cl15 surgery)
+# ---------------------------------------------------------------------------
+# The v1.2.0 rerun confirmed that ependymal-panel methodology alone cannot
+# resolve cl15's MIXED status (cluster-level argmax is robust to per-cell score
+# shifts). The fix is surgical: relabel cl15's four sub-Leiden subpopulations to
+# separate nerve_leiden IDs. The split is frozen per-barcode in
+# provenance/cl15_split_v1_3_0.csv (see scripts/freeze_cl15_split_v1_3_0.py) so
+# no live re-clustering happens here — mirroring the frozen_subset_file pattern.
+# Applied AFTER nerve_leiden so only the listed cl15 barcodes are relabeled;
+# every other cluster's IDs (and their v1.0.0 verdicts) stay bit-exact.
+split_path: str | None = getattr(snakemake.params, "split_assignments_file", None)
+if split_path:
+    split_df = pd.read_csv(split_path, dtype=str).set_index("barcode")
+    log_transformation(log, "nerve_cell_subset",
+        f"Cluster-split override active: {len(split_df)} barcodes from {split_path}")
+
+    overlap = adata_nerve.obs_names.isin(split_df.index)
+    n_overlap = int(overlap.sum())
+    missing = set(split_df.index) - set(adata_nerve.obs_names)
+    if missing:
+        log_transformation(log, "nerve_cell_subset",
+            f"[FAIR-ALERT] {len(missing)} split-assignment barcodes missing from "
+            f"the nerve subset — the freeze that produced the split is stale. "
+            f"First 5: {list(missing)[:5]}", status="ERROR")
+        raise RuntimeError(
+            "Cluster-split assignment incompatible with current nerve subset. "
+            "Regenerate scripts/freeze_cl15_split_v1_3_0.py against the current "
+            "nerve_cells.h5ad, or remove nerve_cells.cluster_overrides from config."
+        )
+
+    # Snapshot pre-split per-cluster sizes for the freeze-integrity check below.
+    sizes_before = adata_nerve.obs["nerve_leiden"].astype(str).value_counts().to_dict()
+
+    # Barcode-keyed remap: robust even if leiden numbering ever drifts, since we
+    # relabel exactly the frozen barcodes rather than "whatever is in cl15".
+    new_leiden = adata_nerve.obs["nerve_leiden"].astype(str).copy()
+    target_by_barcode = split_df["target_cluster"]
+    new_leiden.loc[adata_nerve.obs_names[overlap]] = target_by_barcode.reindex(
+        adata_nerve.obs_names[overlap]
+    ).to_numpy()
+    adata_nerve.obs["nerve_leiden"] = new_leiden.astype("category")
+
+    # Freeze-integrity check: every cluster NOT touched by the split must keep
+    # its exact size (the v1.2.0 rerun guaranteed bit-exact cluster sizes; the
+    # surgery must not perturb any cluster other than the split source).
+    touched_sources = set(split_df["sub_id"].index)  # noqa: F841 (doc only)
+    split_targets = set(split_df["target_cluster"].unique())
+    sizes_after = adata_nerve.obs["nerve_leiden"].astype(str).value_counts().to_dict()
+    # The source cluster(s) — clusters whose cells were reassigned — are those
+    # present before but shrunk/absent after, excluding the new target IDs.
+    drifted = []
+    for cl, n in sizes_before.items():
+        if cl in split_targets:
+            continue
+        if sizes_after.get(cl, 0) != n:
+            drifted.append((cl, n, sizes_after.get(cl, 0)))
+    # Any cluster fully consumed by the split (e.g. cl15 → 0) is expected; flag
+    # only clusters that PARTIALLY changed, which would mean the split touched
+    # cells outside its source cluster.
+    partial = [(cl, b, a) for cl, b, a in drifted if a != 0]
+    if partial:
+        log_transformation(log, "nerve_cell_subset",
+            f"[FAIR-ALERT] cluster-split perturbed non-source clusters "
+            f"(cluster, before, after): {partial}. The split barcodes span more "
+            f"than the intended source cluster.", status="ERROR")
+        raise RuntimeError(
+            "Cluster-split override altered sizes of clusters outside its source. "
+            "Inspect provenance/cl15_split_v1_3_0.csv — every barcode must belong "
+            "to the source cluster being split."
+        )
+
+    emptied = [cl for cl, _, a in drifted if a == 0]
+    new_sizes = {t: sizes_after.get(t, 0) for t in sorted(split_targets, key=int)}
+    log_transformation(log, "nerve_cell_subset",
+        f"Split applied: source cluster(s) {emptied} → new IDs {new_sizes}; "
+        f"{n_overlap} cells relabeled; all other clusters unchanged.")
+
+    # Drop the now-empty source category so it doesn't linger in the dtype.
+    adata_nerve.obs["nerve_leiden"] = (
+        adata_nerve.obs["nerve_leiden"].cat.remove_unused_categories()
+    )
+    n_clusters = adata_nerve.obs["nerve_leiden"].nunique()
+
+# ---------------------------------------------------------------------------
 # Step 4: UMAP plot colored by nerve cluster and cell type
 # ---------------------------------------------------------------------------
 fig, axes = plt.subplots(1, 2, figsize=(16, 6))
@@ -223,6 +307,7 @@ prov = stamp_artifact(
     parameters={
         "cell_types_selected":  cell_types,
         "frozen_subset_file":   frozen_path,
+        "split_assignments_file": split_path,
         "leiden_resolution":    snakemake.params.leiden_resolution,
         "n_cells_total":        n_total,
         "n_cells_nerve":        n_nerve,

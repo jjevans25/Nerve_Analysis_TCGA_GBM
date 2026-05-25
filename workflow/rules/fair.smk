@@ -51,7 +51,11 @@ rule freeze_baseline_provenance:
         threads = 1,
     params:
         version        = config["baseline"]["version"],
-        summary        = config["baseline"]["summary"],
+        # Wrapped in a function to deactivate Snakemake's automatic wildcard
+        # expansion: the summary text may contain literal braces (e.g. cluster
+        # sets like {0-14, 16-27} or size tuples {773,692,378,11}) that would
+        # otherwise be misparsed as {wildcard} placeholders.
+        summary        = lambda wildcards: config["baseline"]["summary"],
         provenance_dir = config["dirs"]["provenance"],
     script:
         "../scripts/freeze_baseline_provenance.py"

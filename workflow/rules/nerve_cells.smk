@@ -13,6 +13,13 @@ rule nerve_cell_subset:
         # configured. Triggers a DAG rerun if the freeze file content changes.
         **({"frozen_subset_file": config["nerve_cells"]["frozen_subset_file"]}
            if config["nerve_cells"].get("frozen_subset_file") else {}),
+        # Conditional input — v1.3.0 cl15 surgical split assignment. Present only
+        # when cluster_overrides is configured. Triggers a rerun if the frozen
+        # barcode→ID mapping changes.
+        **({"split_assignments_file":
+            config["nerve_cells"]["cluster_overrides"]["split_assignments_file"]}
+           if config["nerve_cells"].get("cluster_overrides", {}).get("split_assignments_file")
+           else {}),
     output:
         h5ad        = os.path.join(config["dirs"]["data_processed"], "nerve_cells.h5ad"),
         umap        = os.path.join(config["dirs"]["figures"],        "nerve_cells_umap.png"),
@@ -35,6 +42,9 @@ rule nerve_cell_subset:
         # script bypasses cell_type_predicted/is_malignant filtering and
         # selects cells by frozen barcode list.
         frozen_subset_file = config["nerve_cells"].get("frozen_subset_file"),
+        # Path-or-None; consumed via getattr in the script. When set, the script
+        # remaps nerve_leiden by barcode AFTER clustering (v1.3.0 cl15 split).
+        split_assignments_file = config["nerve_cells"].get("cluster_overrides", {}).get("split_assignments_file"),
     script:
         "../scripts/nerve_cell_subset.py"
 
