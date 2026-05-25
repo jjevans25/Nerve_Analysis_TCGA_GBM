@@ -33,12 +33,12 @@ Format each entry with: date, phase, action taken, outcome, and any open issues.
 
 ```
 [STATUS]
-Phase:          Annotation — Gene ID Namespace Fix
-Last Updated:   2026-04-20
+Phase:          v1.2.0 Closeout — Ependymal Panel Tightening + Freeze Insulator (COMPLETE)
+Last Updated:   2026-05-24
 Active Agent:   lead-researcher
-Current Task:   MyGene.info Ensembl→symbol cache wired into loom_to_h5ad and scrna_annotate
+Current Task:   v1.2.0 tagged — freeze insulator verified bit-exact; cl15 MIXED verdict stands
 Blocked On:     —
-Next Action:    Re-run pipeline end-to-end (requires network for first MyGene.info fetch); verify nerve_cell_subset now returns neurons/astrocytes/oligodendrocytes
+Next Action:    v1.3.0 — cl15 surgical sub-cluster relabel + retire freeze (full renumber). See markdowns/DO_THIS_NEXT_post_v1.2.0_rerun.md Phase 2
 ```
 
 ---
@@ -697,3 +697,47 @@ Total nerve subset grew from ~101k to **106,603 cells** with the ependymal inclu
 - Accessible: `baseline_v1.1.0.json` records every per-rule artifact's SHA-256 + tool versions + parameters; a collaborator cloning at `git checkout v1.1.0` can verify the bundle without rerunning. Reproduction snippet in `markdowns/project_overview.md` now covers both tags.
 - Interoperable: ependymal cell type added consistently across `nerve_cells.markers` (scoring), `nerve_cells.cell_types` (subset filter), and `LABEL_GROUPS` (scANVI anchoring) — the three places that need to agree.
 - Reusable: the config-gap that bit this cut (markers config and cell_types config drift) is now self-documenting via this CHANGELOG entry; future cell-type additions must update both keys.
+
+---
+
+### [2026-05-24] | Phase: v1.2.0 Closeout — Ependymal Panel Tightening + Freeze Insulator | Status: COMPLETE
+
+**Action:** Executed Phase 1 of `markdowns/DO_THIS_NEXT_post_v1.2.0_rerun.md` against the completed v1.2.0 rerun (54/54 Snakemake steps, ~5h 14m on M4 Max / MPS). Ran the side-by-side cl15 evidence pack against the v1.2.0 artifacts (`scripts/diagnose_cl15_ependymal.py --version-tag v1_2_0`, new arg added so the v1.1.0 JSON/figures are preserved for diffing), sanity-checked the scANVI v2 model, reconciled the v1.1.0 supplement's overturned predictions, bumped `config.baseline.version` → `v1.2.0`, and froze `provenance/baseline_v1.2.0.json`.
+
+Pipeline changes shipped in this cut:
+- **Ependymal panel tightened.** `FOXJ1` dropped (absent from `var_names` — filtered upstream of HVG selection, unscoreable) and `RFX3` dropped (broadly expressed across astrocyte clusters at 61–97%, non-discriminating). Panel is now `DNAH7 / DNAH9 / DNAH11 / CFAP54 / PIFO / RSPH1` (PIFO also absent from `var_names` → 5 effective scoring genes).
+- **Freeze insulator added.** `config.nerve_cells.frozen_subset_file: provenance/nerve_subset_v1_1_0.txt` pins the nerve-subset barcode roster to the v1.1.0 cut (SHA256 `26ea29171a6807efa6a7ed05c18cbc60578f3434f76033bb56a06677d8581a79`, 106,603 barcodes) so the panel change cannot cascade into `cell_type_predicted → nerve_cell_subset → nerve_leiden` cluster IDs. Regenerated via `scripts/freeze_nerve_subset_v1_1_0.py`.
+- **Refactor:** `is_nerve_marker` annotation + `gene_presence.csv` moved from `loom_to_h5ad` to `scrna_qc`, so future panel changes no longer trigger per-sample reruns.
+
+**Outcome:** Freeze worked **exactly as designed — bit-exact subset preservation, 0 cells drifted.** The v1.2.0 evidence pack (`results/tables/cl15_ependymal_diagnosis_v1_2_0.json`) is identical to the v1.1.0 baseline on every frozen-cell quantity: per-cluster counts (cl11=2585, cl15=1854, cl19=1020), cl15 sub-Leiden split (`{0:773, 1:692, 2:11, 3:378}`), retained-gene panel %expression, cl15 patient dominance (20e86156 @ 88.1%, 6 contributing samples). cl19 ependymal-predicted held at 83.1% (> 80%).
+
+**The v1.1.0 supplement's panel-tightening predictions were partially WRONG:**
+- Predicted cl15 ependymal-predicted drops to 30–60% → **actually stayed at 90.1%** (88.8% → 90.1%, slightly up).
+- Predicted cl11 drops proportionally → **stayed at 74.7%** (72.0% → 74.7%, slightly up).
+- Predicted `score_ependymal` mean falls → **rose on cl15** (0.193 → 0.265).
+- Root cause: (1) `sc.tl.score_genes` subtracts a control-gene baseline sampled from the same expression bins as the panel; dropping genes perturbs both the panel mean and the control sampling, so the normalised score is not monotonic with panel size. (2) `cell_type_predicted` is a cohort-leiden *cluster-level* argmax (mean score → argmax), robust to ε per-cell shifts — swapping 1–2 genes can't flip cl15. Corrections written to the supplement's new "Post-rerun reality check" subsection.
+- **cl15 MIXED verdict stands.** The 4 sub-populations (ciliary / neuronal-adhesion / astro-leaning / immune-artifact) are real biology; panel methodology alone cannot resolve them. **Surgical sub-cluster relabel deferred to v1.3.0.**
+
+scANVI v2 sanity check PASS: `nerve_cells_v2.h5ad` is 106,603 cells, `_scvi_labels` aligned 1:1 to `cell_type`, training curves converge cleanly (no divergent spikes), classifier accuracy **0.8446** (v1.1.0 was 0.85). Label distribution shifted under the tightened panel: ependymal 14,545 → 14,280, astrocyte 22,600 → 22,927, neuron 20,538 → 20,420, oligodendrocyte 14,380 → 14,358, opc 13,219 → 13,297; **Unknown pinned at 21,321** (fixed by the `unknown_percentile: 20.0` rule at ~20% of 106,603, independent of the panel — the supplement's "Unknown rises" guess does not apply).
+
+**Artifacts:**
+- `provenance/baseline_v1.2.0.json` (NEW, tracked) alongside the unchanged `baseline_v1.0.0.json` / `baseline_v1.1.0.json`.
+- `results/tables/cl15_ependymal_diagnosis_v1_2_0.json` (NEW) alongside the v1.1.0 `cl15_ependymal_diagnosis.json` (unchanged); `results/figures/cl15_*_v1_2_0.png` (NEW, 4 figures).
+- `scripts/diagnose_cl15_ependymal.py` (added `--version-tag` CLI arg; default reproduces v1.1.0 filenames).
+- `config/config.yaml` (bumped `baseline.version` → v1.2.0, appended v1.2.0 deltas paragraph).
+- `markdowns/failing_cluster_diagnosis.md` ("Expected effects" predictions corrected, falsification log resolved, "Post-rerun reality check" subsection added).
+- `markdowns/project_overview.md` (current cut → v1.2.0; cl15 reframed as MIXED).
+- Annotated git tag `v1.2.0` (pending after this commit).
+
+**Tool Versions:** snakemake==9.20.0, python==3.12, scvi-tools==1.4.2, torch==2.12.0 (MPS, Float32), anndata==0.12.10, scanpy==1.12.1. Evidence pack run in the `scrna` Snakemake conda env (anndata 0.12.10 / scanpy 1.12.1) — the project base `gbm_scrna` env (anndata 0.11.4) cannot read the 0.12-written `/uns/log1p` `null` encoding.
+
+**Open Issues (→ v1.3.0 backlog, see DO_THIS_NEXT_post_v1.2.0_rerun.md Phase 2):**
+- cl15 surgical sub-cluster relabel (the actual fix): split sub-1 ciliary → ependymal, sub-0 neuronal → neuron cluster, sub-3 astro-leaning → judgement call, sub-2 immune → artifact/drop.
+- Retire the freeze, accept full cluster renumber, document the v1.2.0 → v1.3.0 cluster-ID mapping.
+- Investigate why `sc.tl.score_genes` mean rose under a smaller panel (control-gene resampling hypothesis).
+- Optionally rescue FOXJ1/PIFO at the HVG filter (allow-list for nerve-marker genes).
+- Refresh `failing_cluster_diagnosis.md` failing-set against the post-surgery cluster set.
+
+**FAIR Notes:**
+- Findable: `baseline_v1.2.0.json` tracked under the `provenance/baseline_*.json` `.gitignore` exception; reachable via the annotated `v1.2.0` tag. Both cl15 evidence JSONs retained side-by-side for provenance.
+- Reusable: the diagnostic's new `--version-tag` arg makes the evidence pack re-runnable against future cuts without clobbering prior artifacts — reused directly by the v1.3.0 refresh.

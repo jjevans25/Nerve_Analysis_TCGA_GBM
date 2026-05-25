@@ -34,8 +34,8 @@ Outputs:
 Not a Snakemake rule — top-level diagnostic, run once.
 """
 
+import argparse
 import json
-import sys
 from pathlib import Path
 
 import anndata as ad
@@ -56,6 +56,38 @@ FIG_DIR = ROOT / "results/figures"
 TBL_DIR = ROOT / "results/tables"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 TBL_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _parse_args() -> argparse.Namespace:
+    """Parse the optional version tag used to suffix all output artifacts.
+
+    Lets the same evidence pack run against successive pipeline cuts without
+    clobbering the previous cut's JSON/figures (FAIR: preserve prior artifacts
+    for side-by-side comparison). Empty tag reproduces the original v1.1.0
+    filenames.
+    """
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument(
+        "--version-tag",
+        default="",
+        help="Suffix appended to output filenames, e.g. 'v1_2_0' -> "
+        "cl15_ependymal_diagnosis_v1_2_0.json. Default '' = v1.1.0 names.",
+    )
+    return p.parse_args()
+
+
+ARGS = _parse_args()
+SUFFIX = f"_{ARGS.version_tag}" if ARGS.version_tag else ""
+
+
+def tbl_path(stem: str, ext: str = "json") -> Path:
+    """Versioned table path under results/tables."""
+    return TBL_DIR / f"{stem}{SUFFIX}.{ext}"
+
+
+def fig_path(stem: str) -> Path:
+    """Versioned figure path under results/figures."""
+    return FIG_DIR / f"{stem}{SUFFIX}.png"
 
 
 # ---------- inputs -----------------------------------------------------------
@@ -170,7 +202,7 @@ for ax, cl in zip(axes.flat, ALL_FOCUS):
     ax.axhline(0, color="grey", lw=0.5)
 fig.suptitle("score_* distributions per cluster (cl15 sanity check)")
 fig.tight_layout()
-fig1_path = FIG_DIR / "cl15_score_boxplots.png"
+fig1_path = fig_path("cl15_score_boxplots")
 fig.savefig(fig1_path, dpi=130, bbox_inches="tight")
 plt.close(fig)
 print(f"  -> {fig1_path}")
@@ -254,7 +286,7 @@ if panel_missing:
             f"Panel genes missing from var: {', '.join(panel_missing)}",
             color="darkred", fontsize=9)
 fig.tight_layout()
-fig2_path = FIG_DIR / "cl15_ependymal_panel_dotplot.png"
+fig2_path = fig_path("cl15_ependymal_panel_dotplot")
 fig.savefig(fig2_path, dpi=130, bbox_inches="tight")
 plt.close(fig)
 print(f"\n  -> {fig2_path}")
@@ -313,7 +345,7 @@ ax.set_ylabel("cl15 cell count")
 ax.set_title(f"cl15 (n={n_cl15}) ependymal argmax-margin distribution")
 ax.legend()
 fig.tight_layout()
-fig3_path = FIG_DIR / "cl15_argmax_margin_histogram.png"
+fig3_path = fig_path("cl15_argmax_margin_histogram")
 fig.savefig(fig3_path, dpi=130, bbox_inches="tight")
 plt.close(fig)
 print(f"  -> {fig3_path}")
@@ -413,7 +445,7 @@ cl15_samples = (
     obs_nerve.loc[cl15_mask, "sample_id"]
     .astype(str).value_counts(normalize=True).round(4)
 )
-print(f"  top 10 cl15 sample fractions:")
+print("  top 10 cl15 sample fractions:")
 for s, f in cl15_samples.head(10).items():
     print(f"    {s[:8]}…  {f:.4f}")
 
@@ -432,7 +464,7 @@ ax.set_title(f"cl15 patient composition "
              f"(dominant_fraction={purity_cl15['dominant_sample_fraction']:.3f}, "
              f"n_contrib={purity_cl15['n_contributing_samples']})")
 fig.tight_layout()
-fig5_path = FIG_DIR / "cl15_patient_composition.png"
+fig5_path = fig_path("cl15_patient_composition")
 fig.savefig(fig5_path, dpi=130, bbox_inches="tight")
 plt.close(fig)
 print(f"  -> {fig5_path}")
@@ -504,7 +536,7 @@ out = {
     },
 }
 
-out_path = TBL_DIR / "cl15_ependymal_diagnosis.json"
+out_path = tbl_path("cl15_ependymal_diagnosis")
 out_path.write_text(json.dumps(out, indent=2, default=str))
 print(f"\nWrote structured evidence: {out_path}")
 

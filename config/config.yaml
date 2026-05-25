@@ -221,7 +221,7 @@ nerve_scanvi:
 # Bump `version` and append a new `summary` line whenever the science changes.
 # -------------------------------------------------------------
 baseline:
-  version: "v1.1.0"
+  version: "v1.2.0"
   summary: |
     First reproducible baseline of the TCGA-GBM nerve-cell pipeline.
     Pipeline: GDC loom → QC → scVI integration → CNV-based malignancy labelling →
@@ -253,6 +253,34 @@ baseline:
       ciliary GSEA hits in the theme roll-up.
     - v1.0.0 baseline (provenance/baseline_v1.0.0.json) remains frozen
       and citable.
+
+    v1.2.0 deltas (2026-05-24, ependymal panel tightening + freeze insulator):
+    - Ependymal panel tightened to DNAH7/DNAH9/DNAH11/CFAP54/PIFO/RSPH1.
+      FOXJ1 dropped (absent from var_names, unscoreable); RFX3 dropped
+      (non-discriminating, 61-97% across astrocyte clusters). PIFO retained
+      for intent but also absent from var_names -> 5 effective scoring genes.
+    - Freeze insulator added (nerve_cells.frozen_subset_file ->
+      provenance/nerve_subset_v1_1_0.txt; SHA256 26ea29171a6807efa6a7ed05c18
+      cbc60578f3434f76033bb56a06677d8581a79; 106,603 barcodes) so the panel
+      change cannot cascade into cell_type_predicted -> nerve_cell_subset ->
+      nerve_leiden cluster IDs. Rerun was bit-exact: 0 cells drifted,
+      per-cluster sizes identical to v1.1.0 (54/54 Snakemake steps, ~5h 14m
+      on M4 Max / MPS).
+    - Refactor: is_nerve_marker annotation + gene_presence.csv moved from
+      loom_to_h5ad to scrna_qc, so future panel changes no longer trigger
+      per-sample reruns.
+    - scANVI v2 retrained on tightened-panel labels: astrocyte 22,927 /
+      Unknown 21,321 / neuron 20,420 / oligodendrocyte 14,358 /
+      ependymal 14,280 / opc 13,297. Classifier accuracy 0.8446.
+    - Panel-tightening predictions in the v1.1.0 failing_cluster_diagnosis
+      supplement were partially wrong: cl15 ependymal-predicted stayed at
+      90.1% (not 30-60% as forecast) and score_ependymal mean rose
+      (0.193 -> 0.265). Root cause: sc.tl.score_genes is non-monotonic in
+      panel size + cluster-level argmax is robust to per-cell shifts.
+      cl15 MIXED-cluster finding documented; surgical sub-cluster relabel
+      deferred to v1.3.0. See markdowns/DO_THIS_NEXT_post_v1.2.0_rerun.md
+      and the supplement's "Post-rerun reality check" subsection.
+    - v1.0.0 and v1.1.0 baselines remain frozen and citable.
 
 # -------------------------------------------------------------
 # MSigDB gene-set collections (offline GSEA via gseapy.prerank)
