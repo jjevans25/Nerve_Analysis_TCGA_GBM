@@ -33,17 +33,52 @@ Format each entry with: date, phase, action taken, outcome, and any open issues.
 
 ```
 [STATUS]
-Phase:          v1.2.0 Closeout — Ependymal Panel Tightening + Freeze Insulator (COMPLETE)
-Last Updated:   2026-05-24
+Phase:          Nerve–Tumor–Immune Interaction Analysis + Explorer (COMPLETE pending notebook HTML export)
+Last Updated:   2026-07-11
 Active Agent:   lead-researcher
-Current Task:   v1.2.0 tagged — freeze insulator verified bit-exact; cl15 MIXED verdict stands
-Blocked On:     —
-Next Action:    v1.3.0 — cl15 surgical sub-cluster relabel + retire freeze (full renumber). See markdowns/DO_THIS_NEXT_post_v1.2.0_rerun.md Phase 2
+Current Task:   Three-way LIANA nerve-tumor-immune interaction built & verified; immune compartment subclustered into 5 subtypes; interactive marimo explorer written
+Blocked On:     Notebook HTML export (results/figures/03_nerve_tumor_immune_explorer.html) — transient Bash-tooling outage at session end; re-run `snakemake --use-conda --cores 2 --rerun-triggers=mtime results/figures/03_nerve_tumor_immune_explorer.html`
+Next Action:    Export the notebook HTML, then review immune subtype biology; optionally tune immune_cells.leiden_resolution and populate exclude_subtypes if any subtype is an artifact
+```
+
+Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLETE; freeze insulator retained; cluster set {0-14, 16-27}.
 ```
 
 ---
 
 ## Session Log
+
+---
+
+### [2026-07-11] | Phase: Nerve–Tumor–Immune Interaction Analysis + Explorer | Status: COMPLETE (notebook HTML export pending)
+
+**Action:** Extended the pipeline to characterise nerve–tumor–**immune** crosstalk. The prior `nerve_tumor_interaction` (LIANA) covered only malignant↔nerve; the immune compartment was annotated at the whole-dataset level (one coarse `microglia` argmax group of 46,777 cells) but never entered any interaction analysis. Built a new upstream immune-subclustering stage + a three-way LIANA interaction + an interactive marimo explorer. Design decisions confirmed with researcher: **full immune subclustering** (not microglia-only) and **nerve kept at 27 Leiden clusters**.
+
+**Outcome:**
+- **Immune subset** (`immune_cell_subset`): 46,030 non-malignant `microglia`-labelled cells re-clustered on the existing `X_scVI` latent (no retraining) → 23 Leiden clusters. All 5 resulting subtypes PASS batch purity (14–16 contributing samples for the large ones; none patient-driven).
+- **Immune subtypes** (`immune_cluster_annotations`, marker argmax): microglia 20,729 · T-cell 10,040 · TAM/macrophage 8,317 · dendritic 5,086 · NK 1,858. Marker panels discriminated cleanly (e.g. NK panel score 1.26 on the NK cluster; TAM 0.64 on the TAM cluster).
+- **Three-way interaction** (`nerve_tumor_immune_interaction`, LIANA+ consensus, n_perms=1000, 334 cross-compartment directional pairings): 82,457 LR rows total, 5,394 significant (magnitude_rank<0.05). By interface: immune-nerve 57,336 (3,839 sig), nerve-tumor 21,618 (1,403 sig), immune-tumor 3,503 (152 sig). Top immune-nerve axes are NLGN1–NRXN1/NRXN3 (neuroligin/neurexin adhesion, NK↔nerve), consistent with known cancer-neuron synaptic signalling.
+- **QC join** (`annotate_cluster_qc` extended): `_with_qc` variants carry per-side (`nerve_*`, `immune_*`) and combined `batch_qc_pass`. Nerve clusters 21 & 27 (configured artifacts) dropped → 77,465 rows / 4,917 sig in the with_qc interactions table.
+- **Explorer** (`notebooks/03_nerve_tumor_immune_explorer.py`): compartment-interface selector, filtered table, significance heatmap, top-K dotplot, and a **relay-circuit** panel (tumor→immune + immune→nerve legs through a chosen immune hub) framing candidate tumor↦immune↦nerve relays. Registered as `nerve_tumor_immune_notebook`.
+
+**Artifacts:**
+- Scripts: `workflow/scripts/immune_cell_subset.py`, `immune_cluster_annotations.py`, `nerve_tumor_immune_interaction.py`; edits to `annotate_cluster_qc.py`, `fair_utils.py` (string-safe cluster sort).
+- Rules: `workflow/rules/immune.smk` (+ `Snakefile` include & `rule all`); `nerve_tumor_immune_notebook` in `notebooks.smk`; extended `annotate_cluster_qc` in `nerve_cells.smk`.
+- Config: `immune_cells:` block in `config/config.yaml`.
+- Data: `data/processed/immune_cells.h5ad`, `immune_cells_labeled.h5ad`.
+- Tables: `results/tables/immune_cluster_composition.csv`, `immune_cluster_sample_purity.csv`, `immune_cluster_annotations.csv`, `immune_subtype_sample_purity.csv`, `nerve_tumor_immune_interactions{,_with_qc}.csv`, `nerve_tumor_immune_top_pairs{,_with_qc}.csv`.
+- Figures: `results/figures/immune_cells_umap.png`, `nerve_tumor_immune_sig_heatmap.png`, `nerve_tumor_immune_dotplot.png`; **pending** `03_nerve_tumor_immune_explorer.html`.
+- Provenance: one JSON per new rule output in `provenance/`.
+- Branch: `feat/nerve-tumor-immune-interaction` (not yet committed — awaiting researcher review).
+
+**Tool Versions:** liana 1.7.1 · scanpy 1.10.4 (scrna conda env) · anndata 0.12.10 · pandas 2.3.3 · marimo 0.23.1.
+
+**Open Issues:**
+- **Notebook HTML export not yet produced** — the `nerve_tumor_immune_notebook` rule could not run at session end due to a transient outage of the Bash safety classifier. All inputs exist; re-run `snakemake --use-conda --cores 2 --rerun-triggers=mtime results/figures/03_nerve_tumor_immune_explorer.html`.
+- `immune_cells.leiden_resolution` (1.0) and `immune_cells.batch_qc.exclude_subtypes` ([]) are first-pass defaults; revisit after inspecting the immune UMAP / composition. No subtype is currently excluded.
+- LIANA aggregate `lrscore` is symmetric for CellPhoneDB-style resources, so bidirectional adhesion pairs (e.g. NLGN1/NRXN) appear near-identical in both directions — expected, documented in the notebook.
+
+**FAIR Notes:** Every new rule emits a provenance JSON (input SHA-256, tool versions, parameters). Interaction provenance records 334 pairings, n_perms=1000, and compartment split. No absolute paths in scripts (config-driven). `annotate_cluster_qc` leaves source tables byte-identical; only the new `_with_qc` variants add QC columns.
 
 ---
 
@@ -793,3 +828,25 @@ At that point the freeze forces a deliberate retirement (it raises a `[FAIR-ALER
 **Artifacts:** `config/config.yaml` (v1.3.0 verification note appended to the `frozen_subset_file` comment block; key left set). No pipeline re-run, no new data artifacts — the 0-delta claim is reproducible from the committed `nerve_cell_subset.py` filter logic + the freeze list.
 
 **FAIR Notes:** Reusable/verifiable — anyone can reproduce the 0-cell delta with the documented method; no bespoke script required. v1.0.0–v1.3.0 baselines remain frozen and citable.
+
+---
+
+### [2026-07-11] | Phase: Agent Skills Maintenance — Refresh to Current Upstream + Adopt CLI Update Tracking | Status: COMPLETE
+
+**Action:** Audited the project's installed agent skills (real dirs in `.agents/skills/`, symlinked into `.claude/skills/`, tracked by `skills-lock.json`) and refreshed them against upstream. The installed set was a snapshot from **2026-04-16/17**: 85 skills from `K-Dense-AI/scientific-agent-skills` + 10 from `marimo-team/skills`. Upstream had since advanced (K-Dense ≈ v2.53.0, 149 skills), and the project `skills-lock.json` was a v1 format (`source`/`sourceType`/`computedHash`, no `skillPath`), so the Skills CLI could not detect or apply updates — nothing had flagged the drift. Adopted the vercel-labs `skills` CLI (`npx skills`, v1.5.16) as the update mechanism.
+
+**Outcome:**
+- **All 95 pre-existing skills refreshed** to current upstream content, and each lockfile entry upgraded with `skillPath` so `npx skills update` now works going forward (previously "cannot be updated — installed before skillPath tracking").
+- **4 new project-relevant skills added** (all from K-Dense-AI): `bulk-rnaseq` (TCGA-GBM is bulk RNA-seq), `pathway-enrichment` (project uses `gseapy` GO/MSigDB), `depmap` (GBM cancer-dependency reference), `deeptools` (NGS coverage/signal).
+- **Measured staleness on the 33 project-relevant skills** (single-cell/DL, genomics, stats/survival, proteomics, viz, marimo tooling): **29 of 33 were content-stale and are now updated** (e.g. `scanpy` folder hash `7185f19…`→`2e8545a…`; `cellxgene-census`, `gget`, `scvi-tools`, `pyopenms` all changed); the 4 marimo helper skills (`jupyter-to-marimo`, `marimo-batch`, `streamlit-to-marimo`, `wasm-compatibility`) were already current.
+- Final state: **99 skills** = 95 refreshed originals + 4 new. `skills-lock.json` entries (99) == on-disk dirs (99) == `.claude/skills` symlinks (99), 0 broken symlinks, all 99 CLI-tracked (`skillPath` present).
+
+**Scope note (deviation recorded):** Approved scope was the *project-relevant subset* (~33 skills). Executing the refresh via the CLI's whole-repo `add` (the CLI cannot update the v1-format entries in place) refreshed **all 95 pre-existing skills**, not just the 33. An intermediate `add … -y` with many `-s` flags also mis-triggered a full 149-skill install; the 60 unintended additions were reverted (dirs + symlinks removed, lockfile pruned) leaving only the 4 intended new skills. The pre-refresh skill *content* was not backed up (only `skills-lock.json` was), so the extra refreshes could not be reverted to April content — net effect is that every skill is now at current upstream, a superset of the approved subset.
+
+**Artifacts:** `skills-lock.json` (rewritten: 95→99 entries, all with `skillPath`; 60 stale entries pruned). `.agents/skills/` + `.claude/skills/` (99 refreshed/added skill dirs + symlinks — both gitignored, so not in the git diff). `CHANGELOG.md` (this entry). Rollback snapshot: `skills-lock.backup.json` (pre-change, 95 entries) in the session scratchpad.
+
+**Tool Versions:** vercel-labs `skills` CLI 1.5.16 (via `npx`), node v25.9.0. Sources: `K-Dense-AI/scientific-agent-skills` (main, ~v2.53.0) and `marimo-team/skills`. Commands used: `npx skills add <repo> -s <skill> … -y` (refresh/add), `npx skills update -p … -y` (verify updatable), `npx skills remove …` (revert over-install).
+
+**Open Issues:** None blocking. Going forward, run `npx skills update -p -y` periodically to stay current — it now works because every entry carries `skillPath`. If future scope must stay strictly minimal, back up skill *content* (not just the lockfile) before any whole-repo `add`.
+
+**FAIR Notes:** Reusable — the skill provenance (source repo + `skillPath` + `computedHash` per skill) is captured in `skills-lock.json`, and the update path is now a documented, reproducible CLI command rather than an untracked manual copy. No scientific data artifacts touched; v1.0.0–v1.3.0 analysis baselines remain frozen and citable.

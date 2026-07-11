@@ -1,0 +1,162 @@
+{
+  "version": "1",
+  "metadata": {
+    "marimo_version": "0.23.1",
+    "script_metadata_hash": null
+  },
+  "cells": [
+    {
+      "id": "Hbol",
+      "code_hash": "6fa4bc07d13c619a959d40996580f00f",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "MJUe",
+      "code_hash": "8796287d27e582ca1a4424598d05631d",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "vblA",
+      "code_hash": "1e0b28b94b69bf047c7fa5afbdb97b75",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "bkHC",
+      "code_hash": "ee03618dc37bbd165bfa6b7ec9924694",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h1 id=\"gbm-nervetumorimmune-ligandreceptor-explorer\">GBM \u2014 Nerve\u2194Tumor\u2194Immune Ligand\u2013Receptor Explorer</h1>\n<span class=\"paragraph\"><strong>Source rule:</strong> <code>workflow/rules/immune.smk</code> \u2192 <code>nerve_tumor_immune_interaction.py</code>\n<strong>Inputs:</strong> <code>nerve_tumor_immune_interactions_with_qc.csv</code> (full LIANA table)\nand <code>nerve_tumor_immune_top_pairs_with_qc.csv</code> (top-N per pairing).</span>\n<span class=\"paragraph\">Three cross-compartment interfaces are inferred jointly:\n<strong><code>nerve-tumor</code></strong>, <strong><code>immune-nerve</code></strong>, <strong><code>immune-tumor</code></strong>. Each row is one\nligand\u2013receptor pair for one directional <code>source \u2192 target</code> group pairing.\nLower <code>magnitude_rank</code> / <code>specificity_rank</code> \u21d2 stronger evidence.</span>\n<blockquote>\n<span class=\"paragraph\">The <strong>Relay circuits</strong> panel near the bottom is the three-way payoff:\nit stitches <code>tumor \u2192 immune</code> and <code>immune \u2192 nerve</code> signals through a chosen\nimmune subtype to surface candidate <strong>tumor \u21a6 immune \u21a6 nerve</strong> relays.</span>\n</blockquote></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "lEQa",
+      "code_hash": "5bd2f2f3a4cc5ae38ef9a7baeecc2e9a",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "PKri",
+      "code_hash": "88e1dcc01f81c49fa7c82666bc1cc522",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Xref",
+      "code_hash": "ee04fe4c4039bc9eec78bbf0a4231a03",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "SFPL",
+      "code_hash": "06f790f87c9da00d4a6596206fc0c2b9",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "BYtC",
+      "code_hash": "d7f09b51506c6cbe43a001d7172f4a24",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "RGSE",
+      "code_hash": "7d0355602e29c9179501274387c37714",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Kclp",
+      "code_hash": "9ae2e1275adafa24a4a9d930acfc083d",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "emfo",
+      "code_hash": "fd684a60e80ebf6aa47332f66f461289",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Hstk",
+      "code_hash": "e24d667f4b17eb5b4ae7f43c9cfd4e03",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "nWHF",
+      "code_hash": "40d4a83dba6f66e803d2c785b76eada3",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "iLit",
+      "code_hash": "ae2510c337f052fed80e6191c41b4d4a",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "ZHCJ",
+      "code_hash": "595e259f38f9af0b5621c6f7e1ef8981",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "ROlb",
+      "code_hash": "4acb06d845a0520f2104450ba328eaa8",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><hr />\n<h2 id=\"relay-circuits-tumor-immune-nerve\">Relay circuits \u2014 tumor \u21a6 immune \u21a6 nerve</h2>\n<span class=\"paragraph\">The three-way payoff. Pick an <strong>immune subtype</strong> as the relay hub: the left\ntable lists the strongest <strong><code>tumor \u2192 immune</code></strong> LR pairs (tumor signalling\n<em>into</em> that immune subtype), the right table the strongest\n<strong><code>immune \u2192 nerve</code></strong> LR pairs (that immune subtype signalling <em>out to</em> nerve\nclusters). Read together they are candidate <strong>tumor \u21a6 immune \u21a6 nerve</strong> relay\ncircuits \u2014 a route by which the tumor could reshape nerve cells indirectly\nthrough immune intermediaries.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "qnkX",
+      "code_hash": "97a0e0bd303b6c9956448053cc2608ae",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "TqIu",
+      "code_hash": "bd7709e9022673723e831433ca184110",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Vxnm",
+      "code_hash": "4c0b7e612513b08b5ca1d405131bfd2d",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "DnEU",
+      "code_hash": "c6f59697512a4c0f50a4195c82753026",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "ulZA",
+      "code_hash": "4ef1a914edeff4efcfa39e650c28c8eb",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><hr />\n<span class=\"paragraph\"><strong>FAIR:</strong> input artifacts produced by <code>workflow/rules/immune.smk</code>\n(<code>nerve_tumor_immune_interaction</code>) and <code>annotate_cluster_qc</code> (the <code>_with_qc</code>\nbatch-QC join). Exports include a <code>.provenance.txt</code> sidecar with the input\nhash and every filter value.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    }
+  ]
+}

@@ -337,17 +337,22 @@ rule nerve_batch_qc_v2:
 rule annotate_cluster_qc:
     """Left-join batch-QC verdict onto downstream per-cluster tables (no v1.0.0 changes)."""
     input:
-        purity       = os.path.join(config["dirs"]["tables"], "nerve_cluster_sample_purity.csv"),
-        enrichment   = os.path.join(config["dirs"]["tables"], "nerve_enrichment.csv"),
-        markers      = os.path.join(config["dirs"]["tables"], "nerve_cluster_markers.csv"),
-        interactions = os.path.join(config["dirs"]["tables"], "nerve_tumor_interactions.csv"),
-        top_pairs    = os.path.join(config["dirs"]["tables"], "nerve_tumor_top_pairs.csv"),
+        purity        = os.path.join(config["dirs"]["tables"], "nerve_cluster_sample_purity.csv"),
+        immune_purity = os.path.join(config["dirs"]["tables"], "immune_subtype_sample_purity.csv"),
+        enrichment    = os.path.join(config["dirs"]["tables"], "nerve_enrichment.csv"),
+        markers       = os.path.join(config["dirs"]["tables"], "nerve_cluster_markers.csv"),
+        interactions  = os.path.join(config["dirs"]["tables"], "nerve_tumor_interactions.csv"),
+        top_pairs     = os.path.join(config["dirs"]["tables"], "nerve_tumor_top_pairs.csv"),
+        tw_interactions = os.path.join(config["dirs"]["tables"], "nerve_tumor_immune_interactions.csv"),
+        tw_top_pairs    = os.path.join(config["dirs"]["tables"], "nerve_tumor_immune_top_pairs.csv"),
     output:
-        enrichment   = os.path.join(config["dirs"]["tables"],     "nerve_enrichment_with_qc.csv"),
-        markers      = os.path.join(config["dirs"]["tables"],     "nerve_cluster_markers_with_qc.csv"),
-        interactions = os.path.join(config["dirs"]["tables"],     "nerve_tumor_interactions_with_qc.csv"),
-        top_pairs    = os.path.join(config["dirs"]["tables"],     "nerve_tumor_top_pairs_with_qc.csv"),
-        provenance   = os.path.join(config["dirs"]["provenance"], "annotate_cluster_qc_provenance.json"),
+        enrichment    = os.path.join(config["dirs"]["tables"],     "nerve_enrichment_with_qc.csv"),
+        markers       = os.path.join(config["dirs"]["tables"],     "nerve_cluster_markers_with_qc.csv"),
+        interactions  = os.path.join(config["dirs"]["tables"],     "nerve_tumor_interactions_with_qc.csv"),
+        top_pairs     = os.path.join(config["dirs"]["tables"],     "nerve_tumor_top_pairs_with_qc.csv"),
+        tw_interactions = os.path.join(config["dirs"]["tables"],   "nerve_tumor_immune_interactions_with_qc.csv"),
+        tw_top_pairs    = os.path.join(config["dirs"]["tables"],   "nerve_tumor_immune_top_pairs_with_qc.csv"),
+        provenance    = os.path.join(config["dirs"]["provenance"], "annotate_cluster_qc_provenance.json"),
     log:
         os.path.join(config["dirs"]["logs"], "annotate_cluster_qc.log"),
     conda:
@@ -356,6 +361,7 @@ rule annotate_cluster_qc:
         mem_mb  = 2000,
         threads = 1,
     params:
-        exclude_clusters = config["nerve_cells"]["batch_qc"].get("exclude_clusters", []),
+        exclude_clusters        = config["nerve_cells"]["batch_qc"].get("exclude_clusters", []),
+        immune_exclude_subtypes = config["immune_cells"]["batch_qc"].get("exclude_subtypes", []),
     script:
         "../scripts/annotate_cluster_qc.py"
