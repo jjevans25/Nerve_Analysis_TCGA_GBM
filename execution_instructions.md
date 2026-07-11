@@ -161,3 +161,7 @@ claude_science/bin/python3 -m snakemake --use-conda --cores 2 \
 | `results/figures/nerve_abundance_heatmap.png` | Per-sample cluster proportions heatmap |
 | `provenance/*.json` | FAIR provenance records for every rule output |
 | `results/snakemake_report.html` | Full reproducibility report with DAG and rule stats |
+
+
+## To Pickup Where it Left Off
+claude --continue  # or use shorthand: claude -c

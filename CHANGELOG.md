@@ -33,17 +33,52 @@ Format each entry with: date, phase, action taken, outcome, and any open issues.
 
 ```
 [STATUS]
-Phase:          v1.2.0 Closeout — Ependymal Panel Tightening + Freeze Insulator (COMPLETE)
-Last Updated:   2026-05-24
+Phase:          Nerve–Tumor–Immune Interaction Analysis + Explorer (COMPLETE pending notebook HTML export)
+Last Updated:   2026-07-11
 Active Agent:   lead-researcher
-Current Task:   v1.2.0 tagged — freeze insulator verified bit-exact; cl15 MIXED verdict stands
-Blocked On:     —
-Next Action:    v1.3.0 — cl15 surgical sub-cluster relabel + retire freeze (full renumber). See markdowns/DO_THIS_NEXT_post_v1.2.0_rerun.md Phase 2
+Current Task:   Three-way LIANA nerve-tumor-immune interaction built & verified; immune compartment subclustered into 5 subtypes; interactive marimo explorer written
+Blocked On:     Notebook HTML export (results/figures/03_nerve_tumor_immune_explorer.html) — transient Bash-tooling outage at session end; re-run `snakemake --use-conda --cores 2 --rerun-triggers=mtime results/figures/03_nerve_tumor_immune_explorer.html`
+Next Action:    Export the notebook HTML, then review immune subtype biology; optionally tune immune_cells.leiden_resolution and populate exclude_subtypes if any subtype is an artifact
+```
+
+Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLETE; freeze insulator retained; cluster set {0-14, 16-27}.
 ```
 
 ---
 
 ## Session Log
+
+---
+
+### [2026-07-11] | Phase: Nerve–Tumor–Immune Interaction Analysis + Explorer | Status: COMPLETE (notebook HTML export pending)
+
+**Action:** Extended the pipeline to characterise nerve–tumor–**immune** crosstalk. The prior `nerve_tumor_interaction` (LIANA) covered only malignant↔nerve; the immune compartment was annotated at the whole-dataset level (one coarse `microglia` argmax group of 46,777 cells) but never entered any interaction analysis. Built a new upstream immune-subclustering stage + a three-way LIANA interaction + an interactive marimo explorer. Design decisions confirmed with researcher: **full immune subclustering** (not microglia-only) and **nerve kept at 27 Leiden clusters**.
+
+**Outcome:**
+- **Immune subset** (`immune_cell_subset`): 46,030 non-malignant `microglia`-labelled cells re-clustered on the existing `X_scVI` latent (no retraining) → 23 Leiden clusters. All 5 resulting subtypes PASS batch purity (14–16 contributing samples for the large ones; none patient-driven).
+- **Immune subtypes** (`immune_cluster_annotations`, marker argmax): microglia 20,729 · T-cell 10,040 · TAM/macrophage 8,317 · dendritic 5,086 · NK 1,858. Marker panels discriminated cleanly (e.g. NK panel score 1.26 on the NK cluster; TAM 0.64 on the TAM cluster).
+- **Three-way interaction** (`nerve_tumor_immune_interaction`, LIANA+ consensus, n_perms=1000, 334 cross-compartment directional pairings): 82,457 LR rows total, 5,394 significant (magnitude_rank<0.05). By interface: immune-nerve 57,336 (3,839 sig), nerve-tumor 21,618 (1,403 sig), immune-tumor 3,503 (152 sig). Top immune-nerve axes are NLGN1–NRXN1/NRXN3 (neuroligin/neurexin adhesion, NK↔nerve), consistent with known cancer-neuron synaptic signalling.
+- **QC join** (`annotate_cluster_qc` extended): `_with_qc` variants carry per-side (`nerve_*`, `immune_*`) and combined `batch_qc_pass`. Nerve clusters 21 & 27 (configured artifacts) dropped → 77,465 rows / 4,917 sig in the with_qc interactions table.
+- **Explorer** (`notebooks/03_nerve_tumor_immune_explorer.py`): compartment-interface selector, filtered table, significance heatmap, top-K dotplot, and a **relay-circuit** panel (tumor→immune + immune→nerve legs through a chosen immune hub) framing candidate tumor↦immune↦nerve relays. Registered as `nerve_tumor_immune_notebook`.
+
+**Artifacts:**
+- Scripts: `workflow/scripts/immune_cell_subset.py`, `immune_cluster_annotations.py`, `nerve_tumor_immune_interaction.py`; edits to `annotate_cluster_qc.py`, `fair_utils.py` (string-safe cluster sort).
+- Rules: `workflow/rules/immune.smk` (+ `Snakefile` include & `rule all`); `nerve_tumor_immune_notebook` in `notebooks.smk`; extended `annotate_cluster_qc` in `nerve_cells.smk`.
+- Config: `immune_cells:` block in `config/config.yaml`.
+- Data: `data/processed/immune_cells.h5ad`, `immune_cells_labeled.h5ad`.
+- Tables: `results/tables/immune_cluster_composition.csv`, `immune_cluster_sample_purity.csv`, `immune_cluster_annotations.csv`, `immune_subtype_sample_purity.csv`, `nerve_tumor_immune_interactions{,_with_qc}.csv`, `nerve_tumor_immune_top_pairs{,_with_qc}.csv`.
+- Figures: `results/figures/immune_cells_umap.png`, `nerve_tumor_immune_sig_heatmap.png`, `nerve_tumor_immune_dotplot.png`; **pending** `03_nerve_tumor_immune_explorer.html`.
+- Provenance: one JSON per new rule output in `provenance/`.
+- Branch: `feat/nerve-tumor-immune-interaction` (not yet committed — awaiting researcher review).
+
+**Tool Versions:** liana 1.7.1 · scanpy 1.10.4 (scrna conda env) · anndata 0.12.10 · pandas 2.3.3 · marimo 0.23.1.
+
+**Open Issues:**
+- **Notebook HTML export not yet produced** — the `nerve_tumor_immune_notebook` rule could not run at session end due to a transient outage of the Bash safety classifier. All inputs exist; re-run `snakemake --use-conda --cores 2 --rerun-triggers=mtime results/figures/03_nerve_tumor_immune_explorer.html`.
+- `immune_cells.leiden_resolution` (1.0) and `immune_cells.batch_qc.exclude_subtypes` ([]) are first-pass defaults; revisit after inspecting the immune UMAP / composition. No subtype is currently excluded.
+- LIANA aggregate `lrscore` is symmetric for CellPhoneDB-style resources, so bidirectional adhesion pairs (e.g. NLGN1/NRXN) appear near-identical in both directions — expected, documented in the notebook.
+
+**FAIR Notes:** Every new rule emits a provenance JSON (input SHA-256, tool versions, parameters). Interaction provenance records 334 pairings, n_perms=1000, and compartment split. No absolute paths in scripts (config-driven). `annotate_cluster_qc` leaves source tables byte-identical; only the new `_with_qc` variants add QC columns.
 
 ---
 

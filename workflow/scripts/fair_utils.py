@@ -131,9 +131,16 @@ def compute_cluster_purity(
     """
     samples = sorted(adata.obs[batch_col].astype(str).unique().tolist())
     n_samples = len(samples)
+
+    # Sort integer-like cluster ids numerically (scanpy Leiden output); fall back
+    # to lexical order for non-numeric labels (e.g. immune subtype names). Numeric
+    # labels are unaffected — this preserves the original nerve/immune-Leiden order.
+    def _cluster_sort_key(c: str) -> tuple[int, float, str]:
+        return (0, int(c), "") if c.isdigit() else (1, 0.0, c)
+
     clusters = sorted(
         adata.obs[cluster_col].astype(str).unique().tolist(),
-        key=lambda c: int(c),
+        key=_cluster_sort_key,
     )
 
     counts = (

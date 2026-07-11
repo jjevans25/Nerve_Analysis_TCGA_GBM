@@ -108,7 +108,92 @@ def _annotate(
     return len(merged), n_dropped
 
 
+def _annotate_threeway(
+    source_path: str | Path,
+    out_path: str | Path,
+    nerve_purity: pd.DataFrame,
+    immune_purity: pd.DataFrame,
+    *,
+    nerve_exclude: set[str],
+    immune_exclude: set[str],
+) -> tuple[int, int]:
+    """Join nerve + immune batch-QC verdicts onto the three-way interaction table.
+
+    Each row involves at most one nerve cluster and at most one immune subtype
+    (the third party, tumor, has no batch-QC verdict). Purity is joined on
+    whichever compartment(s) the row spans; ``batch_qc_pass`` is the AND of the
+    verdicts that apply (a not-involved compartment counts as pass). Rows whose
+    nerve cluster or immune subtype is excluded are dropped, mirroring the
+    per-cluster ``_annotate`` convention. Returns (rows_written, rows_dropped).
+    """
+    src = pd.read_csv(source_path)
+    for col in ("nerve_cluster", "immune_subtype", "compartment_pair"):
+        if col not in src.columns:
+            raise RuntimeError(
+                f"[FAIR-ALERT] Expected column '{col}' not in {source_path}"
+            )
+    n_src = len(src)
+    src["nerve_cluster"] = src["nerve_cluster"].fillna("").astype(str)
+    src["immune_subtype"] = src["immune_subtype"].fillna("").astype(str)
+    src["_nerve_key"] = src["nerve_cluster"].str.removeprefix(NERVE_CLUSTER_PREFIX)
+    src["_immune_key"] = src["immune_subtype"]
+
+    nerve_cols = {
+        "batch_qc_pass": "nerve_batch_qc_pass",
+        "dominant_sample_fraction": "nerve_dominant_sample_fraction",
+        "n_contributing_samples": "nerve_n_contributing_samples",
+        "normalised_entropy": "nerve_normalised_entropy",
+        "cluster_key": "_nerve_key",
+    }
+    immune_cols = {
+        "batch_qc_pass": "immune_batch_qc_pass",
+        "dominant_sample_fraction": "immune_dominant_sample_fraction",
+        "n_contributing_samples": "immune_n_contributing_samples",
+        "normalised_entropy": "immune_normalised_entropy",
+        "cluster_key": "_immune_key",
+    }
+    merged = src.merge(nerve_purity.rename(columns=nerve_cols), on="_nerve_key", how="left")
+    merged = merged.merge(immune_purity.rename(columns=immune_cols), on="_immune_key", how="left")
+    if len(merged) != n_src:
+        raise RuntimeError(
+            f"[FAIR-ALERT] Row-count parity violated for {source_path}: "
+            f"{n_src} -> {len(merged)} after join"
+        )
+
+    # Every *involved* cluster/subtype must resolve to a purity verdict.
+    nerve_involved = merged["_nerve_key"] != ""
+    immune_involved = merged["_immune_key"] != ""
+    if (bad := merged.loc[nerve_involved & merged["nerve_batch_qc_pass"].isna(), "_nerve_key"]).any():
+        raise RuntimeError(
+            f"[FAIR-ALERT] nerve clusters in {source_path} missing from purity: "
+            f"{sorted(set(bad))}"
+        )
+    if (bad := merged.loc[immune_involved & merged["immune_batch_qc_pass"].isna(), "_immune_key"]).any():
+        raise RuntimeError(
+            f"[FAIR-ALERT] immune subtypes in {source_path} missing from purity: "
+            f"{sorted(set(bad))}"
+        )
+
+    # Combined verdict: AND of the verdicts that apply (not-involved = pass).
+    nerve_ok = merged["nerve_batch_qc_pass"].fillna(True).astype(bool)
+    immune_ok = merged["immune_batch_qc_pass"].fillna(True).astype(bool)
+    merged["batch_qc_pass"] = nerve_ok & immune_ok
+
+    dropped_mask = merged["_nerve_key"].isin(nerve_exclude) | merged["_immune_key"].isin(
+        immune_exclude
+    )
+    n_dropped = int(dropped_mask.sum())
+    merged = merged.loc[~dropped_mask].reset_index(drop=True)
+
+    merged = merged.drop(columns=["_nerve_key", "_immune_key"])
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(out_path, index=False)
+    verify_artifact(out_path, min_size_bytes=64)
+    return len(merged), n_dropped
+
+
 purity = _load_purity(snakemake.input.purity)
+immune_purity = _load_purity(snakemake.input.immune_purity)
 n_pass = int(purity["batch_qc_pass"].sum())
 n_fail = int((~purity["batch_qc_pass"]).sum())
 log_transformation(
@@ -118,12 +203,22 @@ log_transformation(
 )
 
 exclude_clusters = {str(c) for c in getattr(snakemake.params, "exclude_clusters", []) or []}
+immune_exclude = {
+    str(c) for c in getattr(snakemake.params, "immune_exclude_subtypes", []) or []
+}
 if exclude_clusters:
     log_transformation(
         log,
         "annotate_cluster_qc",
-        f"Excluding {len(exclude_clusters)} cluster(s) from _with_qc.csv outputs: "
+        f"Excluding {len(exclude_clusters)} nerve cluster(s) from _with_qc.csv outputs: "
         f"{sorted(exclude_clusters)}",
+    )
+if immune_exclude:
+    log_transformation(
+        log,
+        "annotate_cluster_qc",
+        f"Excluding {len(immune_exclude)} immune subtype(s) from three-way "
+        f"_with_qc.csv outputs: {sorted(immune_exclude)}",
     )
 
 jobs = [
@@ -148,15 +243,36 @@ for src, out, join_col, strip in jobs:
         f"Annotated {src} -> {out} ({n_rows} rows; {n_dropped} dropped via exclude_clusters)",
     )
 
+# --- Three-way nerve-tumor-immune interaction tables -------------------------
+threeway_jobs = [
+    (snakemake.input.tw_interactions, snakemake.output.tw_interactions),
+    (snakemake.input.tw_top_pairs, snakemake.output.tw_top_pairs),
+]
+for src, out in threeway_jobs:
+    n_rows, n_dropped = _annotate_threeway(
+        src, out, purity, immune_purity,
+        nerve_exclude=exclude_clusters, immune_exclude=immune_exclude,
+    )
+    row_counts[str(out)] = n_rows
+    rows_dropped[str(out)] = n_dropped
+    log_transformation(
+        log,
+        "annotate_cluster_qc",
+        f"Annotated (3-way) {src} -> {out} ({n_rows} rows; {n_dropped} dropped)",
+    )
+
 prov = stamp_artifact(
     output_path=snakemake.output.provenance,
     rule_name="annotate_cluster_qc",
     input_paths=[
         snakemake.input.purity,
+        snakemake.input.immune_purity,
         snakemake.input.enrichment,
         snakemake.input.markers,
         snakemake.input.interactions,
         snakemake.input.top_pairs,
+        snakemake.input.tw_interactions,
+        snakemake.input.tw_top_pairs,
     ],
     tool_versions={
         "pandas": pd.__version__,
@@ -168,17 +284,30 @@ prov = stamp_artifact(
         "row_counts": row_counts,
         "rows_dropped": rows_dropped,
         "exclude_clusters": sorted(exclude_clusters),
+        "immune_exclude_subtypes": sorted(immune_exclude),
         "appended_columns": [
             "batch_qc_pass",
             "dominant_sample_fraction",
             "n_contributing_samples",
             "normalised_entropy",
         ],
+        "threeway_appended_columns": [
+            "batch_qc_pass",
+            "nerve_batch_qc_pass",
+            "nerve_dominant_sample_fraction",
+            "nerve_n_contributing_samples",
+            "nerve_normalised_entropy",
+            "immune_batch_qc_pass",
+            "immune_dominant_sample_fraction",
+            "immune_n_contributing_samples",
+            "immune_normalised_entropy",
+        ],
     },
     description=(
         "Downstream annotation pass: left-joins batch-QC verdict from "
-        "nerve_cluster_sample_purity.csv onto enrichment, marker, and LIANA "
-        "tumor-nerve tables. Source tables are not modified."
+        "nerve_cluster_sample_purity.csv and immune_subtype_sample_purity.csv onto "
+        "enrichment, marker, and LIANA tumor-nerve and nerve-tumor-immune tables. "
+        "Source tables are not modified."
     ),
     ontology_operation="operation:3436",  # EDAM: Aggregation
 )
@@ -193,6 +322,8 @@ prov["outputs"] = [
         snakemake.output.markers,
         snakemake.output.interactions,
         snakemake.output.top_pairs,
+        snakemake.output.tw_interactions,
+        snakemake.output.tw_top_pairs,
     )
 ]
 write_provenance(prov, snakemake.output.provenance)
@@ -207,6 +338,8 @@ log_transformation(
         snakemake.output.markers,
         snakemake.output.interactions,
         snakemake.output.top_pairs,
+        snakemake.output.tw_interactions,
+        snakemake.output.tw_top_pairs,
         snakemake.output.provenance,
     ],
 )

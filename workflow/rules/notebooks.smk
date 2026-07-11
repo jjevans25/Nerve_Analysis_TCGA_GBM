@@ -60,3 +60,23 @@ rule nerve_tumor_exploration_notebook:
         threads = 1,
     script:
         "../scripts/run_notebook_export.py"
+
+
+rule nerve_tumor_immune_notebook:
+    """Export three-way nerve-tumor-immune LR explorer to HTML (consumes nerve_tumor_immune_*_with_qc.csv)."""
+    input:
+        notebook     = "notebooks/03_nerve_tumor_immune_explorer.py",
+        interactions = os.path.join(config["dirs"]["tables"], "nerve_tumor_immune_interactions_with_qc.csv"),
+        top_pairs    = os.path.join(config["dirs"]["tables"], "nerve_tumor_immune_top_pairs_with_qc.csv"),
+    output:
+        html       = os.path.join(config["dirs"]["figures"],    "03_nerve_tumor_immune_explorer.html"),
+        provenance = os.path.join(config["dirs"]["provenance"], "nerve_tumor_immune_notebook_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "nerve_tumor_immune_notebook.log"),
+    conda:
+        "../envs/notebooks.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = 1,
+    script:
+        "../scripts/run_notebook_export.py"

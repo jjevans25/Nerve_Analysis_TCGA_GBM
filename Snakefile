@@ -24,6 +24,7 @@ include: "workflow/rules/qc.smk"
 include: "workflow/rules/integration.smk"
 include: "workflow/rules/annotation.smk"
 include: "workflow/rules/nerve_cells.smk"
+include: "workflow/rules/immune.smk"
 include: "workflow/rules/proteomics.smk"
 include: "workflow/rules/notebooks.smk"
 
@@ -71,10 +72,16 @@ rule all:
         *([p(config["dirs"]["tables"],         "nerve_cluster_markers_with_qc.csv")] if SAMPLES   else []),
         *([p(config["dirs"]["tables"],         "nerve_tumor_interactions_with_qc.csv")] if SAMPLES else []),
         *([p(config["dirs"]["tables"],         "nerve_tumor_top_pairs_with_qc.csv")] if SAMPLES   else []),
+        *([p(config["dirs"]["figures"],        "immune_cells_umap.png")]            if SAMPLES    else []),
+        *([p(config["dirs"]["tables"],         "immune_cluster_annotations.csv")]   if SAMPLES    else []),
+        *([p(config["dirs"]["tables"],         "nerve_tumor_immune_interactions.csv")] if SAMPLES else []),
+        *([p(config["dirs"]["tables"],         "nerve_tumor_immune_interactions_with_qc.csv")] if SAMPLES else []),
+        *([p(config["dirs"]["tables"],         "nerve_tumor_immune_top_pairs_with_qc.csv")] if SAMPLES else []),
         *([p(config["dirs"]["tables"],         "protein_quant_matrix.csv")]         if MS_SAMPLES else []),
         *([p(config["dirs"]["figures"],        "01_explore_gbm_data.html")]         if SAMPLES    else []),
         *([p(config["dirs"]["figures"],        "02_nerve_enrichment_explorer.html")] if SAMPLES    else []),
         *([p(config["dirs"]["figures"],        "nerve_tumor_exploration.html")]      if SAMPLES    else []),
+        *([p(config["dirs"]["figures"],        "03_nerve_tumor_immune_explorer.html")] if SAMPLES  else []),
 
 
 # -------------------------------------------------------------
