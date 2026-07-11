@@ -793,3 +793,25 @@ At that point the freeze forces a deliberate retirement (it raises a `[FAIR-ALER
 **Artifacts:** `config/config.yaml` (v1.3.0 verification note appended to the `frozen_subset_file` comment block; key left set). No pipeline re-run, no new data artifacts — the 0-delta claim is reproducible from the committed `nerve_cell_subset.py` filter logic + the freeze list.
 
 **FAIR Notes:** Reusable/verifiable — anyone can reproduce the 0-cell delta with the documented method; no bespoke script required. v1.0.0–v1.3.0 baselines remain frozen and citable.
+
+---
+
+### [2026-07-11] | Phase: Agent Skills Maintenance — Refresh to Current Upstream + Adopt CLI Update Tracking | Status: COMPLETE
+
+**Action:** Audited the project's installed agent skills (real dirs in `.agents/skills/`, symlinked into `.claude/skills/`, tracked by `skills-lock.json`) and refreshed them against upstream. The installed set was a snapshot from **2026-04-16/17**: 85 skills from `K-Dense-AI/scientific-agent-skills` + 10 from `marimo-team/skills`. Upstream had since advanced (K-Dense ≈ v2.53.0, 149 skills), and the project `skills-lock.json` was a v1 format (`source`/`sourceType`/`computedHash`, no `skillPath`), so the Skills CLI could not detect or apply updates — nothing had flagged the drift. Adopted the vercel-labs `skills` CLI (`npx skills`, v1.5.16) as the update mechanism.
+
+**Outcome:**
+- **All 95 pre-existing skills refreshed** to current upstream content, and each lockfile entry upgraded with `skillPath` so `npx skills update` now works going forward (previously "cannot be updated — installed before skillPath tracking").
+- **4 new project-relevant skills added** (all from K-Dense-AI): `bulk-rnaseq` (TCGA-GBM is bulk RNA-seq), `pathway-enrichment` (project uses `gseapy` GO/MSigDB), `depmap` (GBM cancer-dependency reference), `deeptools` (NGS coverage/signal).
+- **Measured staleness on the 33 project-relevant skills** (single-cell/DL, genomics, stats/survival, proteomics, viz, marimo tooling): **29 of 33 were content-stale and are now updated** (e.g. `scanpy` folder hash `7185f19…`→`2e8545a…`; `cellxgene-census`, `gget`, `scvi-tools`, `pyopenms` all changed); the 4 marimo helper skills (`jupyter-to-marimo`, `marimo-batch`, `streamlit-to-marimo`, `wasm-compatibility`) were already current.
+- Final state: **99 skills** = 95 refreshed originals + 4 new. `skills-lock.json` entries (99) == on-disk dirs (99) == `.claude/skills` symlinks (99), 0 broken symlinks, all 99 CLI-tracked (`skillPath` present).
+
+**Scope note (deviation recorded):** Approved scope was the *project-relevant subset* (~33 skills). Executing the refresh via the CLI's whole-repo `add` (the CLI cannot update the v1-format entries in place) refreshed **all 95 pre-existing skills**, not just the 33. An intermediate `add … -y` with many `-s` flags also mis-triggered a full 149-skill install; the 60 unintended additions were reverted (dirs + symlinks removed, lockfile pruned) leaving only the 4 intended new skills. The pre-refresh skill *content* was not backed up (only `skills-lock.json` was), so the extra refreshes could not be reverted to April content — net effect is that every skill is now at current upstream, a superset of the approved subset.
+
+**Artifacts:** `skills-lock.json` (rewritten: 95→99 entries, all with `skillPath`; 60 stale entries pruned). `.agents/skills/` + `.claude/skills/` (99 refreshed/added skill dirs + symlinks — both gitignored, so not in the git diff). `CHANGELOG.md` (this entry). Rollback snapshot: `skills-lock.backup.json` (pre-change, 95 entries) in the session scratchpad.
+
+**Tool Versions:** vercel-labs `skills` CLI 1.5.16 (via `npx`), node v25.9.0. Sources: `K-Dense-AI/scientific-agent-skills` (main, ~v2.53.0) and `marimo-team/skills`. Commands used: `npx skills add <repo> -s <skill> … -y` (refresh/add), `npx skills update -p … -y` (verify updatable), `npx skills remove …` (revert over-install).
+
+**Open Issues:** None blocking. Going forward, run `npx skills update -p -y` periodically to stay current — it now works because every entry carries `skillPath`. If future scope must stay strictly minimal, back up skill *content* (not just the lockfile) before any whole-repo `add`.
+
+**FAIR Notes:** Reusable — the skill provenance (source repo + `skillPath` + `computedHash` per skill) is captured in `skills-lock.json`, and the update path is now a documented, reproducible CLI command rather than an untracked manual copy. No scientific data artifacts touched; v1.0.0–v1.3.0 analysis baselines remain frozen and citable.
