@@ -27,6 +27,7 @@ include: "workflow/rules/nerve_cells.smk"
 include: "workflow/rules/immune.smk"
 include: "workflow/rules/proteomics.smk"
 include: "workflow/rules/notebooks.smk"
+include: "workflow/rules/datasets.smk"
 
 # Ensure required directories exist before any rule runs
 from pathlib import Path
@@ -36,6 +37,7 @@ for _d in config["dirs"].values():
 # Convenience aliases
 SAMPLES    = config.get("samples", [])
 MS_SAMPLES = config.get("ms_samples", [])
+DATASETS   = config.get("datasets", {})   # replication cohorts (cohort-namespaced track)
 
 # Utility rules that run locally (no cluster submission)
 localrules: all, clean_logs, show_dag, list_artifacts
@@ -82,6 +84,14 @@ rule all:
         *([p(config["dirs"]["figures"],        "02_nerve_enrichment_explorer.html")] if SAMPLES    else []),
         *([p(config["dirs"]["figures"],        "nerve_tumor_exploration.html")]      if SAMPLES    else []),
         *([p(config["dirs"]["figures"],        "03_nerve_tumor_immune_explorer.html")] if SAMPLES  else []),
+        # Replication cohorts: terminal concordance target pulls each dataset's
+        # full cohort-namespaced chain (Stage A→D). Reference outputs above are
+        # untouched. Gated on the `datasets:` config block being present.
+        *[p(config["dirs"]["tables"], d, "cohort_concordance_summary.json") for d in DATASETS],
+        # scANVI-v2 nerve branch (full parity; side-branch not pulled by concordance).
+        *[p(config["dirs"]["tables"],  d, "nerve_cluster_sample_purity_v2.csv") for d in DATASETS],
+        *[p(config["dirs"]["tables"],  d, "nerve_celltype_label_summary.csv")   for d in DATASETS],
+        *[p(config["dirs"]["figures"], d, "nerve_scanvi_training_curves.png")    for d in DATASETS],
 
 
 # -------------------------------------------------------------

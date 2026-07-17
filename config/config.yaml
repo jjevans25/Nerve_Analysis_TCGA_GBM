@@ -120,6 +120,31 @@ samples:
   - f8b54be7-f58e-4881-9147-40df9cef487b
 
 # -------------------------------------------------------------
+# Replication cohorts (cohort-namespaced parallel track)
+# Each entry runs its OWN end-to-end scVI/scANVI pipeline under a per-dataset
+# namespace (data/processed/<dataset>/, results/{models,tables,figures}/<dataset>/,
+# provenance/<dataset>/). The reference cohort above (top-level `samples:`) is
+# NEVER re-run — see workflow/rules/datasets.smk and the cohort_concordance step.
+# The nerve/immune marker panels, scrna:, and nerve_scanvi: blocks are shared
+# defaults; only freeze/override files are per-dataset (off for replication).
+# Sample list is a committed sheet (data/raw/<dataset>/samples.txt), generated
+# once by scripts/derive_dataset_sample_sheet.py (it must exist at parse time).
+# -------------------------------------------------------------
+datasets:
+  gbm_cellxgene_56c4912d:
+    description: "CELLxGENE Census GBM 10x replication cohort — single largest study"
+    disease: "glioblastoma"
+    source: "h5ad"                                     # gdc_loom | h5ad | mtx | cellxgene_census
+    raw_file: "cellxgene_data/gbm_10x_raw.h5ad"        # single file, not a dir
+    filter: { dataset_id: "56c4912d-2bae-4b64-98f2-af8a84389208" }
+    gene_id_type: "ensembl"          # .var feature_id = Ensembl; feature_name = symbol
+    sample_key: "donor_id"           # donor == sample; samples auto-derived to samples.txt
+    subsample_per_donor: 5000        # per-donor cap; random_state = scrna.random_seed
+    batch_key: "sample_id"           # = donor_id (within-study batch covariate)
+    freeze_nerve_subset: false       # replication cohort → fresh cut, no reference freezes
+    freeze_cl15_split: false
+
+# -------------------------------------------------------------
 # Nerve cell heterogeneity analysis
 # -------------------------------------------------------------
 nerve_cells:

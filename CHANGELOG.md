@@ -33,12 +33,12 @@ Format each entry with: date, phase, action taken, outcome, and any open issues.
 
 ```
 [STATUS]
-Phase:          Nerve–Tumor–Immune Interaction Analysis + Explorer (COMPLETE pending notebook HTML export)
-Last Updated:   2026-07-11
+Phase:          Second GBM Replication Cohort (cohort-namespaced parallel track) — CODE COMPLETE, not yet run
+Last Updated:   2026-07-16
 Active Agent:   lead-researcher
-Current Task:   Three-way LIANA nerve-tumor-immune interaction built & verified; immune compartment subclustered into 5 subtypes; interactive marimo explorer written
-Blocked On:     Notebook HTML export (results/figures/03_nerve_tumor_immune_explorer.html) — transient Bash-tooling outage at session end; re-run `snakemake --use-conda --cores 2 --rerun-triggers=mtime results/figures/03_nerve_tumor_immune_explorer.html`
-Next Action:    Export the notebook HTML, then review immune subtype biology; optionally tune immune_cells.leiden_resolution and populate exclude_subtypes if any subtype is an artifact
+Current Task:   Wired a full replication pipeline for the CELLxGENE Census GBM cohort (gbm_cellxgene_56c4912d) reusing every reference analysis script unchanged; DAG validated by dry-run (358 ds jobs), reference baseline confirmed untouched under --rerun-triggers mtime
+Blocked On:     Nothing — awaiting researcher to launch the overnight run (own scVI + scANVI on ~150–300k cells). MANDATORY flag: --rerun-triggers mtime (protects the frozen 17-sample reference baseline)
+Next Action:    Run `caffeinate -i snakemake --use-conda --cores all --rerun-triggers mtime -- results/tables/gbm_cellxgene_56c4912d/cohort_concordance_summary.json results/tables/gbm_cellxgene_56c4912d/nerve_cluster_sample_purity_v2.csv`; then inspect cohort_concordance_summary.json (Jaccard + Spearman vs reference)
 ```
 
 Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLETE; freeze insulator retained; cluster set {0-14, 16-27}.
@@ -47,6 +47,30 @@ Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLE
 ---
 
 ## Session Log
+
+---
+
+### [2026-07-16] | Phase: Second GBM Replication Cohort (cohort-namespaced track) | Status: CODE COMPLETE (not yet run)
+
+**Action:** Built a replication track to test whether the v1.3.0 tumor→immune→nerve LR interactions reproduce on an independent GBM cohort. (1) Assessed the CELLxGENE Census GBM pull `cellxgene_data/gbm_10x_raw.h5ad` (metadata-only reads, nothing heavy): 1.29M cells × 61,497 genes, 174 donors, 4 studies, raw 10x UMIs — verdict HIGH suitability, far stronger than the earlier SCP393 candidate (esp. nerve arm ~95k vs ~500). (2) Ran a single-donor Stage-A ingest smoke test (donor BT389, 5,028→5,000 cells): raw counts OK, 100% symbol mapping, markers present, round-trips in scanpy. (3) Implemented the full cohort-namespaced pipeline (Stage A→D) reusing every reference analysis script unchanged (all are I/O-agnostic via snakemake.input/output/params). Researcher decisions: scope = single largest study `56c4912d`; per-donor subsample cap 5,000; `batch_key=donor_id`; scANVI-v2 branch INCLUDED for full parity.
+
+**Outcome:**
+- New rules file `workflow/rules/datasets.smk`: 20 dataset-scoped `ds_*` rules under a `{dataset}` namespace (`data/processed/<dataset>/…`, `results/{tables,figures,models}/<dataset>/…`, `provenance/<dataset>/…`). Reference cohort (top-level `samples:`) never re-run.
+- New scripts: `ingest_dataset.py` (Stage-A loader, `h5ad` branch; other sources stubbed), `dataset_gene_symbol_map.py` (Ensembl→symbol from the cohort's own `.var` — the reference MyGene cache does not cover Census unversioned IDs, would silently collapse annotation), `dataset_clinical_stub.py` (blank clinical TSV so `nerve_cell_subset`'s clinical join works without GDC metadata), `cohort_concordance.py` (Stage-D Jaccard + Spearman deliverable). Setup util `scripts/derive_dataset_sample_sheet.py` generated the committed 170-donor `data/raw/gbm_cellxgene_56c4912d/samples.txt` + `MANIFEST.txt`.
+- `config/config.yaml`: added `datasets:` block with the concrete `gbm_cellxgene_56c4912d` entry. `Snakefile`: `include` datasets.smk, `DATASETS` alias, terminal targets (`cohort_concordance_summary.json` + scANVI-v2 outputs).
+- **Validation (dry-run only; no pipeline job executed):** DAG builds = 358 jobs (170 ingest + 170 QC + 18 singletons). Under `--rerun-triggers mtime` only the 20 `ds_*` rules run and the reference deliverable reports "Nothing to be done (all up to date)" — baseline protected. All 4 new scripts byte-compile.
+
+**Artifacts:** `workflow/rules/datasets.smk`; `workflow/scripts/{ingest_dataset,dataset_gene_symbol_map,dataset_clinical_stub,cohort_concordance}.py`; `scripts/derive_dataset_sample_sheet.py`; `data/raw/gbm_cellxgene_56c4912d/{samples.txt,MANIFEST.txt}`; `config/config.yaml`; `Snakefile`; `markdowns/{assessment_cellxgene_gbm_cohort,plan_second_gbm_replication_cohort}.md`.
+
+**Tool Versions:** snakemake 9.20.0; anndata 0.11.4; scanpy 1.11.1 (gbm_scrna env for metadata/smoke-test reads).
+
+**Open Issues:**
+- Not yet run — awaiting researcher. Full run does its OWN scVI + scANVI (two MPS trains) on ~150–300k cells; budget an overnight run.
+- `--rerun-triggers mtime` is MANDATORY: default triggers (provenance/code/env) would force a re-run of the 17-sample reference baseline because concordance reads its committed `_with_qc.csv`.
+- scANVI-v2 is a nerve-latent validation side-branch — it does NOT feed the three-way interaction (which uses the v1 `nerve_cells.h5ad`); included only for parity.
+- `exclude_clusters`/`exclude_subtypes` left empty for this cohort (no artifacts diagnosed yet — revisit after inspecting its purity tables). Re-verify marker presence in the cohort's `var_names` before trusting subtype calls.
+
+**FAIR Notes:** Every `ds_*` rule stamps provenance JSON under `provenance/<dataset>/`; raw inputs carry a `MANIFEST.txt`; no hardcoded paths (all via `config["dirs"]` + `{dataset}` wildcard); reference v1.0.0–v1.3.0 baselines + freeze SHA-256s untouched (verified via mtime dry-run). Assessment + updated plan committed under `markdowns/`.
 
 ---
 
