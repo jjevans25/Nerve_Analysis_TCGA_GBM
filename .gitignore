@@ -113,3 +113,6 @@ broad_data/SCP393/expression/5e16df92771a5b0eb30ca010/genes1.tsv
 .gitignore
 cellxgene_data/gbm_10x_raw.h5ad
 broad_data/SCP393/metadata/IDHwt.GBM.Metadata.SS2.txt
+markdowns/diagnosis_rerun_gene_intersection.md
+markdowns/error_on_rerun.md
+markdowns/plan_recover_baseline_raw_counts.md

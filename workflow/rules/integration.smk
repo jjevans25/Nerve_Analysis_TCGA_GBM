@@ -28,6 +28,10 @@ rule scrna_integration:
         n_layers    = config["scrna"]["n_layers"],
         batch_key   = config["scrna"]["batch_key"],
         random_seed = config["scrna"]["random_seed"],
+        min_cells   = config["scrna"]["min_cells"],
+        # Baseline .X is Seurat SCT log1p (from loom_to_h5ad) — a structural
+        # property of the source, not tunable. scVI reads recovered counts.
+        counts_from_log1p = True,
     script:
         "../scripts/scrna_integration.py"
 

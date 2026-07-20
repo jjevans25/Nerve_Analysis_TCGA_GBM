@@ -31,7 +31,7 @@ sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], percent_top=None, log1p=False,
 params = snakemake.params
 log_transformation(log, "scrna_qc",
     f"QC thresholds — min_genes={params.min_genes}, max_genes={params.max_genes}, "
-    f"min_cells={params.min_cells}, max_pct_mito={params.max_pct_mito}%")
+    f"max_pct_mito={params.max_pct_mito}% (gene filtering deferred to scrna_integration)")
 
 # Save QC metrics before any filtering
 adata.obs[["n_genes_by_counts", "total_counts", "pct_counts_mt"]].to_csv(
@@ -39,9 +39,8 @@ adata.obs[["n_genes_by_counts", "total_counts", "pct_counts_mt"]].to_csv(
 )
 
 # --- Nerve-marker annotation + per-sample gene-presence report ----------------
-# Done before gene-filtering so gene_presence.csv reflects pre-filter membership
-# (matches v1.1.0 semantics). Surviving genes retain is_nerve_marker after
-# sc.pp.filter_genes below.
+# gene_presence.csv reflects pre-filter membership (matches v1.1.0 semantics).
+# Genes are no longer filtered in this rule; see the note above the cell filters.
 if "gene_symbol" in adata.var.columns:
     all_nerve_markers: list[str] = [
         g for genes in nerve_markers.values() for g in genes
@@ -85,10 +84,14 @@ else:
     )
     all_nerve_markers = []
 
-# --- Filter cells and genes ---------------------------------------------------
+# --- Filter cells -------------------------------------------------------------
+# Genes are deliberately NOT filtered per sample. Filtering here and then
+# intersecting in scrna_integration deletes any gene absent from a single sample
+# — that collapsed the 170-sample cohort to 1,519 marker-free genes. Genes are
+# filtered once, globally, after concatenation. See
+# markdowns/diagnosis_rerun_gene_intersection.md
 sc.pp.filter_cells(adata, min_genes=params.min_genes)
 sc.pp.filter_cells(adata, max_genes=params.max_genes)
-sc.pp.filter_genes(adata, min_cells=params.min_cells)
 adata = adata[adata.obs.pct_counts_mt < params.max_pct_mito].copy()
 
 n_cells_kept = adata.n_obs
@@ -111,7 +114,6 @@ prov = stamp_artifact(
     parameters={
         "min_genes":           params.min_genes,
         "max_genes":           params.max_genes,
-        "min_cells":           params.min_cells,
         "max_pct_mito":        params.max_pct_mito,
         "cells_raw":           n_cells_raw,
         "cells_kept":          n_cells_kept,

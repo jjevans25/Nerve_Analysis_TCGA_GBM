@@ -18,6 +18,7 @@ import numpy as np
 import scipy.sparse as sp
 
 sys.path.insert(0, "workflow/scripts")
+from counts_utils import recover_counts_from_log1p as _recover_counts
 from fair_utils import (
     log_transformation,
     stamp_artifact,
@@ -67,16 +68,9 @@ log_transformation(
 )
 
 
-def _recover_counts(X) -> sp.csr_matrix:
-    """log1p(integer) -> integer via expm1 + nearest-integer rounding."""
-    if sp.issparse(X):
-        data = np.rint(np.expm1(X.data)).astype(np.int32)
-        out = sp.csr_matrix((data, X.indices, X.indptr), shape=X.shape, dtype=np.int32)
-        out.eliminate_zeros()
-        return out
-    arr = np.rint(np.expm1(np.asarray(X))).astype(np.int32)
-    return sp.csr_matrix(arr)
-
+# Count recovery now lives in counts_utils.recover_counts_from_log1p (imported
+# above as _recover_counts) so scrna_integration.py and this script share one
+# implementation. Body is unchanged from the previous local definition.
 
 pieces: list[ad.AnnData] = []
 n_cells_collected = 0

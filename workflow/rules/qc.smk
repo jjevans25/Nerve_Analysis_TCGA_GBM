@@ -29,7 +29,6 @@ rule scrna_qc:
         sample_id    = lambda wc: wc.sample,
         min_genes    = config["scrna"]["min_genes"],
         max_genes    = config["scrna"]["max_genes"],
-        min_cells    = config["scrna"]["min_cells"],
         max_pct_mito = config["scrna"]["max_pct_mito"],
         markers      = config["nerve_cells"]["markers"],
     script:

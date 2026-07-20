@@ -161,7 +161,6 @@ rule ds_scrna_qc:
         sample_id    = lambda wc: wc.sample,
         min_genes    = config["scrna"]["min_genes"],
         max_genes    = config["scrna"]["max_genes"],
-        min_cells    = config["scrna"]["min_cells"],
         max_pct_mito = config["scrna"]["max_pct_mito"],
         markers      = config["nerve_cells"]["markers"],
     script:
@@ -195,6 +194,11 @@ rule ds_scrna_integration:
         n_layers    = config["scrna"]["n_layers"],
         batch_key   = lambda wc: _entry(wc.dataset).get("batch_key", "sample_id"),
         random_seed = config["scrna"]["random_seed"],
+        min_cells   = config["scrna"]["min_cells"],
+        # Census cohorts ship raw integer counts in .X → no recovery. A future
+        # log1p-sourced cohort can opt in via `counts_from_log1p: true` in its
+        # dataset entry.
+        counts_from_log1p = lambda wc: _entry(wc.dataset).get("counts_from_log1p", False),
     script:
         "../scripts/scrna_integration.py"
 
