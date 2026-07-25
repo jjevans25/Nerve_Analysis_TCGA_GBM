@@ -47,9 +47,13 @@ try:
     gene_df = gene_df.sort_values("ensembl_numeric").reset_index(drop=True)
     gene_df["gene_order"] = range(len(gene_df))
 
-    # Map to our dataset genes
-    name_to_order = dict(zip(gene_df["feature_name"], gene_df["gene_order"]))
-    adata.var["gene_order"] = adata.var_names.map(name_to_order).fillna(-1).astype(int)
+    # Map to our dataset genes by Ensembl ID. var_names here are Ensembl IDs
+    # (ENSG…), so join on feature_id, not feature_name (gene symbols) — matching
+    # symbols against Ensembl IDs orders almost nothing.
+    id_to_order = dict(zip(gene_df["feature_id"], gene_df["gene_order"]))
+    gene_ids = adata.var["feature_id"] if "feature_id" in adata.var.columns \
+        else pd.Series(adata.var_names, index=adata.var_names)
+    adata.var["gene_order"] = gene_ids.map(id_to_order).fillna(-1).astype(int).values
     n_ordered = (adata.var["gene_order"] >= 0).sum()
     log_transformation(log, "scrna_malignancy",
         f"Mapped {n_ordered}/{adata.n_vars} genes to Ensembl genomic order")
@@ -76,50 +80,84 @@ if n_ref < 10:
         "WARNING: very few reference cells for CNV baseline", status="WARNING")
 
 # ---------------------------------------------------------------------------
-# Step 3: CNV scoring via sliding-window expression smoothing
-# Cells with high CNV variance relative to reference → malignant
+# Step 3: CNV scoring via sliding-window expression smoothing.
+# Streamed over cells in row-blocks to bound peak memory — every operation
+# here is row-wise and independent per cell; the only cross-cell quantity is
+# the per-gene reference mean, computed once. Chunking is numerically identical
+# to a whole-matrix pass but never materializes the full dense matrix (which is
+# ~59 GB for a 615k×24k float32 cohort, and OOM-kills at whole-matrix scale).
+# Cells with high CNV variance relative to reference → malignant.
 # ---------------------------------------------------------------------------
-# Sort genes by genomic order
 gene_order_idx = np.argsort(adata.var["gene_order"].values)
-X_ordered = adata.X[:, gene_order_idx]
-if hasattr(X_ordered, "toarray"):
-    X_ordered = X_ordered.toarray().astype(np.float32)
-else:
-    X_ordered = np.asarray(X_ordered, dtype=np.float32)
+n_obs = adata.n_obs
+n_genes_ord = adata.n_vars
+ref_mask = adata.obs["is_reference"].values
+chunk_size = int(snakemake.params.cnv_chunk_size)
 
-# Log-normalize in-place to avoid a second full-matrix copy
-np.log1p(X_ordered, out=X_ordered)
-
-# Subtract per-gene mean of reference cells in-place
-if n_ref >= 1:
-    ref_mask = adata.obs["is_reference"].values
-    ref_mean = X_ordered[ref_mask, :].mean(axis=0, keepdims=True)
-else:
-    ref_mean = X_ordered.mean(axis=0, keepdims=True)
-X_ordered -= ref_mean
-del ref_mean
-
-# Memory-efficient sliding window via cumsum (no per-row convolution copies)
-# Standard trick: prepend zero column so that sum[i] = cs[i+w] - cs[i]
-window = min(100, X_ordered.shape[1])
-n_genes_ord = X_ordered.shape[1]
+# Sliding-window params (window centered per gene)
+window = min(100, n_genes_ord)
 pad_l, pad_r = window // 2, window - window // 2 - 1
-padded = np.pad(X_ordered, ((0, 0), (pad_l, pad_r)), mode="edge")
-del X_ordered
-cs = np.empty((padded.shape[0], padded.shape[1] + 1), dtype=np.float32)
-cs[:, 0] = 0.0
-np.cumsum(padded, axis=1, out=cs[:, 1:])
-del padded
-X_smoothed = (cs[:, window : window + n_genes_ord] - cs[:, :n_genes_ord]) / window
-del cs
 
-# CNV score = variance of smoothed signal per cell
-cnv_scores = X_smoothed.var(axis=1).astype(np.float32)
+
+def _load_ordered_block(lo, hi):
+    """Densify cells [lo:hi), reorder genes to genomic order, log-normalize."""
+    blk = adata.X[lo:hi][:, gene_order_idx].toarray().astype(np.float32, copy=False)
+    np.log1p(blk, out=blk)
+    return blk
+
+
+# Per-gene reference baseline (mean of log-normalized reference cells)
+if n_ref >= 1:
+    ref_block = adata.X[ref_mask][:, gene_order_idx].toarray().astype(np.float32, copy=False)
+    np.log1p(ref_block, out=ref_block)
+    ref_mean = ref_block.mean(axis=0, keepdims=True)
+    del ref_block
+else:
+    # No reference cells: baseline = mean over all cells (streamed).
+    gene_sum = np.zeros((1, n_genes_ord), dtype=np.float64)
+    for lo in range(0, n_obs, chunk_size):
+        blk = _load_ordered_block(lo, min(lo + chunk_size, n_obs))
+        gene_sum += blk.sum(axis=0, keepdims=True)
+        del blk
+    ref_mean = (gene_sum / n_obs).astype(np.float32)
+    del gene_sum
+
+# Pre-select heatmap cells before the loop so only 500 smoothed rows are kept.
+n_plot = min(500, n_obs)
+rng = np.random.default_rng(snakemake.params.random_seed)
+plot_idx = np.sort(rng.choice(n_obs, size=n_plot, replace=False))
+plot_buffer = np.empty((n_plot, n_genes_ord), dtype=np.float32)
+
+# Stream CNV scores in row-blocks.
+cnv_scores = np.empty(n_obs, dtype=np.float32)
+for lo in range(0, n_obs, chunk_size):
+    hi = min(lo + chunk_size, n_obs)
+    blk = _load_ordered_block(lo, hi)
+    blk -= ref_mean
+
+    # Memory-efficient sliding window via cumsum: sum[i] = cs[i+w] - cs[i].
+    padded = np.pad(blk, ((0, 0), (pad_l, pad_r)), mode="edge")
+    del blk
+    cs = np.empty((padded.shape[0], padded.shape[1] + 1), dtype=np.float32)
+    cs[:, 0] = 0.0
+    np.cumsum(padded, axis=1, out=cs[:, 1:])
+    del padded
+    smoothed = (cs[:, window : window + n_genes_ord] - cs[:, :n_genes_ord]) / window
+    del cs
+
+    cnv_scores[lo:hi] = smoothed.var(axis=1)
+
+    # Retain smoothed rows for any pre-selected heatmap cells in this block.
+    sel = plot_idx[(plot_idx >= lo) & (plot_idx < hi)]
+    if sel.size:
+        plot_buffer[np.searchsorted(plot_idx, sel)] = smoothed[sel - lo]
+    del smoothed
+
 adata.obs["cnv_score"] = cnv_scores
 
 # Threshold: cells scoring > mean + 2 SD of reference CNV score → malignant
 if n_ref >= 1:
-    ref_cnv = cnv_scores[adata.obs["is_reference"].values]
+    ref_cnv = cnv_scores[ref_mask]
     threshold = ref_cnv.mean() + 2 * ref_cnv.std()
 else:
     threshold = np.percentile(cnv_scores, 75)
@@ -133,23 +171,22 @@ log_transformation(log, "scrna_malignancy",
     f"({100 * n_malignant / adata.n_obs:.1f}%)")
 
 # ---------------------------------------------------------------------------
-# Step 4: CNV heatmap (sample of cells × sorted genes)
+# Step 4: CNV heatmap (sampled cells × sorted genes), sorted by malignant flag
 # ---------------------------------------------------------------------------
-n_plot = min(500, adata.n_obs)
-rng = np.random.default_rng(snakemake.params.random_seed)
-plot_idx = rng.choice(adata.n_obs, size=n_plot, replace=False)
-plot_idx = plot_idx[np.argsort(adata.obs["is_malignant"].values[plot_idx].astype(int))]
+malignant_plot = adata.obs["is_malignant"].values[plot_idx]
+order = np.argsort(malignant_plot.astype(int))
+plot_buffer = plot_buffer[order]
+n_normal_plot = int((~malignant_plot).sum())
 
 fig, ax = plt.subplots(figsize=(14, 6))
 im = ax.imshow(
-    X_smoothed[plot_idx, :],
+    plot_buffer,
     aspect="auto",
     cmap="RdBu_r",
     vmin=-0.5,
     vmax=0.5,
     interpolation="nearest",
 )
-n_normal_plot = (~adata.obs["is_malignant"].values[plot_idx]).sum()
 ax.axhline(n_normal_plot - 0.5, color="black", linewidth=1.5, linestyle="--")
 ax.set_xlabel("Genes (genomic order)")
 ax.set_ylabel(f"Cells (n={n_plot}; dashed = malignant boundary)")

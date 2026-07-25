@@ -50,6 +50,85 @@ Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLE
 
 ---
 
+### [2026-07-21] | Phase: Second GBM Replication Cohort — `ds_scrna_malignancy` OOM fix | Status: COMPLETE
+
+**Action:** `ds_scrna_malignancy` kept dying with exit 137 (SIGKILL / OS OOM) on the 614,951-cell
+cohort, even after the `markdowns/troubleshoot_ds_malignancy_oom.md` remedy (`--resources
+mem_mb=90000`, no `--forcerun`). Diagnosed root cause, fixed the script, re-ran the step.
+
+**Outcome:**
+- **The troubleshoot doc's diagnosis was wrong.** It blamed RAM contention with concurrent baseline
+  scVI training. But the failing run had scVI already skipped (only `scrna_annotate` ran) and the
+  90 GB budget applied, yet died at the identical spot. `--resources mem_mb` only gates Snakemake's
+  scheduler; it cannot cap a single process's actual RAM.
+- **Real cause:** `scrna_malignancy.py` densified the whole `annotated.h5ad` matrix (614,951 ×
+  24,048 → **59.2 GB** dense float32) and held 2–3 such copies simultaneously (`toarray().astype()`,
+  then `np.pad` + `cumsum` buffers), peaking >120 GB on the 128 GB machine → OOM. Despite the
+  docstring, no `infercnvpy` is involved — it is a hand-rolled numpy sliding window.
+- **Fix (numerically identical, memory-bounded):** rewrote Steps 3–4 to stream CNV scoring over
+  cells in row-blocks (`scrna.cnv_chunk_size`, default 50,000). Reference mean computed once from
+  reference rows only; 500 heatmap cells pre-selected so only their smoothed rows are retained.
+  Verified peak RSS **~15 GB** (well under the 32 GB rule budget); step completed in ~2 min.
+- **Also fixed a gene-order mapping bug** (researcher-approved, changes output): `var_names` are
+  Ensembl IDs but the code matched them against Census `feature_name` (gene symbols) — only
+  **2,265/24,048** genes were getting a genomic order. Now joins on `feature_id` → **24,048/24,048**
+  mapped, so CNV smoothing runs over a real chromosomal order for the first time on this cohort.
+- **Result:** CNV threshold 0.0036; **120,908/614,951 cells (19.66%) flagged malignant**
+  (55,477 T-cell reference cells).
+- **Tooling:** per researcher request, replaced `ruff` with **flake8** (check-only, no autoformatter)
+  in `CLAUDE.md`; added pinned `.flake8` config (max-line 120; ignores E203/E402/E128/W503 and F821
+  in `workflow/scripts/*.py` for the runtime-injected `snakemake` global). Edited script passes flake8.
+
+**Artifacts:** `data/processed/gbm_cellxgene_56c4912d/malignancy_labeled.h5ad` (10.2 GB);
+`results/figures/gbm_cellxgene_56c4912d/cnv_heatmap.png`;
+`provenance/gbm_cellxgene_56c4912d/malignancy_provenance.json`. Modified:
+`workflow/scripts/scrna_malignancy.py`, `config/config.yaml` (`scrna.cnv_chunk_size`),
+`workflow/rules/{annotation,datasets}.smk` (pass `cnv_chunk_size`), `CLAUDE.md`, `.flake8`,
+`markdowns/troubleshoot_ds_malignancy_oom.md` (root-cause correction).
+
+**Tool Versions:** snakemake 9.20.0; scanpy 1.11.1; anndata 0.11.4; numpy (scrna env).
+
+**Downstream resume — three further (independent) issues surfaced; two handled, one deferred:**
+- **Baseline freeze conflict (resolved by decision):** resuming dragged in the baseline reference
+  cascade (because the counts-recovery bumped `data/processed/annotated.h5ad`'s mtime). Baseline
+  `nerve_cell_subset` failed the `cl15_split_v1_3_0.csv` integrity guard — the retrained baseline
+  latent (39,779 genes) re-clusters differently than v1.3.0 (20,420), so the frozen split's 1,854
+  cluster-15 barcodes now scatter across ~15 clusters. **Researcher decision: pin the existing
+  Jul 11 v1.3.0 reference tables, do NOT regenerate the baseline.** The baseline
+  `data/processed/nerve_cells.h5ad` was deleted by the failed job and is NOT reproducible from the
+  retrained baseline — do not attempt to regenerate it (freeze conflict). Concordance is produced by
+  building only the new-cohort three-way table and running `ds_cohort_concordance` with
+  `--allowed-rules ds_cohort_concordance`, which uses the surviving v1.3.0 reference table as a fixed
+  input. (Note: `results/tables/nerve_tumor_immune_interactions_with_qc.csv` mtime was `touch`ed this
+  session; content unchanged.)
+- **`purity_v2` / scANVI-v2 branch (DEFERRED by decision):** `ds_nerve_assemble_counts` fails with
+  `KeyError: 'nCount_SCT'` — the script assumes the reference's Seurat SCT data (expm1 count
+  recovery, `nCount_SCT` validation, v1.0.0 20,420-gene reindex), none of which apply to the raw-UMI
+  Census cohort (QC `.X` is already integer counts; 24,048 genes). Full root cause + suggested
+  cohort-aware fix (mirror the `counts_from_log1p` flag) in
+  `markdowns/blocker_purity_v2_scanvi_sct_assumption.md`. No code changed for this; picked up next
+  session.
+- **Reference set (deferred):** `reference_types` still includes `"endothelial"`, but this cohort's
+  `cell_type_predicted` has no such category — only `t_cell` (55,477) is used as the CNV baseline.
+  Left as-is this round; revisit if malignant fraction looks off.
+
+**Deliverable status at session end:** malignancy OOM fixed/verified; **`cohort_concordance_summary.json`
+COMPLETE** (new-cohort three-way table built + concordance run against pinned v1.3.0 reference via
+`--allowed-rules ds_cohort_concordance`); `nerve_cluster_sample_purity_v2.csv` deferred (scANVI-v2
+blocker above).
+
+**Concordance result (replication vs v1.3.0 reference, LR pairs at p≤0.05):** reference 3,368 sig
+pairs, new cohort 3,850, shared 2,152 (union 5,066) → **Jaccard 0.425**; Spearman **rho 0.536**
+(p≈0) on shared-pair strengths. Moderate set overlap with a positive, significant rank correlation —
+the tumor→immune→nerve LR signal partially reproduces on the independent Census cohort. Outputs:
+`results/tables/gbm_cellxgene_56c4912d/{cohort_concordance_summary.json,cohort_concordance_shared_pairs.csv}`,
+`results/figures/gbm_cellxgene_56c4912d/cohort_concordance.png`. Interpretation pending researcher review.
+
+**FAIR Notes:** chunk size is config-driven (no hard-coded tunable); provenance JSON records
+window, threshold, n_reference, n_malignant, n_cells; lint standard pinned in `.flake8`.
+
+---
+
 ### [2026-07-16] | Phase: Second GBM Replication Cohort (cohort-namespaced track) | Status: CODE COMPLETE (not yet run)
 
 **Action:** Built a replication track to test whether the v1.3.0 tumor→immune→nerve LR interactions reproduce on an independent GBM cohort. (1) Assessed the CELLxGENE Census GBM pull `cellxgene_data/gbm_10x_raw.h5ad` (metadata-only reads, nothing heavy): 1.29M cells × 61,497 genes, 174 donors, 4 studies, raw 10x UMIs — verdict HIGH suitability, far stronger than the earlier SCP393 candidate (esp. nerve arm ~95k vs ~500). (2) Ran a single-donor Stage-A ingest smoke test (donor BT389, 5,028→5,000 cells): raw counts OK, 100% symbol mapping, markers present, round-trips in scanpy. (3) Implemented the full cohort-namespaced pipeline (Stage A→D) reusing every reference analysis script unchanged (all are I/O-agnostic via snakemake.input/output/params). Researcher decisions: scope = single largest study `56c4912d`; per-donor subsample cap 5,000; `batch_key=donor_id`; scANVI-v2 branch INCLUDED for full parity.

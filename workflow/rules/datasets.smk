@@ -248,6 +248,7 @@ rule ds_scrna_malignancy:
     params:
         random_seed    = config["scrna"]["random_seed"],
         census_version = config["databases"]["cellxgene_census_version"],
+        cnv_chunk_size = config["scrna"]["cnv_chunk_size"],
     script:
         "../scripts/scrna_malignancy.py"
 
@@ -508,6 +509,10 @@ rule ds_nerve_assemble_counts:
         threads = config["resources"]["default_threads"],
     params:
         random_seed = config["scrna"]["random_seed"],
+        # Census cohorts ship raw integer counts in QC .X → passthrough (no expm1
+        # recovery, no nCount_SCT). A log1p/SCT cohort opts in via the dataset
+        # entry, mirroring ds_scrna_integration.
+        counts_from_log1p = lambda wc: _entry(wc.dataset).get("counts_from_log1p", False),
     script:
         "../scripts/nerve_assemble_counts.py"
 

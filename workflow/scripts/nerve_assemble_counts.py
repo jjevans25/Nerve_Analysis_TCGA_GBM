@@ -1,12 +1,19 @@
 """Reassemble raw-count nerve-cell AnnData for scANVI re-training.
 
-Question answered: scvi-tools requires raw integer counts in ``.X``, but
-``data/processed/nerve_cells.h5ad`` ships log1p-transformed floats and has no
-``layers['counts']`` slot. This script reconstructs the missing counts by
-expm1+rounding the per-sample QC files' log1p .X (verified to be log1p of raw
-integer counts, no library-size normalization), subsetting to the nerve obs,
-and reindexing var to match the v1.0.0 nerve gene set. Pure data marshalling
-— no biology re-derived. v1.0.0 artifacts are not touched.
+Question answered: scvi-tools requires raw integer counts in ``.X``. This script
+reconstructs them from the per-sample QC files, subsets to the nerve obs, and
+reindexes var to the reference cohort's nerve gene set. Pure data marshalling —
+no biology re-derived; reference artifacts are not touched.
+
+Cohort-aware via the ``counts_from_log1p`` param (mirrors ``scrna_integration``):
+
+* ``counts_from_log1p=True`` (reference cohort): QC ``.X`` is Seurat SCT log1p
+  floats, so recover counts by expm1+round and validate the per-cell total
+  against Seurat's ``nCount_SCT`` upper bound.
+* ``counts_from_log1p=False`` (raw-UMI Census cohort): QC ``.X`` is already raw
+  integer counts — pass it through unchanged; there is no ``nCount_SCT`` column,
+  so validation is a raw-count sanity check (integer, non-negative, per-cell
+  total > 0).
 """
 
 import os
@@ -44,22 +51,28 @@ sys.excepthook = _crash_hook
 
 os.environ["PYTHONHASHSEED"] = str(int(snakemake.params.random_seed))
 
+# True  -> reference cohort: QC .X is SCT log1p; recover counts + nCount_SCT check.
+# False -> Census cohort:    QC .X is already raw integer counts; pass through.
+counts_from_log1p = bool(snakemake.params.counts_from_log1p)
+
 per_sample_h5ads: list[str] = list(snakemake.input.qc_h5ads)
 nerve_ref_path: str = str(snakemake.input.nerve_ref)
 out_path = Path(snakemake.output.h5ad)
 
 log_transformation(
     log, "nerve_assemble_counts",
-    f"Loading nerve obs/var reference from {nerve_ref_path}",
+    f"Loading nerve obs/var reference from {nerve_ref_path} "
+    f"(counts_from_log1p={counts_from_log1p})",
 )
 nerve_ref = ad.read_h5ad(nerve_ref_path, backed="r")
 nerve_obs_names = set(nerve_ref.obs_names)
 nerve_var_index = nerve_ref.var.index.copy()
-# v1.0.0 nerve_cells.h5ad obs["total_counts"] is the sum of log1p(.X), not raw
-# counts (calculate_qc_metrics ran on log1p data). Use Seurat's nCount_SCT
-# which holds the per-cell sum of the SCT-corrected integer counts that
-# log1p was applied to — this is the upper bound we recover.
-nerve_obs_nCount_SCT = nerve_ref.obs["nCount_SCT"].copy()
+if counts_from_log1p:
+    # Reference nerve_cells.h5ad obs["total_counts"] is the sum of log1p(.X), not
+    # raw counts (calculate_qc_metrics ran on log1p data). Use Seurat's nCount_SCT
+    # which holds the per-cell sum of the SCT-corrected integer counts that log1p
+    # was applied to — this is the upper bound we recover.
+    nerve_obs_nCount_SCT = nerve_ref.obs["nCount_SCT"].copy()
 n_obs_expected = nerve_ref.n_obs
 n_vars_expected = nerve_ref.n_vars
 log_transformation(
@@ -84,9 +97,11 @@ for qc_path in per_sample_h5ads:
                            f"  {sample_id}: 0 nerve cells (skipping)", status="WARNING")
         continue
     a = a[keep_mask].copy()
-    # Recover counts from log1p .X.
-    a.X = _recover_counts(a.X)
-    # Reindex var to the v1.0.0 nerve gene set (all 20,420 expected to be present).
+    if counts_from_log1p:
+        # Recover counts from SCT log1p .X (reference cohort).
+        a.X = _recover_counts(a.X)
+    # else: Census QC .X is already raw integer counts — use as-is.
+    # Reindex var to the reference cohort's nerve gene set (all expected present).
     missing = [g for g in nerve_var_index if g not in a.var.index]
     if missing:
         raise RuntimeError(
@@ -118,44 +133,59 @@ if adata.n_obs != n_obs_expected:
         f"[FAIR-ALERT] n_obs mismatch: got {adata.n_obs}, expected {n_obs_expected}"
     )
 if not (adata.var.index == nerve_var_index).all():
-    raise RuntimeError("[FAIR-ALERT] var.index does not match v1.0.0 nerve var set")
+    raise RuntimeError("[FAIR-ALERT] var.index does not match reference nerve var set")
 
 X = adata.X
 data_arr = X.data if sp.issparse(X) else np.asarray(X).ravel()
 nonzero = data_arr[data_arr != 0]
 if not np.all(nonzero == nonzero.astype(np.int32)):
-    raise RuntimeError("[FAIR-ALERT] recovered .X is not integer-valued")
+    raise RuntimeError("[FAIR-ALERT] counts .X is not integer-valued")
 if (nonzero < 0).any():
-    raise RuntimeError("[FAIR-ALERT] recovered .X has negative entries")
+    raise RuntimeError("[FAIR-ALERT] counts .X has negative entries")
 
-# Compare per-cell sum of recovered SCT counts (over the 20,420 nerve var
-# subset) to Seurat's nCount_SCT (the per-cell sum over the FULL gene set
-# pre-subset). Reduced-set total must be <= full-set total (we dropped genes,
-# not added). Allow 1.01x rounding slack — recovered values come from
-# expm1+round, so a per-cell discrepancy of a few counts is expected.
 hvg_total = np.asarray(X.sum(axis=1)).ravel()
-slack = 1.01
-violation = hvg_total > (nerve_obs_nCount_SCT.values * slack)
-if violation.any():
-    n_bad = int(violation.sum())
-    examples = np.where(violation)[0][:3]
-    ex = [(int(i), float(hvg_total[i]), float(nerve_obs_nCount_SCT.values[i]))
-          for i in examples]
-    raise RuntimeError(
-        f"[FAIR-ALERT] {n_bad} cells have reduced-set count > 1.01x nCount_SCT — "
-        f"gene-subset mismatch or recovery error. Examples (idx, hvg_total, nCount_SCT): {ex}"
+if counts_from_log1p:
+    # Compare per-cell sum of recovered SCT counts (over the nerve var subset) to
+    # Seurat's nCount_SCT (the per-cell sum over the FULL gene set pre-subset).
+    # Reduced-set total must be <= full-set total (we dropped genes, not added).
+    # Allow 1.01x rounding slack — recovered values come from expm1+round, so a
+    # per-cell discrepancy of a few counts is expected.
+    slack = 1.01
+    violation = hvg_total > (nerve_obs_nCount_SCT.values * slack)
+    if violation.any():
+        n_bad = int(violation.sum())
+        examples = np.where(violation)[0][:3]
+        ex = [(int(i), float(hvg_total[i]), float(nerve_obs_nCount_SCT.values[i]))
+              for i in examples]
+        raise RuntimeError(
+            f"[FAIR-ALERT] {n_bad} cells have reduced-set count > 1.01x nCount_SCT — "
+            f"gene-subset mismatch or recovery error. Examples (idx, hvg_total, nCount_SCT): {ex}"
+        )
+    recovery_ratio = float(np.median(hvg_total / np.maximum(nerve_obs_nCount_SCT.values, 1)))
+    if recovery_ratio < 0.50:
+        raise RuntimeError(
+            f"[FAIR-ALERT] median recovered-counts / nCount_SCT = {recovery_ratio:.3f} "
+            f"— too much signal lost in the var reindex; investigate gene set."
+        )
+    log_transformation(
+        log, "nerve_assemble_counts",
+        f"Verification: n_obs={adata.n_obs}; integer counts confirmed; "
+        f"median recovered-count / nCount_SCT = {recovery_ratio:.3f} (expected ~0.85-1.0)",
     )
-recovery_ratio = float(np.median(hvg_total / np.maximum(nerve_obs_nCount_SCT.values, 1)))
-if recovery_ratio < 0.50:
-    raise RuntimeError(
-        f"[FAIR-ALERT] median recovered-counts / nCount_SCT = {recovery_ratio:.3f} "
-        f"— too much signal lost in the var reindex; investigate gene set."
+else:
+    # Raw-UMI cohort: no nCount_SCT upper bound. Sanity-check the passthrough
+    # counts — every cell must retain positive total library size.
+    empty_cells = int((hvg_total <= 0).sum())
+    if empty_cells:
+        raise RuntimeError(
+            f"[FAIR-ALERT] {empty_cells} nerve cells have per-cell count total <= 0 "
+            f"after nerve-var reindex — check the gene subset / QC inputs."
+        )
+    log_transformation(
+        log, "nerve_assemble_counts",
+        f"Verification: n_obs={adata.n_obs}; raw integer counts passthrough confirmed; "
+        f"all cells have positive per-cell total (median {float(np.median(hvg_total)):.0f}).",
     )
-log_transformation(
-    log, "nerve_assemble_counts",
-    f"Verification: n_obs={adata.n_obs}; integer counts confirmed; "
-    f"median recovered-count / nCount_SCT = {recovery_ratio:.3f} (expected ~0.85-1.0)",
-)
 
 # Stamp the new obs columns we need downstream.
 adata.obs["sample_id"] = adata.obs["sample_id"].astype(str)
@@ -179,12 +209,18 @@ prov = stamp_artifact(
         "n_cells": int(adata.n_obs),
         "n_vars": int(adata.n_vars),
         "n_samples": len(pieces),
-        "recovery_method": "expm1_round_int32",
+        "recovery_method": (
+            "expm1_round_int32" if counts_from_log1p else "raw_counts_passthrough"
+        ),
     },
     description=(
-        "Raw-count nerve-cell AnnData reconstructed from per-sample log1p QC "
-        "files (no library-size normalization detected upstream); reindexed "
-        "to v1.0.0 nerve gene set. Input for scANVI re-training."
+        "Raw-count nerve-cell AnnData reconstructed from per-sample QC files "
+        + (
+            "(SCT log1p -> expm1+round; no library-size normalization upstream); "
+            if counts_from_log1p
+            else "(raw integer counts passed through unchanged); "
+        )
+        + "reindexed to the reference nerve gene set. Input for scANVI re-training."
     ),
     ontology_operation="operation:3431",  # EDAM: Deposition (data assembly)
 )

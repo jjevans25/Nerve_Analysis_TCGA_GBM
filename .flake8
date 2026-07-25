@@ -1,0 +1,15 @@
+[flake8]
+# Project lint standard (check-only; no autoformatter). Replaces ruff.
+max-line-length = 120
+
+# Codebase-wide, intentional conventions:
+#   E203  whitespace before ':'  — conflicts with numpy/black slice spacing (e.g. a[:, i : j])
+#   E402  module import not at top — Snakemake scripts must sys.path.insert before importing fair_utils
+#   E128  continuation line under-indented — existing multi-line log_transformation(...) call style
+#   W503  line break before binary operator — modern convention, matches W504
+extend-ignore = E203, E402, E128, W503
+
+per-file-ignores =
+    # `snakemake` is injected into the global namespace at runtime by the Snakemake
+    # `script:` directive, so static analysis cannot see it.
+    workflow/scripts/*.py: F821

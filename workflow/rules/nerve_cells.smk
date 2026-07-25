@@ -249,6 +249,8 @@ rule nerve_assemble_counts:
         threads = config["resources"]["default_threads"],
     params:
         random_seed = config["scrna"]["random_seed"],
+        # Reference cohort .X is Seurat SCT log1p → recover counts + nCount_SCT check.
+        counts_from_log1p = True,
     script:
         "../scripts/nerve_assemble_counts.py"
 

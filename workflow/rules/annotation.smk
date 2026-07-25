@@ -48,5 +48,6 @@ rule scrna_malignancy:
     params:
         random_seed    = config["scrna"]["random_seed"],
         census_version = config["databases"]["cellxgene_census_version"],
+        cnv_chunk_size = config["scrna"]["cnv_chunk_size"],
     script:
         "../scripts/scrna_malignancy.py"

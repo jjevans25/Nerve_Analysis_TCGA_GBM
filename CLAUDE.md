@@ -83,7 +83,7 @@ All scientific outputs — raw data, intermediate artifacts, code, figures — m
 
 ### Python
 - Python 3.12+ only; use type hints on all function signatures
-- Formatting: `ruff format` before committing; linting: `ruff check`
+- Linting: `flake8 <file>` before committing (check-only — no autoformatter is enforced, so existing style is preserved). Fix reported errors; do not mass-reformat unrelated code.
 - No bare `except` clauses — catch specific exceptions
 - Use `pathlib.Path` for all file paths, never `os.path`
 

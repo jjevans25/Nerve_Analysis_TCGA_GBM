@@ -54,6 +54,7 @@ scrna:
   n_layers: 2
   batch_key: "batch"
   random_seed: 0
+  cnv_chunk_size: 50000          # CNV malignancy: cells per row-block (bounds peak RAM)
 
 # -------------------------------------------------------------
 # Proteomics defaults
