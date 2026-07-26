@@ -314,6 +314,85 @@ nerve_scanvi:
 # -------------------------------------------------------------
 baseline:
   version: "v1.3.0"
+
+  # -----------------------------------------------------------------------
+  # Structural pin of the v1.3.0 reference cohort.
+  #
+  # `data/processed/nerve_cells.h5ad` was deleted by a failed nerve_cell_subset
+  # job on 2026-07-21 and cannot be reproduced (retrained latent re-clusters, so
+  # the frozen cl15 split no longer maps to one source cluster). Researcher
+  # decision: pin the surviving tables, never regenerate.
+  #
+  # When true, the 10 rules that would rewrite the artifacts below are NOT
+  # DEFINED at parse time — see workflow/rules/common.smk BASELINE_PINNED, and
+  # the `if not BASELINE_PINNED:` guards in nerve_cells.smk and immune.smk. A
+  # rule that does not exist cannot be scheduled, so this holds for every
+  # invocation including a bare `snakemake`. Set to false to restore the full
+  # reference pipeline (this WILL attempt the unreproducible rebuild).
+  #
+  # Deliberately NOT pinned: the scANVI-v2 chain (nerve_celltype_labels,
+  # nerve_scanvi_retrain, nerve_batch_qc_v2) and the immune subset rules — all
+  # reproducible from artifacts that still exist.
+  #
+  # Known cost: annotate_cluster_qc is pinned, so edits to
+  # nerve_cells.batch_qc.exclude_clusters / immune_cells.batch_qc.exclude_subtypes
+  # no longer regenerate the six *_with_qc.csv tables for this cohort.
+  # -----------------------------------------------------------------------
+  pinned: true
+
+  # Every output of the 10 pinned rules that survives on disk. Source of truth
+  # for freeze_pinned_reference / verify_pinned_reference (see fair.smk).
+  # Lost with the failed job and therefore absent here: nerve_cells.h5ad,
+  # nerve_cells_umap.png, nerve_cluster_composition.csv,
+  # provenance/nerve_subset_provenance.json.
+  pinned_artifacts:
+    # nerve_cell_heterogeneity
+    - "results/tables/nerve_cluster_markers.csv"
+    - "results/tables/nerve_enrichment.csv"
+    - "results/figures/nerve_dotplot.png"
+    - "results/figures/nerve_abundance_heatmap.png"
+    - "provenance/heterogeneity_provenance.json"
+    # nerve_cluster_annotations
+    - "results/tables/nerve_cluster_annotations.csv"
+    - "provenance/nerve_cluster_annotations_provenance.json"
+    # nerve_clinical_association
+    - "results/tables/nerve_clinical_association.csv"
+    - "results/figures/nerve_clinical_pvalue_heatmap.png"
+    - "results/figures/nerve_clinical_boxplots.png"
+    - "provenance/nerve_clinical_association_provenance.json"
+    # nerve_batch_qc
+    - "results/tables/nerve_cluster_sample_purity.csv"
+    - "results/figures/nerve_cells_umap_by_sample.png"
+    - "results/figures/nerve_cells_umap_per_sample_panel.png"
+    - "provenance/nerve_batch_qc_provenance.json"
+    # nerve_leiden_resolution_sweep
+    - "results/tables/nerve_leiden_resolution_sweep.csv"
+    - "results/figures/nerve_leiden_resolution_sweep.png"
+    - "provenance/nerve_leiden_resolution_sweep_provenance.json"
+    # nerve_tumor_interaction
+    - "results/tables/nerve_tumor_interactions.csv"
+    - "results/tables/nerve_tumor_top_pairs.csv"
+    - "results/figures/nerve_tumor_sig_heatmap.png"
+    - "results/figures/nerve_tumor_dotplot.png"
+    - "provenance/nerve_tumor_interaction_provenance.json"
+    # nerve_assemble_counts
+    - "data/processed/nerve_cells_counts.h5ad"
+    - "provenance/nerve_assemble_counts_provenance.json"
+    # nerve_tumor_immune_interaction
+    - "results/tables/nerve_tumor_immune_interactions.csv"
+    - "results/tables/nerve_tumor_immune_top_pairs.csv"
+    - "results/figures/nerve_tumor_immune_sig_heatmap.png"
+    - "results/figures/nerve_tumor_immune_dotplot.png"
+    - "provenance/nerve_tumor_immune_interaction_provenance.json"
+    # annotate_cluster_qc
+    - "results/tables/nerve_enrichment_with_qc.csv"
+    - "results/tables/nerve_cluster_markers_with_qc.csv"
+    - "results/tables/nerve_tumor_interactions_with_qc.csv"
+    - "results/tables/nerve_tumor_top_pairs_with_qc.csv"
+    - "results/tables/nerve_tumor_immune_interactions_with_qc.csv"
+    - "results/tables/nerve_tumor_immune_top_pairs_with_qc.csv"
+    - "provenance/annotate_cluster_qc_provenance.json"
+
   summary: |
     First reproducible baseline of the TCGA-GBM nerve-cell pipeline.
     Pipeline: GDC loom → QC → scVI integration → CNV-based malignancy labelling →

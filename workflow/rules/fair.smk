@@ -59,3 +59,54 @@ rule freeze_baseline_provenance:
         provenance_dir = config["dirs"]["provenance"],
     script:
         "../scripts/freeze_baseline_provenance.py"
+
+
+rule freeze_pinned_reference:
+    """Hash every pinned v1.3.0 artifact into a drift-detection manifest.
+
+    Run on demand after any deliberate change to `baseline.pinned_artifacts`:
+    `snakemake --use-conda freeze_pinned_reference`. Not referenced by `rule all` —
+    re-freezing must be an explicit act, otherwise drift would be silently
+    absorbed into a new manifest.
+    """
+    output:
+        manifest = os.path.join(config["dirs"]["provenance"],
+                                f"pinned_reference_{config['baseline']['version']}.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "freeze_pinned_reference.log"),
+    conda:
+        "../envs/notebooks.yaml",
+    resources:
+        mem_mb  = 2000,
+        threads = 1,
+    params:
+        version   = config["baseline"]["version"],
+        artifacts = config["baseline"].get("pinned_artifacts", []),
+    script:
+        "../scripts/freeze_pinned_reference.py"
+
+
+rule verify_pinned_reference:
+    """Re-hash the pinned v1.3.0 artifacts and fail on any drift.
+
+    The only drift detector for these files: while `baseline.pinned` is true their
+    producing rules are not defined, so Snakemake will never notice a modified or
+    deleted pinned table. Run on demand:
+    `snakemake --use-conda verify_pinned_reference`.
+    """
+    input:
+        manifest = os.path.join(config["dirs"]["provenance"],
+                                f"pinned_reference_{config['baseline']['version']}.json"),
+    output:
+        report = os.path.join(config["dirs"]["results"], "pinned_reference_verification.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "verify_pinned_reference.log"),
+    conda:
+        "../envs/notebooks.yaml",
+    resources:
+        mem_mb  = 2000,
+        threads = 1,
+    params:
+        artifacts = config["baseline"].get("pinned_artifacts", []),
+    script:
+        "../scripts/verify_pinned_reference.py"

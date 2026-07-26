@@ -60,26 +60,29 @@ rule immune_cluster_annotations:
         "../scripts/immune_cluster_annotations.py"
 
 
-rule nerve_tumor_immune_interaction:
-    """Three-way nerve-tumor-immune LR communication via LIANA+ consensus rank."""
-    input:
-        malig  = os.path.join(config["dirs"]["data_processed"], "malignancy_labeled.h5ad"),
-        nerve  = os.path.join(config["dirs"]["data_processed"], "nerve_cells.h5ad"),
-        immune = os.path.join(config["dirs"]["data_processed"], "immune_cells_labeled.h5ad"),
-    output:
-        lr_table   = os.path.join(config["dirs"]["tables"],     "nerve_tumor_immune_interactions.csv"),
-        top_pairs  = os.path.join(config["dirs"]["tables"],     "nerve_tumor_immune_top_pairs.csv"),
-        heatmap    = os.path.join(config["dirs"]["figures"],    "nerve_tumor_immune_sig_heatmap.png"),
-        dotplot    = os.path.join(config["dirs"]["figures"],    "nerve_tumor_immune_dotplot.png"),
-        provenance = os.path.join(config["dirs"]["provenance"], "nerve_tumor_immune_interaction_provenance.json"),
-    log:
-        os.path.join(config["dirs"]["logs"], "nerve_tumor_immune_interaction.log"),
-    conda:
-        "../envs/scrna.yaml",
-    threads: config["resources"]["default_threads"],
-    resources:
-        mem_mb = 64000,
-    params:
-        random_seed = config["scrna"]["random_seed"],
-    script:
-        "../scripts/nerve_tumor_immune_interaction.py"
+if not BASELINE_PINNED:
+    # PINNED (baseline.pinned) — regenerating this would rewrite frozen v1.3.0
+    # artifacts and/or needs the deleted, unreproducible nerve_cells.h5ad.
+    rule nerve_tumor_immune_interaction:
+        """Three-way nerve-tumor-immune LR communication via LIANA+ consensus rank."""
+        input:
+            malig  = os.path.join(config["dirs"]["data_processed"], "malignancy_labeled.h5ad"),
+            nerve  = os.path.join(config["dirs"]["data_processed"], "nerve_cells.h5ad"),
+            immune = os.path.join(config["dirs"]["data_processed"], "immune_cells_labeled.h5ad"),
+        output:
+            lr_table   = os.path.join(config["dirs"]["tables"],     "nerve_tumor_immune_interactions.csv"),
+            top_pairs  = os.path.join(config["dirs"]["tables"],     "nerve_tumor_immune_top_pairs.csv"),
+            heatmap    = os.path.join(config["dirs"]["figures"],    "nerve_tumor_immune_sig_heatmap.png"),
+            dotplot    = os.path.join(config["dirs"]["figures"],    "nerve_tumor_immune_dotplot.png"),
+            provenance = os.path.join(config["dirs"]["provenance"], "nerve_tumor_immune_interaction_provenance.json"),
+        log:
+            os.path.join(config["dirs"]["logs"], "nerve_tumor_immune_interaction.log"),
+        conda:
+            "../envs/scrna.yaml",
+        threads: config["resources"]["default_threads"],
+        resources:
+            mem_mb = 64000,
+        params:
+            random_seed = config["scrna"]["random_seed"],
+        script:
+            "../scripts/nerve_tumor_immune_interaction.py"

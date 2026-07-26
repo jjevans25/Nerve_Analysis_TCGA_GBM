@@ -33,12 +33,12 @@ Format each entry with: date, phase, action taken, outcome, and any open issues.
 
 ```
 [STATUS]
-Phase:          Second GBM Replication Cohort (cohort-namespaced parallel track) — CODE COMPLETE, not yet run
-Last Updated:   2026-07-16
+Phase:          Baseline pin (structural v1.3.0 freeze) — COMPLETE; notebook 04 — COMPLETE
+Last Updated:   2026-07-26
 Active Agent:   lead-researcher
-Current Task:   Wired a full replication pipeline for the CELLxGENE Census GBM cohort (gbm_cellxgene_56c4912d) reusing every reference analysis script unchanged; DAG validated by dry-run (358 ds jobs), reference baseline confirmed untouched under --rerun-triggers mtime
-Blocked On:     Nothing — awaiting researcher to launch the overnight run (own scVI + scANVI on ~150–300k cells). MANDATORY flag: --rerun-triggers mtime (protects the frozen 17-sample reference baseline)
-Next Action:    Run `caffeinate -i snakemake --use-conda --cores all --rerun-triggers mtime -- results/tables/gbm_cellxgene_56c4912d/cohort_concordance_summary.json results/tables/gbm_cellxgene_56c4912d/nerve_cluster_sample_purity_v2.csv`; then inspect cohort_concordance_summary.json (Jaccard + Spearman vs reference)
+Current Task:   v1.3.0 reference is now structurally pinned via baseline.pinned — the 10 rules that could rewrite it are not defined, so no invocation (not even bare `snakemake`) can schedule the nerve cascade. `--allowed-rules` is no longer required. Earlier the same day: shipped notebook 04 + its rule, exported the never-produced 03 HTML, and documented the Census raw-counts LIANA defect.
+Blocked On:     Nothing for the pin or notebook 04. Still OPEN for the replication arm: Census LIANA + cohort_concordance results are invalid pending a normalisation fix + re-run.
+Next Action:    Researcher decision on the Census raw-counts fix (§4 of markdowns/blocker_census_liana_raw_counts.md). Still open from 2026-07-25: review of the 9 flagged micro-clusters. NOTE cohort_concordance_summary.json (Jaccard 0.42 / ρ 0.54) should be treated as void, not reviewed. Optional cleanup: bare `snakemake` still plans ~410 jobs from stale metadata — unrelated to the pin, but worth a `--touch` pass if that is ever inconvenient.
 ```
 
 Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLETE; freeze insulator retained; cluster set {0-14, 16-27}.
@@ -47,6 +47,232 @@ Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLE
 ---
 
 ## Session Log
+
+---
+
+### [2026-07-26] | Phase: Baseline pin — make the v1.3.0 freeze structural | Status: COMPLETE
+
+**Action:** The decision to never regenerate the v1.3.0 reference cohort was enforced only by
+remembering to pass `--allowed-rules` on every invocation. `Snakefile:57` requested
+`results/figures/nerve_cells_umap.png` unconditionally — one of the four outputs of the failed
+`nerve_cell_subset` job, and also missing — so a bare `snakemake` scheduled the producer and
+cascaded through ~60 artifacts, overwriting the pinned tables. Four of the five notebook targets
+did the same (7–9 jobs each). Requested fix was `ancient()`; that turned out not to work.
+
+**Finding — `ancient()` cannot pin a missing file.** Verified against the installed Snakemake
+9.20.0 rather than assumed. The flag has exactly two semantic consumers and both concern
+timestamps: `io/__init__.py:763-769` (`is_newer` → `False`) and `dag.py:1630-1640`. The
+missing-file decision runs down a separate, ancient-blind path — `dag.py:1620-1629` queues a
+producer purely from `job_.missing_output(files)`, and `jobs.py:725-737` decides that on
+`not await f.exists()` alone. Even the one propagation-skip that reads the flag is gated on
+existence: `if all([f.is_ancient and await f.exists() for f in files])` (`dag.py:1633`). Net:
+ancient input + missing file + a producing rule ⇒ the producer is scheduled normally.
+
+**Outcome — parse-time conditional rule definition instead.** A rule that is never defined cannot
+be scheduled by any invocation, and Snakemake treats an existing file with no producer as a source
+file (`dag.py:1300-1310`). The project already depended on that: `nerve_crosstalk_lead_targets.csv`
+has no producing rule anywhere and resolves fine.
+
+- **`config.yaml`** — new `baseline.pinned: true` plus `baseline.pinned_artifacts` enumerating the
+  **37** surviving outputs of the pinned rules.
+- **`common.smk`** — `BASELINE_PINNED` flag and a `pinned_target()` helper that omits a frozen
+  artifact from `rule all` when it no longer exists (otherwise Snakemake raises "No rule to
+  produce" for the three files lost with the h5ad).
+- **10 rules wrapped in `if not BASELINE_PINNED:`** — nine in `nerve_cells.smk`
+  (`nerve_cell_subset`, `nerve_cell_heterogeneity`, `nerve_cluster_annotations`,
+  `nerve_clinical_association`, `nerve_batch_qc`, `nerve_leiden_resolution_sweep`,
+  `nerve_tumor_interaction`, `nerve_assemble_counts`, `annotate_cluster_qc`) and
+  `nerve_tumor_immune_interaction` in `immune.smk`.
+- **`Snakefile`** — 19 `rule all` targets converted to `pinned_target()`.
+- **Integrity manifest** — `freeze_pinned_reference` / `verify_pinned_reference` rules in
+  `fair.smk` + two new scripts, writing `provenance/pinned_reference_v1.3.0.json` and
+  `results/pinned_reference_verification.json`. A fresh manifest was required because
+  `baseline_v1.3.0.json` is dated 2026-05-25, several tables were legitimately regenerated in
+  July, and it stores `artifact_sha256: null` for `annotate_cluster_qc`.
+
+**Measured result (dry runs, no `--allowed-rules`):**
+
+| Target | Before | After |
+|---|---:|---:|
+| `04_tme_nerve_immune_explorer.html` | 9 jobs | 0 (up to date) |
+| `03_nerve_tumor_immune_explorer.html` | 7 | 0 |
+| `02_nerve_enrichment_explorer.html` | 7 | 1 (own export only) |
+| `nerve_tumor_exploration.html` | 7 | 1 (own export only) |
+| bare `snakemake -n --rerun-triggers mtime` | schedules `nerve_cell_subset` | 5 jobs, zero pinned |
+| bare `snakemake -n` (default triggers) | 420 | 410, zero pinned |
+
+**Two honest qualifications.**
+1. **A bare `snakemake` is still not cheap.** With default rerun-triggers it plans ~410 jobs —
+   full re-ingest of both cohorts, scVI/scANVI retrains, the entire `ds_*` chain. That is stale
+   Snakemake metadata, pre-existing and unrelated to this change. The pin removes exactly the 10
+   pinned rules; it protects the v1.3.0 tables, not the compute budget. `--rerun-triggers mtime`
+   still reduces the same command to 5 jobs.
+2. **One verification step was wrong on the first pass.** The `snakemake --list` check used
+   `grep -x <rulename>`, but `--list` appends each rule's docstring, so it matched nothing in
+   *either* pin state and appeared to pass vacuously. Re-run with an anchored pattern it is a
+   real test: 10 rules listed with `pinned: false`, 0 with `pinned: true`.
+
+**Verification:** workflow parses; anchored `--list` check passes in both states; reversibility
+confirmed by flipping `pinned: false` (rules return, 04 target back to 9 jobs) and back;
+`freeze_pinned_reference` → 37 artifacts hashed; `verify_pinned_reference` → PASS 37/37 unchanged;
+**negative test** — injected a bad sha and deleted a manifest entry, verifier correctly hard-failed
+on both (`1 modified, 0 missing, 1 configured but not in manifest`) and the manifest was restored
+to a clean pass. `flake8` clean on both new scripts and notebook 04. All 202 tracked mtimes under
+`results/`, `data/processed/` and `provenance/` unchanged except the intended new artifacts.
+
+**Artifacts:** `workflow/scripts/{freeze,verify}_pinned_reference.py`,
+`provenance/pinned_reference_v1.3.0.json` (37 entries),
+`results/pinned_reference_verification.json`, `markdowns/plan_pin_v1_3_0_reference.md`.
+
+**Open Issues / residual risk:**
+- `annotate_cluster_qc` is pinned, so edits to `nerve_cells.batch_qc.exclude_clusters` or
+  `immune_cells.batch_qc.exclude_subtypes` no longer regenerate the six `_with_qc` tables for the
+  reference cohort. Unpinning is the escape hatch; the `ds_*` track is unaffected.
+- The scANVI-v2 chain (`nerve_celltype_labels`, `nerve_scanvi_retrain`, `nerve_batch_qc_v2`) stays
+  runnable by choice and *is* scheduled under default rerun-triggers — it would retrain scANVI and
+  rewrite `nerve_cluster_sample_purity_v2.csv`. Reproducible, but not free.
+- `results/pinned_reference_verification.json` is deleted by Snakemake when the verifier fails, so
+  the report is also embedded in the FAILURE entry of `logs/verify_pinned_reference.log`.
+- `datasets.<name>.freeze_nerve_subset` and `freeze_cl15_split` (`config.yaml:145-146`) are read by
+  nothing — dead config. Not touched here.
+
+**FAIR Notes:** the pin and its artifact list live in `config.yaml`, not in code, so the frozen set
+is declarative and greppable. `provenance/nerve_subset_provenance.json` was lost with the h5ad, so
+`freeze_baseline_provenance` can never bundle that rule again — the new manifest is the substitute
+record for what survives.
+
+---
+
+### [2026-07-26] | Phase: TME × Nerve × Immune context explorer | Status: COMPLETE
+
+**Action:** Assess whether the artifacts on disk support a new marimo notebook for exploring
+TME ↔ nerve ↔ immune interactions, then build it. Scope confirmed with the researcher:
+reference cohort only, new notebook (leave 03 intact), CSV/table-only inputs.
+
+**Outcome:**
+
+- **New `notebooks/04_tme_nerve_immune_explorer.py`** (reference cohort, v1.3.0). Companion to
+  03, which stays the pure ligand–receptor view. 04 adds the context 03 structurally cannot
+  show, across seven panels: (A) cohort annotation census vs the compartments the LR analysis
+  actually modelled; (B) per-patient composition — immune `cluster × sample` matrix plus the
+  nerve purity summary; (C) interaction browser with clusters labelled by cell type and a new
+  **nerve cell-type filter**; (D) **nerve cell type × immune subtype interface matrix** (the
+  rollup 03 cannot produce — it only knows Leiden ids); (E) curated lead-target tracker
+  linking the 40 `nerve_crosstalk_lead_targets.csv` axes back to supporting rows; (F) relay
+  circuits with cell-type labels on the outbound leg; (G) clinical association reported as the
+  negative result it is. Cluster identity is parsed from `nerve_cluster_annotations.csv`'s
+  `label` field (`c{N} | dominant | score-argmax`), exposing `nerve_type_agrees` so ambiguous
+  clusters are visible in the cell-type rollup.
+- **New rule `tme_nerve_immune_notebook`** in `workflow/rules/notebooks.smk` (11 declared
+  inputs incl. the LR provenance JSON); added to `rule all` in `Snakefile`.
+- **Exported `results/figures/03_nerve_tumor_immune_explorer.html`** — a `rule all` target
+  pending since 2026-07-11 that had never run (no log, no artifact). 1.3 MB, exit 0.
+
+**Findings surfaced during the audit** (all now visible in the notebook, none silently fixed):
+
+1. **[FAIR-ALERT] Census-cohort LIANA tables were computed on raw UMI counts.** Its run logged
+   `X.max() = 53027.000 — assuming log1p-normalized counts` against the reference's `7.762`.
+   All 71,189 Census rows have an empty `specificity_rank` (0 in the reference) and 13,492
+   have `lr_logfc = inf` (0 in the reference). `cohort_concordance_summary.json` therefore
+   compares differently-scaled scores and is **void**. Full analysis and proposed fix in
+   `markdowns/blocker_census_liana_raw_counts.md`. **Documented, not fixed** — this is why
+   notebook 04 is reference-only.
+2. **The vasculature is annotated but never modelled.** `endothelial` (939 cells) is in
+   `annotation_summary.csv` but no rule subsets it; verified that no `endothelial` group
+   appears as a source or target in any of the 77,465 interaction rows. Perivascular niche
+   signalling is absent from the entire project. 2,786 annotated cells (1.5 %) are outside
+   all three modelled compartments.
+3. **`opc` is dropped from the nerve compartment by a naming mismatch.** `config.yaml`
+   lists `"oligodendrocyte precursor cell"`; `scrna_annotate.py` emits `opc`;
+   `nerve_cell_subset.py` matches by substring and neither string contains the other. 702
+   cells silently excluded.
+4. **The immune compartment is stale relative to the LR scores.** The interaction table was
+   computed 2026-07-11 on 46,030 immune cells; `immune_cell_subset` was re-run 2026-07-21
+   yielding 41,254 cells with a materially different subtype mix (TAM 8,317→3,302, NK
+   1,858→657). The `_with_qc` join remains valid because it keys on subtype name, but Panel B
+   cell counts are not the sample sizes behind the LR scores. Panel A/B state this.
+5. **The marimo version skew is benign.** `notebooks.yaml` pins `marimo==0.23.1` while 03
+   declares `__generated_with = "0.23.5"`; 0.23.1 exports 03 cleanly (exit 0, 1.3 MB), so the
+   planned pin bump was dropped as unnecessary — it would have forced a conda env rebuild for
+   no benefit. 04 declares 0.23.1 to match the pinned env.
+
+**Artifacts:**
+- `notebooks/04_tme_nerve_immune_explorer.py` (flake8 clean)
+- `results/figures/04_tme_nerve_immune_explorer.html` (825 KB, 4 embedded figures)
+- `results/figures/03_nerve_tumor_immune_explorer.html` (1.3 MB)
+- `provenance/{tme_nerve_immune_notebook,nerve_tumor_immune_notebook}_provenance.json`
+- `markdowns/blocker_census_liana_raw_counts.md`, `markdowns/plan_tme_nerve_immune_notebook.md`
+
+**Tool Versions:** marimo 0.23.1, pandas 2.3.3, duckdb 1.5.2, matplotlib 3.10.8, seaborn
+0.13.2 (conda env `notebooks`, `8e2fe802…`).
+
+**Verification:** flake8 clean; exported HTML scanned for `Traceback`/`marimo-error`/`NameError`
+(0 hits) and confirmed to carry 4 embedded PNGs; 9 numeric oracles run against the source CSVs
+— annotation census sums to 184,494; 25 nerve clusters in `_with_qc` vs 27 annotated; the
+identity join preserves all 77,465 rows with zero unmatched clusters; no endothelial/opc group
+present; unmodelled cells = 2,786; immune staleness detected. All pass.
+
+**Open Issues:** the Census raw-counts blocker (#1) awaits a researcher decision. The
+endothelial gap (#2) and the `opc` mismatch (#3) are surfaced but unaddressed — both would
+require re-running `nerve_cell_subset`, which is blocked by the pinned/deleted
+`nerve_cells.h5ad`. `run_notebook_export.py` still hardcodes its `"tool": "marimo==0.23.1"`
+string and hashes only the notebook, not its data inputs; notebook 04's own export sidecar
+hashes all 11 inputs, but the rule-level provenance does not.
+
+**FAIR Notes:** the new rule declares all 11 inputs explicitly so the DAG records the full
+lineage. **MANDATORY invocation:**
+`snakemake --use-conda --rerun-triggers mtime --allowed-rules tme_nerve_immune_notebook -- <target>`.
+Without `--allowed-rules`, Snakemake plans a 9-job nerve-cascade rebuild (verified by dry run)
+because `data/processed/nerve_cells.h5ad` is missing — that would break the `cl15_split_v1_3_0`
+freeze and overwrite the pinned v1.3.0 reference tables. The rule docstring carries this
+warning. Reference table mtimes confirmed unchanged after the run.
+
+---
+
+### [2026-07-25] | Phase: Second GBM Replication Cohort — scANVI-v2 nerve branch | Status: COMPLETE
+
+**Action:** Unblock and produce the deferred replication target
+`results/tables/gbm_cellxgene_56c4912d/nerve_cluster_sample_purity_v2.csv`. The scANVI-v2 rule
+chain died at its first step (`ds_nerve_assemble_counts`) with `KeyError: 'nCount_SCT'` — the
+script was hard-wired to the reference cohort's Seurat SCT log1p data. Made the step cohort-aware,
+then ran the full chain.
+
+**Outcome:**
+- **Fix (mirrors the `counts_from_log1p` flag already used by `ds_scrna_integration`):**
+  `nerve_assemble_counts.py` now branches on `snakemake.params.counts_from_log1p` —
+  `True` = reference SCT path (expm1+round recovery + `nCount_SCT` upper-bound validation,
+  unchanged); `False` = raw-UMI Census path (QC `.X` passed through unchanged; no `nCount_SCT`
+  fetch; replaced with a per-cell-total > 0 sanity check). Gene reindex already keyed off
+  `nerve_ref.var`, so it self-adjusts to the cohort's own gene set. `ds_nerve_assemble_counts`
+  (datasets.smk) gets `counts_from_log1p = lambda wc: _entry(wc.dataset).get(..., False)`; the
+  baseline `nerve_assemble_counts` (nerve_cells.smk) pinned `True`.
+- **Run:** `caffeinate -i -s snakemake --cores all --use-conda --rerun-triggers mtime -- …purity_v2.csv`
+  → **4 of 4 steps done, exit 0** (finished 19:48). Raw-count branch confirmed at runtime:
+  270,520 nerve cells, integer `.X`, **median per-cell total 3083** (no expm1 corruption).
+- **Batch-QC result:** 33 clusters; **24 pass**, **9 fail** (`18,20,23,24,28,29,30,31,32`) — all in
+  the small tail (≈5,300 cells, ~2% of the subset), each single/few-sample dominated (e.g. cl20
+  94.8% ndGBM-06; cl30/cl32 100% one sample). Large clusters mix well (dominant fraction 7–27%,
+  13–36 contributing samples). No systematic batch artifact.
+
+**Artifacts:**
+- `data/processed/gbm_cellxgene_56c4912d/nerve_cells_counts.h5ad` (raw integer `.X`, 270,520 cells)
+- `data/processed/gbm_cellxgene_56c4912d/nerve_cells_v2.h5ad` (3.48 GB, scANVI latent)
+- `results/models/gbm_cellxgene_56c4912d/nerve_scanvi_model/model.pt` (67 MB)
+- `results/tables/gbm_cellxgene_56c4912d/nerve_cluster_sample_purity_v2.csv` (33 clusters)
+- `results/figures/gbm_cellxgene_56c4912d/{nerve_cells_umap_by_sample_v2.png,
+  nerve_cells_umap_per_sample_panel_v2.png, nerve_scanvi_training_curves.png}`
+- Provenance JSONs for each rule under `provenance/gbm_cellxgene_56c4912d/`.
+
+**Tool Versions:** scvi-tools + lightning (scrna conda env `ef772b6…`), MPS backend, Float32;
+scVI 400 epochs + scANVI 100 epochs.
+
+**Open Issues:** 9 flagged micro-clusters await biological interpretation (likely patient-specific
+/ residual, not batch). scANVI training used the DataLoader default `num_workers` (bottleneck
+warning only, not an error).
+
+**FAIR Notes:** Every output stamped with provenance JSON (inputs, tool versions, parameters;
+`recovery_method="raw_counts_passthrough"` recorded for the Census branch). Reference v1.3.0
+baseline left untouched (run used `--rerun-triggers mtime`; only `ds_nerve_*` rules executed).
 
 ---
 
