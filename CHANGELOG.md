@@ -33,12 +33,12 @@ Format each entry with: date, phase, action taken, outcome, and any open issues.
 
 ```
 [STATUS]
-Phase:          Baseline pin (structural v1.3.0 freeze) — COMPLETE; notebook 04 — COMPLETE
+Phase:          Census cohort LIANA fix + replication explorer — COMPLETE
 Last Updated:   2026-07-26
 Active Agent:   lead-researcher
-Current Task:   v1.3.0 reference is now structurally pinned via baseline.pinned — the 10 rules that could rewrite it are not defined, so no invocation (not even bare `snakemake`) can schedule the nerve cascade. `--allowed-rules` is no longer required. Earlier the same day: shipped notebook 04 + its rule, exported the never-produced 03 HTML, and documented the Census raw-counts LIANA defect.
-Blocked On:     Nothing for the pin or notebook 04. Still OPEN for the replication arm: Census LIANA + cohort_concordance results are invalid pending a normalisation fix + re-run.
-Next Action:    Researcher decision on the Census raw-counts fix (§4 of markdowns/blocker_census_liana_raw_counts.md). Still open from 2026-07-25: review of the 9 flagged micro-clusters. NOTE cohort_concordance_summary.json (Jaccard 0.42 / ρ 0.54) should be treated as void, not reviewed. Optional cleanup: bare `snakemake` still plans ~410 jobs from stale metadata — unrelated to the pin, but worth a `--touch` pass if that is ever inconvenient.
+Current Task:   Census LIANA raw-counts defect RESOLVED (per-consumer normalize + hard guard); cohort re-run; ds_nerve_cluster_annotations added; notebook 05 shipped for the replication cohort. 30/40 curated reference axes replicate. Earlier the same day: structural v1.3.0 baseline pin, notebook 04, and the never-produced 03 HTML.
+Blocked On:     Nothing. Both explorers (04 reference, 05 Census) are runnable and their inputs are valid.
+Next Action:    Researcher review of the 30/40 curated-axis replication and the refreshed concordance (Jaccard 0.4691 / ρ 0.6249 — the old 0.4248/0.5357 figures are void). Then decide on markdowns/blocker_census_annotation_scoring.md (NEW, open — expensive: re-clusters the Census cohort and invalidates the above). Still open from 2026-07-25: review of the 9 flagged micro-clusters. Note `marimo` on PATH has a broken matplotlib; run notebooks via the snakemake notebooks env or `claude_science/bin/python -m marimo`.
 ```
 
 Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLETE; freeze insulator retained; cluster set {0-14, 16-27}.
@@ -47,6 +47,88 @@ Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLE
 ---
 
 ## Session Log
+
+---
+
+### [2026-07-26] | Phase: Census cohort LIANA normalization fix + replication explorer | Status: COMPLETE
+
+**Action:** Unblock exploration of the CELLxGENE Census replication cohort. Its ligand–receptor
+tables were void — computed on raw UMI counts against LIANA's log1p assumption (see the
+`[2026-07-26] TME × Nerve × Immune` entry below for the discovery).
+
+**Root cause, corrected framing.** Raw `.X` is *correct* for most of this pipeline: scVI wants
+counts, which is why `scrna_integration` sets `counts_from_log1p=True` for the reference
+(recovering counts from SCT log1p) and passes Census raw straight through. Integration and
+clustering were never wrong. The defect is that two *consumers* requiring log1p —
+`nerve_tumor_interaction` and `nerve_tumor_immune_interaction` — never normalized for themselves
+and only **logged** the assumption. Fixing it per-consumer is therefore the right design, not
+just the cheap one: normalizing upstream would break scVI's input contract.
+
+**Outcome:**
+- **`counts_utils.py`** — new `is_log1p_scale()` + `LOG1P_MAX_PLAUSIBLE = 50.0`.
+- **Both LIANA scripts** — `normalize_counts` param runs
+  `normalize_total(target_sum=1e4)` + `log1p` on the **combined** AnnData (post-concatenation, so
+  all compartments share one scale) just before the LIANA call. The passive "assuming log1p" log
+  line is replaced by a **hard guard that raises** on an off-scale matrix, for either cohort.
+  This is the durable part: the silent-wrong-answer mode is now impossible.
+- **Wiring** — `normalize_counts = _entry(wc.dataset).get("normalize_counts", True)` on the two
+  `ds_*` rules; pinned `False` on the reference twins (already SCT log1p).
+- **New `ds_nerve_cluster_annotations`** — the cohort had no cluster → cell-type map, so its
+  results could only be read as opaque `nerve_c{N}` ids. 35 clusters annotated.
+- **New `notebooks/05_census_nerve_immune_explorer.py`** + `ds_census_nerve_immune_notebook`.
+  A separate notebook rather than a cohort switch on 04, per researcher preference and because
+  the cohorts differ in what exists (no clinical metadata, no per-cohort curated list, 169 donors
+  vs 17). Panels: compartment census, per-cluster patient purity (bar charts, not the 27×169
+  heatmap that would be unreadable at this cohort size), biology-labelled LR browser,
+  cell-type × immune-subtype matrix, **curated-axis replication**, and whole-table concordance.
+  It self-checks for the raw-counts signature at load and refuses to vouch for defective data.
+- **`run_notebook_export.py`** — optional `params.env` passthrough so a cohort-namespaced rule can
+  tell the notebook which dataset to read (marimo has no argv passthrough). Additive; the five
+  existing notebook rules are unaffected.
+
+**Verified (re-run: 5 jobs, all `ds_*`, reference untouched, ~7 min):**
+
+| Marker | Before | After |
+|---|---:|---:|
+| `X.max()` at the LIANA call | 53,027.000 | **8.773** |
+| three-way rows with empty `specificity_rank` | 71,189 / 71,189 | **0** |
+| two-way rows with empty `specificity_rank` | 25,672 / 25,672 | **0** |
+| `lr_logfc = inf` (three-way) | 13,492 | **0** |
+| Jaccard vs reference | 0.4248 | **0.4691** |
+| Spearman ρ (shared pairs) | 0.5357 | **0.6249** |
+| Census significant pairs | 3,850 | **4,583** |
+
+**Scientific result.** Of the reference cohort's 40 curated lead axes, **30 replicate** in this
+independent 169-donor cohort at `magnitude_rank ≤ 0.05`, 9 are present but not significant, and 1
+(`EGF | RHBDL2`) is absent. Strongest replicating axes: `CD44|SPP1` (133 significant rows),
+`APP|CD74` (133), `ABCA1|APOE` (95), `PTN|PTPRZ1` (75), `NCAM1|PTPRZ1` (50), `NLGN1|NRXN1` (44) —
+the synaptic-adhesion and PTPRZ1 programs carry across cohorts.
+
+**Artifacts:** refreshed `results/tables/gbm_cellxgene_56c4912d/{nerve_tumor_interactions,
+nerve_tumor_immune_interactions,*_top_pairs,*_with_qc}.csv`, `cohort_concordance_summary.json`,
+`cohort_concordance_shared_pairs.csv`, new `nerve_cluster_annotations.csv`,
+`results/figures/gbm_cellxgene_56c4912d/05_census_nerve_immune_explorer.html` (881 KB, 4 figures,
+0 errors), `notebooks/05_census_nerve_immune_explorer.py`,
+`markdowns/blocker_census_annotation_scoring.md`.
+
+**Open Issues:**
+- **NEW blocker split out:** `markdowns/blocker_census_annotation_scoring.md`. The same raw-counts
+  family affects `scrna_annotate`'s `score_genes` — Census `mean_confidence` 1.41–15.29 vs the
+  reference's 0.11–0.73, and only 5 cell types resolved vs 10 (no `endothelial`, `opc`,
+  `ependymal`, `tumor_gbm`). **Not fixed:** the re-run re-clusters the cohort and would invalidate
+  everything above, including the replication finding. Filed so exploration is not blocked behind
+  that decision. Consequence already visible: 55,477 marker-labelled T cells (9.0% of the cohort)
+  sit outside the immune compartment, because `immune_cell_subset` takes only `microglia`-labelled
+  cells. Surfaced in notebook 05 Panel A.
+- Cluster-level cell-type interpretation for this cohort is provisional until that is resolved.
+  The LR results do not depend on the labels being correct, only on the compartment split being
+  stable, so the replication finding stands on its own.
+- Pre-existing `E302` in `nerve_tumor_interaction.py` fixed in passing (file was already being
+  edited); no other reformatting.
+
+**FAIR Notes:** every re-run artifact re-stamped with provenance JSON recording
+`normalize_counts`. The baseline pin held throughout — no pinned rule was scheduled at any point,
+confirmed by dry run before the re-run and by unchanged reference mtimes after.
 
 ---
 

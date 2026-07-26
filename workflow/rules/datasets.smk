@@ -346,6 +346,36 @@ rule ds_nerve_cell_heterogeneity:
         "../scripts/nerve_cell_heterogeneity.py"
 
 
+rule ds_nerve_cluster_annotations:
+    """Per-cluster biological labels for a replication cohort (reuses
+    nerve_cluster_annotations.py).
+
+    Maps each nerve Leiden id to its dominant cell type + top markers + canonical
+    module scores. Without this a cohort's interaction results can only be read as
+    opaque `nerve_c{N}` ids, which is what the TME explorer notebooks exist to
+    avoid. The reference cohort's twin is pinned; this one is freshly runnable.
+    """
+    input:
+        h5ad       = _dp("nerve_cells.h5ad"),
+        markers    = _tb("nerve_cluster_markers.csv"),
+        symbol_map = _dp("gene_symbol_map.tsv"),
+    output:
+        annotations = _tb("nerve_cluster_annotations.csv"),
+        provenance  = _pv("nerve_cluster_annotations_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "{dataset}_nerve_cluster_annotations.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = config["resources"]["default_threads"],
+    params:
+        markers     = config["nerve_cells"]["markers"],
+        random_seed = config["scrna"]["random_seed"],
+    script:
+        "../scripts/nerve_cluster_annotations.py"
+
+
 rule ds_nerve_tumor_interaction:
     """Two-way tumor-nerve LR (reuses nerve_tumor_interaction.py)."""
     input:
@@ -366,6 +396,10 @@ rule ds_nerve_tumor_interaction:
         mem_mb = config["resources"]["default_mem_mb"],
     params:
         random_seed = config["scrna"]["random_seed"],
+        # Replication cohorts carry raw UMIs in .X end to end (correct for scVI,
+        # which wants counts), but LIANA assumes log1p. Default True; a cohort
+        # whose .X is already log1p sets `normalize_counts: false` in its entry.
+        normalize_counts = lambda wc: _entry(wc.dataset).get("normalize_counts", True),
     script:
         "../scripts/nerve_tumor_interaction.py"
 
@@ -446,6 +480,8 @@ rule ds_nerve_tumor_immune_interaction:
         mem_mb = 64000,
     params:
         random_seed = config["scrna"]["random_seed"],
+        # See ds_nerve_tumor_interaction — same raw-UMI vs log1p asymmetry.
+        normalize_counts = lambda wc: _entry(wc.dataset).get("normalize_counts", True),
     script:
         "../scripts/nerve_tumor_immune_interaction.py"
 

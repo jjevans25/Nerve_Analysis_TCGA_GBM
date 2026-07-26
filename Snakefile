@@ -93,6 +93,8 @@ rule all:
         *[p(config["dirs"]["tables"],  d, "nerve_cluster_sample_purity_v2.csv") for d in DATASETS],
         *[p(config["dirs"]["tables"],  d, "nerve_celltype_label_summary.csv")   for d in DATASETS],
         *[p(config["dirs"]["figures"], d, "nerve_scanvi_training_curves.png")    for d in DATASETS],
+        # Replication-cohort explorer (pulls ds_nerve_cluster_annotations too).
+        *[p(config["dirs"]["figures"], d, "05_census_nerve_immune_explorer.html") for d in DATASETS],
 
 
 # -------------------------------------------------------------

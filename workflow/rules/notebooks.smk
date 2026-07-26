@@ -62,6 +62,50 @@ rule nerve_tumor_exploration_notebook:
         "../scripts/run_notebook_export.py"
 
 
+rule ds_census_nerve_immune_notebook:
+    """Export the replication-cohort nerve x immune explorer to HTML.
+
+    Cohort-namespaced twin of tme_nerve_immune_notebook. Separate notebook rather
+    than a cohort switch because the cohorts differ in what exists: no clinical
+    metadata here, no per-cohort curated target list, 169 donors instead of 17.
+
+    Requires the 2026-07-26 LIANA normalization fix — before it this cohort's
+    tables were computed on raw UMI counts and were invalid. The notebook checks
+    for the defect's signature at load time and refuses to vouch for the data.
+    """
+    input:
+        notebook           = "notebooks/05_census_nerve_immune_explorer.py",
+        interactions       = os.path.join(config["dirs"]["tables"], "{dataset}", "nerve_tumor_immune_interactions_with_qc.csv"),
+        top_pairs          = os.path.join(config["dirs"]["tables"], "{dataset}", "nerve_tumor_immune_top_pairs_with_qc.csv"),
+        nerve_annotations  = os.path.join(config["dirs"]["tables"], "{dataset}", "nerve_cluster_annotations.csv"),
+        immune_annotations = os.path.join(config["dirs"]["tables"], "{dataset}", "immune_cluster_annotations.csv"),
+        nerve_purity       = os.path.join(config["dirs"]["tables"], "{dataset}", "nerve_cluster_sample_purity.csv"),
+        immune_cl_purity   = os.path.join(config["dirs"]["tables"], "{dataset}", "immune_cluster_sample_purity.csv"),
+        immune_purity      = os.path.join(config["dirs"]["tables"], "{dataset}", "immune_subtype_sample_purity.csv"),
+        annotation_summary = os.path.join(config["dirs"]["tables"], "{dataset}", "annotation_summary.csv"),
+        concordance        = os.path.join(config["dirs"]["tables"], "{dataset}", "cohort_concordance_summary.json"),
+        shared_pairs       = os.path.join(config["dirs"]["tables"], "{dataset}", "cohort_concordance_shared_pairs.csv"),
+        lr_provenance      = os.path.join(config["dirs"]["provenance"], "{dataset}", "nerve_tumor_immune_interaction_provenance.json"),
+        # Reference-cohort input: the curated shortlist has no per-cohort twin, and
+        # Panel E exists precisely to test it against this cohort.
+        lead_targets       = os.path.join(config["dirs"]["tables"], "nerve_crosstalk_lead_targets.csv"),
+    output:
+        html       = os.path.join(config["dirs"]["figures"],    "{dataset}", "05_census_nerve_immune_explorer.html"),
+        provenance = os.path.join(config["dirs"]["provenance"], "{dataset}", "census_nerve_immune_notebook_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "{dataset}_census_nerve_immune_notebook.log"),
+    conda:
+        "../envs/notebooks.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = 1,
+    params:
+        # marimo has no argv passthrough; the notebook reads GBM_DATASET.
+        env = lambda wc: {"GBM_DATASET": wc.dataset},
+    script:
+        "../scripts/run_notebook_export.py"
+
+
 rule tme_nerve_immune_notebook:
     """Export the TME context explorer to HTML (compartment census, patient
     composition, cell-type-labelled LR browser, curated lead targets).

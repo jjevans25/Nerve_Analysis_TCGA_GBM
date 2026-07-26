@@ -34,6 +34,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scanpy as sc
 import seaborn as sns
 
 matplotlib.use("Agg")
@@ -41,6 +42,7 @@ matplotlib.use("Agg")
 import liana as li  # noqa: E402
 
 sys.path.insert(0, "workflow/scripts")
+from counts_utils import LOG1P_MAX_PLAUSIBLE, is_log1p_scale  # noqa: E402
 from fair_utils import (  # noqa: E402
     log_transformation,
     stamp_artifact,
@@ -54,6 +56,7 @@ EXPR_PROP = 0.10
 TOP_N_PER_PAIRING = 10
 MAGNITUDE_RANK_SIG = 0.05
 RESOURCE_NAME = "consensus"
+NORMALIZE_TARGET_SUM = 1e4    # counts-per-10k, applied only when normalize_counts
 
 log = snakemake.log[0]  # type: ignore[name-defined]
 os.environ["PYTHONHASHSEED"] = str(snakemake.params.random_seed)  # type: ignore[name-defined]
@@ -123,12 +126,50 @@ log_transformation(
     f"Combined AnnData: {combined.n_obs} cells × {combined.n_vars} genes",
 )
 
-x_max = float(combined.X.max())
-log_transformation(
-    log,
-    "nerve_tumor_immune_interaction",
-    f"X.max() = {x_max:.3f} — assuming log1p-normalized counts (use_raw=False)",
-)
+# --- Normalization: LIANA requires log1p input -------------------------------
+# Cohort-aware, mirroring the `counts_from_log1p` flag used by scrna_integration
+# and nerve_assemble_counts. The reference cohort's .X arrives as Seurat SCT
+# log1p and must be left alone; the Census cohort carries raw UMIs end to end
+# (correct for scVI, which wants counts) and must be normalized here.
+#
+# This previously only LOGGED an assumption, which let the Census cohort run to
+# completion on raw counts and emit silently invalid results — all 71,189 rows
+# with an empty specificity_rank and 13,492 with lr_logfc = inf. The guard below
+# now makes that failure mode impossible.
+normalize_counts = bool(snakemake.params.normalize_counts)  # type: ignore[name-defined]
+x_max_before = float(combined.X.max())
+
+if normalize_counts:
+    sc.pp.normalize_total(combined, target_sum=NORMALIZE_TARGET_SUM)
+    sc.pp.log1p(combined)
+    log_transformation(
+        log,
+        "nerve_tumor_immune_interaction",
+        f"Normalized for LIANA: normalize_total(target_sum={NORMALIZE_TARGET_SUM:g}) "
+        f"+ log1p. X.max() {x_max_before:.3f} -> {float(combined.X.max()):.3f}",
+    )
+else:
+    log_transformation(
+        log,
+        "nerve_tumor_immune_interaction",
+        f"normalize_counts=False — using .X as supplied. X.max() = {x_max_before:.3f}",
+    )
+
+if not is_log1p_scale(combined.X):
+    log_transformation(
+        log,
+        "nerve_tumor_immune_interaction",
+        f"[FAIR-ALERT] X.max() = {float(combined.X.max()):.3f} exceeds the log1p "
+        f"plausibility bound ({LOG1P_MAX_PLAUSIBLE}) — refusing to run LIANA.",
+        status="FAILURE",
+    )
+    raise ValueError(
+        f"Expression matrix is not on a log1p scale (max = {float(combined.X.max()):.3f}, "
+        f"bound = {LOG1P_MAX_PLAUSIBLE}). LIANA's scoring assumes log1p input; running on "
+        f"raw counts yields empty specificity ranks and infinite logFCs rather than an "
+        f"error. Set `normalize_counts: true` for this cohort. "
+        f"See markdowns/blocker_census_liana_raw_counts.md."
+    )
 
 # --- Build cross-compartment directional pair list ---------------------------
 label_to_compartment = (

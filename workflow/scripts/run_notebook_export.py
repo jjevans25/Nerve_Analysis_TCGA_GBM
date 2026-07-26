@@ -1,6 +1,7 @@
 """Export a Marimo notebook to HTML and write a FAIR provenance record."""
 
 import json
+import os
 import subprocess
 import uuid
 from datetime import datetime
@@ -13,10 +14,17 @@ def main() -> None:
     prov_out = snakemake.output.provenance  # noqa: F821
     log_path = snakemake.log[0]  # noqa: F821
 
+    # Optional `params.env` lets a cohort-namespaced rule tell the notebook which
+    # dataset to read (marimo has no argv passthrough). Additive: rules that do
+    # not set it are unaffected.
+    env = dict(os.environ)
+    env.update({k: str(v) for k, v in getattr(snakemake.params, "env", {}).items()})  # noqa: F821
+
     result = subprocess.run(
         ["marimo", "export", "html", notebook, "-o", html_out],
         capture_output=True,
         text=True,
+        env=env,
     )
 
     Path(log_path).write_text(result.stdout + result.stderr)
