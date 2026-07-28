@@ -33,8 +33,9 @@ Format each entry with: date, phase, action taken, outcome, and any open issues.
 
 ```
 [STATUS]
-Phase:          Branch merge to main + documentation resync — COMPLETE
+Phase:          Repo rename + documentation resync — COMPLETE
 Last Updated:   2026-07-28
+Repo:           github.com/jjevans25/GBM_Nerve_Tumor_Immune_Single_Cell_Analysis (renamed 2026-07-28; local dir intentionally still Nerve_Analysis_TCGA_GBM — see CLAUDE.md)
 Active Agent:   lead-researcher
 Current Task:   feat/nerve-tumor-immune-interaction merged to main and pushed (main @ 2cb6776; reconciled with the stale PR #1 merge commit — no content change). README.md and execution_instructions.md rewritten to current scope: immune arm, LIANA crosstalk, replication cohort, structural v1.3.0 pin. Removed guidance that `--forcerun nerve_cell_subset` can re-cut the reference cohort (that rule is undefined while pinned). No analysis code ran this session.
 Blocked On:     Nothing. Prior science state unchanged: both explorers (04 reference, 05 Census) runnable, inputs valid.
@@ -47,6 +48,36 @@ Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLE
 ---
 
 ## Session Log
+
+---
+
+### [2026-07-28] | Phase: Repository rename + constitution path fix | Status: COMPLETE
+**Action:** Rename the GitHub repo `Nerve_Analysis_TCGA_GBM` →
+`GBM_Nerve_Tumor_Immune_Single_Cell_Analysis` to match project scope, and correct the stale
+project-root declaration in `CLAUDE.md`.
+**Outcome:** Renamed via GitHub API (HTTP 200; `gh` is not installed — used the osxkeychain git
+credential). `origin` updated with `git remote set-url`; fetch verified. GitHub redirects the old
+URL, so existing clones keep working — **the old name must never be reused** or redirects break.
+
+**Deliberate decision: the local directory was NOT renamed.** It stays
+`Projects/Nerve_Analysis_TCGA_GBM/`. Renaming it would (a) invalidate ~6.5 GB of
+`.snakemake/conda/` environments, whose hashes include the prefix path, forcing a full rebuild,
+and (b) orphan the Claude Code project memory and session history, which are keyed on the
+filesystem path. Neither cost buys anything: `config/config.yaml` contains zero absolute paths and
+all 37 `baseline.pinned_artifacts` are relative, so no rule, target, or drift check depends on the
+directory name. `CLAUDE.md` now documents the name mismatch as intentional.
+
+`CLAUDE.md:7` had declared the root as `…/Projects/CLAUDE_TCGA_GBM/`, which never existed, and its
+path-correction rule mapped stale names onto `NERVE_ANALYSIS_TCGA_GBM` (wrong case, also not the
+real directory). Both corrected to the actual `Nerve_Analysis_TCGA_GBM`, with an explicit
+exception added: `provenance/*.json` absolute paths and `git_remote_url` values are historical
+FAIR records and must be left stale rather than rewritten.
+**Artifacts:** `CLAUDE.md`, `CHANGELOG.md`; GitHub repo renamed; `.git/config` remote URL updated.
+**Tool Versions:** GitHub REST API 2022-11-28; git 2.x. No analysis code executed.
+**Open Issues:** `provenance/baseline_v1.0.0`–`v1.3.0.json` record the old remote URL and old
+absolute artifact paths — intentionally left as-is per the rule above. PR #1 still merged-but-stale.
+**FAIR Notes:** No artifacts produced or modified; provenance deliberately untouched (65 JSONs).
+Findability is preserved by GitHub's permanent redirect from the old URL.
 
 ---
 

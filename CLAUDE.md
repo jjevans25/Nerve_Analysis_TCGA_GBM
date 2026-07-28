@@ -4,9 +4,24 @@
 
 This file is the authoritative "constitution" for all agentic work in this project. Read it fully before taking any action. Rules here are non-negotiable unless the researcher explicitly overrides them in a session.
 
-**Project root:** `/Users/jarrettevans/Documents/Biomedical Data Science/Projects/CLAUDE_TCGA_GBM/`
+**Project root (local):** `/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/`
 
-> **Path correction rule:** If any file, script, shebang, or config references `/Users/jarrettevans/Documents/Biomedical Data Science/Projects/CLAUDE_SETUP/`, or `/Users/jarrettevans/Documents/Biomedical Data Science/Projects/CLAUDE_TCGA_GBM` replace that segment with `NERVE_ANALYSIS_TCGA_GBM`. The `CLAUDE_SETUP` path is stale and incorrect for this project.
+**Remote:** `https://github.com/jjevans25/GBM_Nerve_Tumor_Immune_Single_Cell_Analysis`
+
+> **The local directory and the GitHub repo have different names, deliberately.** The repo was
+> renamed on 2026-07-28 to match the project's actual scope; the local directory was left as
+> `Nerve_Analysis_TCGA_GBM` to avoid rebuilding 6.5 GB of path-keyed `.snakemake/conda/`
+> environments and orphaning the Claude Code project memory (which is keyed on the filesystem
+> path). This mismatch is expected — do not "fix" it by renaming either side.
+
+> **Path correction rule:** Several stale project-root names appear in historical files. If any
+> file, script, shebang, or config references a project root of `CLAUDE_SETUP`, `CLAUDE_TCGA_GBM`,
+> or `NERVE_ANALYSIS_TCGA_GBM`, the correct local segment is **`Nerve_Analysis_TCGA_GBM`** (exact
+> case). `CLAUDE_SETUP` in particular belongs to a different project and is always wrong here.
+>
+> **Exception — never rewrite provenance.** Absolute paths and `git_remote_url` values inside
+> `provenance/*.json` (notably `baseline_v1.0.0`–`v1.3.0.json`) are historical FAIR records of
+> what was true at freeze time. Leave them stale. Rewriting them falsifies the audit trail.
 
 ---
 
