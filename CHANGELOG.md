@@ -33,11 +33,11 @@ Format each entry with: date, phase, action taken, outcome, and any open issues.
 
 ```
 [STATUS]
-Phase:          Census cohort LIANA fix + replication explorer — COMPLETE
-Last Updated:   2026-07-26
+Phase:          Branch merge to main + documentation resync — COMPLETE
+Last Updated:   2026-07-28
 Active Agent:   lead-researcher
-Current Task:   Census LIANA raw-counts defect RESOLVED (per-consumer normalize + hard guard); cohort re-run; ds_nerve_cluster_annotations added; notebook 05 shipped for the replication cohort. 30/40 curated reference axes replicate. Earlier the same day: structural v1.3.0 baseline pin, notebook 04, and the never-produced 03 HTML.
-Blocked On:     Nothing. Both explorers (04 reference, 05 Census) are runnable and their inputs are valid.
+Current Task:   feat/nerve-tumor-immune-interaction merged to main and pushed (main @ 2cb6776; reconciled with the stale PR #1 merge commit — no content change). README.md and execution_instructions.md rewritten to current scope: immune arm, LIANA crosstalk, replication cohort, structural v1.3.0 pin. Removed guidance that `--forcerun nerve_cell_subset` can re-cut the reference cohort (that rule is undefined while pinned). No analysis code ran this session.
+Blocked On:     Nothing. Prior science state unchanged: both explorers (04 reference, 05 Census) runnable, inputs valid.
 Next Action:    Researcher review of the 30/40 curated-axis replication and the refreshed concordance (Jaccard 0.4691 / ρ 0.6249 — the old 0.4248/0.5357 figures are void). Then decide on markdowns/blocker_census_annotation_scoring.md (NEW, open — expensive: re-clusters the Census cohort and invalidates the above). Still open from 2026-07-25: review of the 9 flagged micro-clusters. Note `marimo` on PATH has a broken matplotlib; run notebooks via the snakemake notebooks env or `claude_science/bin/python -m marimo`.
 ```
 
@@ -47,6 +47,43 @@ Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLE
 ---
 
 ## Session Log
+
+---
+
+### [2026-07-28] | Phase: Branch merge to main + documentation resync | Status: COMPLETE
+**Action:** Merge `feat/nerve-tumor-immune-interaction` into `main`, push to origin, and bring
+`README.md` and `execution_instructions.md` back in line with the current pipeline.
+**Outcome:** Merge into `main` was a fast-forward locally, but the push was rejected: GitHub PR #1
+had merged the same branch on 2026-07-11 from an **older tip** (`076bd9f`), so the 5 later commits
+(`d8b384e`…`3ad59c5`) had never reached the remote while the PR's merge commit was absent locally.
+Verified `37db19d` was already an ancestor of `076bd9f` and `git diff 076bd9f 9d3b314` was empty —
+i.e. the merge commit carried no unique content — then reconciled with a merge commit (`2cb6776`)
+rather than a rebase, since the 5 commits were already published on the remote feature branch.
+`git diff 3ad59c5 HEAD` empty, confirming no file content changed. Pushed.
+
+Both docs were stale at the *scope* level: they described only the nerve-heterogeneity arm of a
+17-sample TCGA cohort, with no mention of the immune compartment, LIANA crosstalk, the replication
+cohort, or the structural v1.3.0 pin. Rewrote scope, structure, DAG, outputs, config, and caveats.
+Three factual corrections made against live data rather than prior notes: (1) the Census LIANA
+raw-counts blocker is RESOLVED, not open; (2) the 24/33 purity figure is the *replication* cohort —
+the reference is 16/26; (3) `nerve_cells.h5ad` and `nerve_cells_umap.png` were listed as available
+outputs but do not exist, so they are now struck through and annotated as unreproducible.
+
+Most consequential doc fix: `execution_instructions.md` instructed `--forcerun nerve_cell_subset`
+for resolution tuning. Under `baseline.pinned: true` that rule is not defined, so the command fails —
+and the guidance implied the reference cohort could be re-cut, which it cannot. Replaced with the
+`ds_*` replication-cohort equivalent plus the mandatory `--allowed-rules` insulator pattern.
+**Artifacts:** `README.md` (+192/−61), `execution_instructions.md`, `CHANGELOG.md`; `main` at
+`2cb6776` on origin.
+**Tool Versions:** git 2.x; no analysis code executed — documentation and VCS only.
+**Open Issues:** PR #1 remains merged-but-stale on GitHub (shows only the pre-`076bd9f` work);
+`scrna_annotate.py` marker scoring on the Census cohort is still unaudited
+(`markdowns/blocker_census_annotation_scoring.md`). The README does not enumerate the 21 `ds_*`
+rules individually.
+**FAIR Notes:** No artifacts produced or modified; provenance untouched (65 JSONs). Documentation
+now states the pinned-reference drift-detection procedure (`verify_pinned_reference`) and the
+per-cohort `.X` scale contract, both of which were previously undocumented and had already caused
+one silent defect.
 
 ---
 
