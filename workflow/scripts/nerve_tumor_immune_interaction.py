@@ -86,6 +86,11 @@ nerve = ad.read_h5ad(snakemake.input.nerve)  # type: ignore[name-defined]
 immune = ad.read_h5ad(snakemake.input.immune)  # type: ignore[name-defined]
 
 malig = malig_full[malig_full.obs["is_malignant"].astype(bool)].copy()
+# Release the whole-cohort object as soon as the malignant subset is materialized.
+# malig_full is the largest input here (10.2 GB for the Census cohort) and only
+# ~20% of its cells survive the filter; holding it through concat + LIANA is what
+# drove this rule's (unsatisfiable) 64 GB request.
+del malig_full
 malig.obs["cell_label"] = "malignant"
 nerve.obs["cell_label"] = "nerve_c" + nerve.obs["nerve_leiden"].astype(str)
 immune.obs["cell_label"] = "immune_" + immune.obs["immune_subtype"].astype(str)
@@ -119,6 +124,11 @@ combined = ad.concat(
     keys=["tumor", "nerve", "immune"],
     index_unique=None,
 )
+# The three compartments are fully represented in `combined` from here on; LIANA
+# never reads them again. Releasing them halves peak RSS across the permutation
+# run. Cell counts are captured first — the provenance block below reports them.
+n_tumor_cells, n_nerve_cells, n_immune_cells = malig.n_obs, nerve.n_obs, immune.n_obs
+del malig, nerve, immune
 combined.obs_names_make_unique()
 log_transformation(
     log,
@@ -398,9 +408,9 @@ prov = stamp_artifact(
         "resource_name": RESOURCE_NAME,
         "magnitude_rank_sig": MAGNITUDE_RANK_SIG,
         "top_n_per_pairing": TOP_N_PER_PAIRING,
-        "n_tumor_cells": int(malig.n_obs),
-        "n_nerve_cells": int(nerve.n_obs),
-        "n_immune_cells": int(immune.n_obs),
+        "n_tumor_cells": int(n_tumor_cells),
+        "n_nerve_cells": int(n_nerve_cells),
+        "n_immune_cells": int(n_immune_cells),
         "n_nerve_clusters": len(nerve_groups),
         "n_immune_subtypes": len(immune_groups),
         "n_directional_pairings": int(len(groupby_pairs)),

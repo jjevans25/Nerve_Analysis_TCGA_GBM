@@ -62,7 +62,10 @@ min_contributing_samples = int(snakemake.params.min_contributing_samples)
 silhouette_sample_size = int(getattr(snakemake.params, "silhouette_sample_size", 5000))
 
 log_transformation(log, "nerve_leiden_resolution_sweep", f"Loading {snakemake.input.h5ad}")
-adata = ad.read_h5ad(snakemake.input.h5ad)
+# Backed read: the sweep re-clusters on the precomputed neighbor graph and only
+# needs obs / obsm["X_scVI"] / obsp / uns["neighbors"] — all of which backed mode
+# loads. Only .X stays on disk, and it is never read here.
+adata = ad.read_h5ad(snakemake.input.h5ad, backed="r")
 if adata.n_obs == 0 or "X_scVI" not in adata.obsm:
     raise RuntimeError("[FAIR-ALERT] nerve_cells.h5ad is empty or missing obsm['X_scVI']")
 if "neighbors" not in adata.uns:

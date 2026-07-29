@@ -21,6 +21,7 @@ import scanpy as sc
 
 sys.path.insert(0, "workflow/scripts")
 from fair_utils import (  # noqa: E402
+    H5AD_COMPRESSION,
     compute_cluster_purity,
     log_transformation,
     stamp_artifact,
@@ -167,7 +168,7 @@ log_transformation(
 )
 
 # --- Write labeled AnnData + provenance --------------------------------------
-adata.write_h5ad(snakemake.output.h5ad)  # type: ignore[name-defined]
+adata.write_h5ad(snakemake.output.h5ad, compression=H5AD_COMPRESSION)  # type: ignore[name-defined]
 verify_artifact(snakemake.output.h5ad, min_size_bytes=512)  # type: ignore[name-defined]
 
 prov = stamp_artifact(

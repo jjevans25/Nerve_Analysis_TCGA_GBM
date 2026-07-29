@@ -29,6 +29,7 @@ import scanpy as sc
 
 sys.path.insert(0, "workflow/scripts")
 from fair_utils import (
+    H5AD_COMPRESSION,
     log_transformation,
     stamp_artifact,
     verify_artifact,
@@ -167,7 +168,7 @@ summary = pd.DataFrame(
 summary.to_csv(snakemake.output.summary, index=False)
 verify_artifact(snakemake.output.summary, min_size_bytes=64)
 
-adata.write_h5ad(snakemake.output.h5ad)
+adata.write_h5ad(snakemake.output.h5ad, compression=H5AD_COMPRESSION)
 verify_artifact(snakemake.output.h5ad, min_size_bytes=1_000_000)
 
 prov = stamp_artifact(

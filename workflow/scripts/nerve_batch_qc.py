@@ -44,7 +44,10 @@ log_transformation(
     "nerve_batch_qc",
     f"Loading {snakemake.input.h5ad}",
 )
-adata = ad.read_h5ad(snakemake.input.h5ad)
+# Backed read: this rule only reads obs and obsm["X_umap"]. Backed mode loads
+# obs/var/obsm/obsp/uns but leaves .X (and its .raw twin) on disk, which is the
+# entire multi-GB payload here.
+adata = ad.read_h5ad(snakemake.input.h5ad, backed="r")
 if adata.n_obs == 0 or "nerve_leiden" not in adata.obs:
     raise RuntimeError("[FAIR-ALERT] nerve_cells.h5ad is empty or missing nerve_leiden")
 if "X_umap" not in adata.obsm:

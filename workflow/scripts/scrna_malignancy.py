@@ -14,7 +14,7 @@ import scanpy as sc
 matplotlib.use("Agg")
 
 sys.path.insert(0, "workflow/scripts")
-from fair_utils import log_transformation, stamp_artifact, verify_artifact, write_provenance
+from fair_utils import H5AD_COMPRESSION, log_transformation, stamp_artifact, verify_artifact, write_provenance
 
 log = snakemake.log[0]
 os.environ["PYTHONHASHSEED"] = str(snakemake.params.random_seed)
@@ -106,12 +106,21 @@ def _load_ordered_block(lo, hi):
     return blk
 
 
-# Per-gene reference baseline (mean of log-normalized reference cells)
+# Per-gene reference baseline (mean of log-normalized reference cells).
+# Streamed in row-blocks like the main loop below: the reference set is not
+# small (55,477 cells in the last Census run = 5.3 GB dense in one allocation),
+# and materializing it whole was the last unchunked densification in this script.
 if n_ref >= 1:
-    ref_block = adata.X[ref_mask][:, gene_order_idx].toarray().astype(np.float32, copy=False)
-    np.log1p(ref_block, out=ref_block)
-    ref_mean = ref_block.mean(axis=0, keepdims=True)
-    del ref_block
+    ref_pos = np.flatnonzero(ref_mask)
+    ref_sum = np.zeros((1, n_genes_ord), dtype=np.float64)
+    for lo in range(0, ref_pos.size, chunk_size):
+        sel = ref_pos[lo : lo + chunk_size]
+        ref_blk = adata.X[sel][:, gene_order_idx].toarray().astype(np.float32, copy=False)
+        np.log1p(ref_blk, out=ref_blk)
+        ref_sum += ref_blk.sum(axis=0, keepdims=True)
+        del ref_blk
+    ref_mean = (ref_sum / ref_pos.size).astype(np.float32)
+    del ref_sum, ref_pos
 else:
     # No reference cells: baseline = mean over all cells (streamed).
     gene_sum = np.zeros((1, n_genes_ord), dtype=np.float64)
@@ -197,7 +206,7 @@ fig.savefig(snakemake.output.cnv_plot, dpi=150, bbox_inches="tight")
 plt.close(fig)
 
 # --- Write output ------------------------------------------------------------
-adata.write_h5ad(snakemake.output.h5ad)
+adata.write_h5ad(snakemake.output.h5ad, compression=H5AD_COMPRESSION)
 verify_artifact(snakemake.output.h5ad, min_size_bytes=1024)
 
 prov = stamp_artifact(

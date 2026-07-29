@@ -28,6 +28,7 @@ matplotlib.use("Agg")
 
 sys.path.insert(0, "workflow/scripts")
 from fair_utils import (
+    H5AD_COMPRESSION,
     log_transformation,
     stamp_artifact,
     verify_artifact,
@@ -151,7 +152,7 @@ sc.tl.umap(adata, random_state=SEED)
 # ----------------------------------------------------------------------------
 scanvi_model.save(snakemake.output.model_dir, overwrite=True)
 
-adata.write_h5ad(snakemake.output.latent_h5ad)
+adata.write_h5ad(snakemake.output.latent_h5ad, compression=H5AD_COMPRESSION)
 verify_artifact(snakemake.output.latent_h5ad, min_size_bytes=1_000_000)
 
 # Training-curves figure (two panels: scVI ELBO and scANVI losses).

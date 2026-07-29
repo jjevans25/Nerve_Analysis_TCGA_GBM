@@ -1353,3 +1353,123 @@ At that point the freeze forces a deliberate retirement (it raises a `[FAIR-ALER
 - `README.md:40` and `execution_instructions.md:24` were left untouched: they already read `Nerve_Analysis_TCGA_GBM` and became correct again on revert.
 
 **FAIR Notes:** All ~60 files under `provenance/` were left stale per `CLAUDE.md:24-27` — the 9 pinned provenance JSONs still carry the original absolute path, which is precisely why their sha256 values did not drift. `verify_pinned_reference` passes: **37/37 unchanged, 0 modified, 0 missing**, and it activated the recovered env `8e2fe802…` rather than building one — direct confirmation the envs were reused. Caveat on that check: the run first re-executed `freeze_pinned_reference` (pre-existing "code has changed" trigger), rewriting the manifest's `frozen_at_utc`, so the pass is partly self-referential. The independent evidence is stronger: the newest recorded artifact mtime is **2026-07-22**, six days before this session, so none of the 37 pinned artifacts were touched. The 5 tracked `baseline_v1.*.json` files are unmodified (`git status` clean).
+
+---
+
+### [2026-07-28] | Phase: Memory-efficiency remediation (items 1-7) + uncapped cohort namespace | Status: COMPLETE (code only — no pipeline run)
+**Action:** Investigated whether polars could relieve the memory pressure that forced
+`subsample_per_donor: 5000` (which discards 47.7% of the Census cohort). Answer: no — the footprint
+is a sparse count matrix, not a DataFrame. Measured `annotated.h5ad`: `X` = 9.82 GB vs `obs` = 121 MB,
+so polars addresses ~1.3% of it. Instead applied the seven memory-hygiene fixes from
+`markdowns/assessment_pipeline_memory_efficiency.md` and added an uncapped dataset namespace.
+
+**Headline finding — the documented hardware budget was wrong by 3.5x.** `system_profiler` reports
+**36 GB** unified memory (`sysctl hw.memsize` = 38654705664). `CLAUDE.md:47`, `config/config.yaml:36`
+and `project_plan_orchestration.md:20` all claimed 128 GB. Consequently `CHANGELOG.md:442`'s account
+of the 2026-07-21 OOM ("peaking >120 GB on the 128 GB machine") describes a peak this machine cannot
+reach — the process was SIGKILLed far earlier. The chunking fix applied then was still correct.
+
+**Outcome (all seven items applied):**
+1. Hardware facts corrected in the three docs; `max_memory_gb: 120 -> 30`; `default_mem_mb: 32000 -> 28000`.
+   The two unsatisfiable `mem_mb = 64000` declarations (`datasets.smk:480`, `:595`) now use the default.
+2. `scrna_integration.py` — `adatas.clear(); del adatas` after `ad.concat`. The per-sample list
+   (~12 GB Census / ~21 GB baseline) was previously held alongside the concatenated copy.
+3. `scrna_integration.py` — the identity `layers["counts"]` copy is no longer materialized when `.X`
+   already holds raw counts; scVI now gets `layer=None` for those cohorts. **Numerically identical**
+   (the layer was a bit-identical copy of `.X`), and it matches how the existing Census
+   `integrated_latent.h5ad` was actually built per `markdowns/plan_recover_baseline_raw_counts.md`.
+   The baseline arm is untouched — `integration.smk:34` hard-codes `counts_from_log1p = True`.
+   Added a CSR-index dtype guard that warns if nnz ever promotes indices to int64.
+4. `scrna_malignancy.py` — the reference block is now streamed in row-blocks like the main loop
+   (was 55,477 cells x 24,048 genes = 5.3 GB in a single `.toarray()`, the last unchunked
+   densification). `cnv_chunk_size: 50000 -> 10000` (~9.6 GB -> ~2 GB working set).
+5. Both LIANA scripts release `malig_full` / `nerve` / `immune` after subsetting/concat; cell counts
+   captured beforehand for the provenance blocks.
+6. `backed="r"` for `nerve_batch_qc`, `nerve_clinical_association`, `nerve_leiden_resolution_sweep`
+   — all three read only `obs`/`obsm`. **`nerve_batch_qc_v2` was deliberately NOT converted**: it
+   rewrites its own input file in place, and writing to a file held open in backed mode is unsafe.
+7. All 14 `write_h5ad` call sites now pass `compression=H5AD_COMPRESSION` (new constant in
+   `fair_utils.py`). `data/processed` was 143 GB of uncompressed HDF5 on a disk that is 74% full.
+
+**Uncapped cohort:** new `datasets:` entry `gbm_cellxgene_56c4912d_full` — same study filter, same 170
+donors, `subsample_per_donor: null` -> **1,020,902 cells** (vs 614,951 capped). Deliberately a separate
+namespace so the capped cohort's 77 GB of artifacts survive as a comparison arm.
+`data/raw/gbm_cellxgene_56c4912d_full/{samples.txt,MANIFEST.txt}` generated via
+`scripts/derive_dataset_sample_sheet.py` (backed metadata read).
+
+**Feasibility (measured, not estimated):** sampled 3,000 cells from `annotated.h5ad` — 1,995 nnz/cell,
+51.6% of nonzeros in the top-3,000 genes. Full study at 24,048 genes ~= 2.04e9 nnz = **16.3 GB** in
+memory, and 2.04e9 < 2**31 so int32 CSR indices remain legal. Fits in 36 GB *only because* of items
+2+3, which freed ~22 GB. Disk: uncompressed the run would need ~128 GB against 116 GiB free — item 7
+is load-bearing for this run, not cosmetic.
+
+**Artifacts:** `markdowns/assessment_pipeline_memory_efficiency.md` (new); `CLAUDE.md`,
+`project_plan_orchestration.md`, `config/config.yaml`, `workflow/rules/datasets.smk`,
+`workflow/scripts/{fair_utils,scrna_integration,scrna_malignancy,nerve_tumor_interaction,
+nerve_tumor_immune_interaction,nerve_batch_qc,nerve_clinical_association,
+nerve_leiden_resolution_sweep}.py` + 14 write-site edits across the AnnData-emitting scripts;
+`data/raw/gbm_cellxgene_56c4912d_full/`.
+
+**Verification:** `flake8` output diffed against `HEAD` for every changed file — **identical**, no new
+errors (pre-existing ones left alone per `CLAUDE.md` "do not mass-reformat"). All changed `.py` files
+byte-compile. `snakemake --dry-run` builds a valid 772-job DAG. Scoped dry-run on the five `_full`
+targets with `--rerun-triggers=mtime` yields **360 jobs, every one `ds_*` under the `_full`
+namespace**; the only non-namespaced paths in the DAG are read-only *inputs* (the pinned v1.3.0
+concordance comparator and `nerve_crosstalk_lead_targets.csv`). No existing artifact is an output.
+
+**Tool Versions:** anndata 0.12.10, scanpy 1.12.1, scvi-tools 1.4.2, scipy 1.17.1, numpy 2.3.5,
+h5py 3.16.0, torch 2.12.0.
+
+**Open Issues:**
+- **The pipeline has NOT been run.** Researcher asked for the edits only. See the invocation below.
+- **A bare `snakemake` is now unsafe.** Script edits tripped the `code` rerun-trigger, so the default
+  invocation schedules 772 jobs including the 17-sample baseline `scrna_integration`. Always pass
+  `--rerun-triggers=mtime` and explicit targets.
+- **Item 4 is not bit-exact for malignancy.** The streamed reference mean accumulates in float64 and
+  divides, where the old code called `.mean()` on a float32 block. This is strictly more accurate but
+  may shift `cnv_threshold` in the last decimals and flip a handful of borderline cells. It matches
+  the pattern the no-reference branch in the same script already used. `malignancy_labeled.h5ad` is
+  not in `baseline.pinned_artifacts`, so nothing frozen depends on it.
+- Items 8-10 (HVG-before-scVI, `.raw` after `subset=True`) and 11-12 (peak-RSS logging, polars port
+  of the five table workloads) remain unimplemented.
+- `scrna.n_top_genes: 3000` is still **unused by scVI** — `scrna_integration.py` does no HVG
+  selection, so the run below trains a full 24,048-gene decoder. This is item 9, deferred as a
+  science change.
+
+**FAIR Notes:** No provenance JSON was rewritten. The pinned v1.3.0 reference is untouched — it is
+read as the concordance comparator only. The new cohort namespaces every artifact under
+`gbm_cellxgene_56c4912d_full/`, so `baseline.pinned: true` and its 10 undefined rules stay in force.
+
+**Invocation for the full-cohort run (NOT executed):**
+
+This machine is configured to idle-sleep after **1 minute** (`pmset -g custom`: `sleep 1`,
+`disksleep 10`). macOS idle sleep keys off user input, not CPU load, so an unattended multi-hour
+job WILL be suspended mid-run unless a power assertion is held. `ttyskeepawake 1` covers it only
+while a tty stays connected. Hence `caffeinate -ims` (idle + disk + system sleep; display is left
+free to sleep). Assertions are held only for the lifetime of the wrapped command.
+
+`/usr/bin/time -l` captures `maximum resident set size` across the largest reaped child — the only
+way to get a peak-RSS number until item 11 (per-rule RSS logging) is implemented. Expect < 20 GB
+if items 2-4 worked; the pre-fix code peaked around 32 GB on a 36 GB machine.
+
+```
+caffeinate -ims /usr/bin/time -l \
+snakemake --use-conda --cores all --rerun-triggers=mtime \
+  results/tables/gbm_cellxgene_56c4912d_full/cohort_concordance_summary.json \
+  results/tables/gbm_cellxgene_56c4912d_full/nerve_cluster_sample_purity_v2.csv \
+  results/tables/gbm_cellxgene_56c4912d_full/nerve_celltype_label_summary.csv \
+  results/figures/gbm_cellxgene_56c4912d_full/nerve_scanvi_training_curves.png \
+  results/figures/gbm_cellxgene_56c4912d_full/05_census_nerve_immune_explorer.html \
+  2>&1 | tee logs/full_cohort_run_$(date +%Y%m%d_%H%M%S).log
+```
+
+Run it inside `tmux`/`screen` (or under `nohup`) — closing the terminal SIGHUPs `caffeinate`, which
+kills the wrapped snakemake and drops the assertions. Verify the assertion is live during the run
+with `pmset -g assertions | grep -i caffeinate`.
+
+Note on `--cores all` (14): `resources: mem_mb` is ignored by the scheduler unless
+`--resources mem_mb=N` is also passed. It is deliberately omitted here — every rule declares the
+28000 default, so supplying it would serialize all 170 ingest/QC jobs (each of which is a small
+per-donor backed read) and cost far more wall-clock than it protects. The heavy rules
+(`ds_scrna_integration`, `ds_scrna_malignancy`, `ds_nerve_scanvi_retrain`) are singletons and run
+alone regardless.

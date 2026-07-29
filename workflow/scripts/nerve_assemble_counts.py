@@ -27,6 +27,7 @@ import scipy.sparse as sp
 sys.path.insert(0, "workflow/scripts")
 from counts_utils import recover_counts_from_log1p as _recover_counts
 from fair_utils import (
+    H5AD_COMPRESSION,
     log_transformation,
     stamp_artifact,
     verify_artifact,
@@ -193,7 +194,7 @@ adata.obs["batch"] = adata.obs["batch"].astype(str)
 adata.obs["hvg_total_counts"] = hvg_total.astype(np.int32)
 
 out_path.parent.mkdir(parents=True, exist_ok=True)
-adata.write_h5ad(out_path)
+adata.write_h5ad(out_path, compression=H5AD_COMPRESSION)
 verify_artifact(out_path, min_size_bytes=1_000_000)
 
 prov = stamp_artifact(

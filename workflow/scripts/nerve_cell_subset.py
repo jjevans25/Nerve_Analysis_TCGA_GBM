@@ -13,7 +13,7 @@ import scanpy as sc
 matplotlib.use("Agg")
 
 sys.path.insert(0, "workflow/scripts")
-from fair_utils import log_transformation, stamp_artifact, verify_artifact, write_provenance
+from fair_utils import H5AD_COMPRESSION, log_transformation, stamp_artifact, verify_artifact, write_provenance
 
 log = snakemake.log[0]
 os.environ["PYTHONHASHSEED"] = str(snakemake.params.random_seed)
@@ -271,7 +271,7 @@ comp = (
 comp.to_csv(snakemake.output.composition, index=False)
 
 # --- Write output ------------------------------------------------------------
-adata_nerve.write_h5ad(snakemake.output.h5ad)
+adata_nerve.write_h5ad(snakemake.output.h5ad, compression=H5AD_COMPRESSION)
 verify_artifact(snakemake.output.h5ad, min_size_bytes=512)
 
 prov = stamp_artifact(

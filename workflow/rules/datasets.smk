@@ -477,7 +477,10 @@ rule ds_nerve_tumor_immune_interaction:
         "../envs/scrna.yaml",
     threads: config["resources"]["default_threads"],
     resources:
-        mem_mb = 64000,
+        # Was 64000 — unsatisfiable on a 36GB machine, and mem_mb does not cap a
+        # process's RAM anyway. The script now releases malig_full/nerve/immune
+        # after subsetting, which is what actually bounds this rule.
+        mem_mb = config["resources"]["default_mem_mb"],
     params:
         random_seed = config["scrna"]["random_seed"],
         # See ds_nerve_tumor_interaction — same raw-UMI vs log1p asymmetry.
@@ -592,7 +595,8 @@ rule ds_nerve_scanvi_retrain:
     conda:
         "../envs/scrna.yaml",
     resources:
-        mem_mb  = 64000,
+        # Was 64000 — unsatisfiable on a 36GB machine (see CLAUDE.md hardware note).
+        mem_mb  = config["resources"]["default_mem_mb"],
         threads = config["resources"]["gpu_threads"],
     params:
         device              = config["hardware"]["device"],

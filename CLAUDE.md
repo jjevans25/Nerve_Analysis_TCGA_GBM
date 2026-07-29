@@ -44,7 +44,13 @@ You are the **lead researcher agent** for a digital biomedical lab workshop. You
 - **Set memory watermark** for long training runs: `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0`
 - **Monitor device usage** — MPS ops can silently fall back to CPU; log device placement explicitly
 - For datasets exceeding RAM: use `scvi.dataloaders.CollectionAdapter` and disk-backed `AnnCollection`
-- Max available unified memory: 128GB — implement Attention Slicing or Sequential Offloading before hitting limits
+- **Max available unified memory: 36GB** (Mac Studio / M4 Max; `sysctl hw.memsize` = 38654705664).
+  Budget against ~30GB usable. Verified 2026-07-28 — this file previously claimed 128GB, and every
+  sizing decision made before that date (notably `subsample_per_donor: 5000`) assumed a phantom
+  3.5x budget. See `markdowns/assessment_pipeline_memory_efficiency.md`.
+- **Snakemake `resources: mem_mb` is a scheduler gate only** — it cannot cap a single process's RAM
+  on a local run. Only in-script chunking (e.g. `scrna.cnv_chunk_size`) actually bounds memory.
+  Never declare a `mem_mb` above 36000; it can never be satisfied.
 
 ---
 

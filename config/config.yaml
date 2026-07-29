@@ -33,12 +33,17 @@ dirs:
 hardware:
   device: "mps"                  # mps | cpu | cuda
   precision: "float32"           # float32 preferred on MPS
-  max_memory_gb: 120             # leave headroom below 128GB
+  # Mac Studio / M4 Max = 36GB unified (sysctl hw.memsize = 38654705664).
+  # Corrected 2026-07-28; this key previously read 120 ("headroom below 128GB"),
+  # which was never true. See markdowns/assessment_pipeline_memory_efficiency.md.
+  max_memory_gb: 30              # usable budget, leaving ~6GB for OS + MPS
   mps_watermark_ratio: 0.0       # PYTORCH_MPS_HIGH_WATERMARK_RATIO
 
 resources:
   default_threads: 8
-  default_mem_mb: 32000
+  # NOTE: mem_mb only gates Snakemake's scheduler; it does not cap a process's
+  # actual RAM on a local run. Never set above 36000 — it cannot be satisfied.
+  default_mem_mb: 28000
   gpu_threads: 1                 # MPS is single-device
 
 # -------------------------------------------------------------
@@ -54,7 +59,11 @@ scrna:
   n_layers: 2
   batch_key: "batch"
   random_seed: 0
-  cnv_chunk_size: 50000          # CNV malignancy: cells per row-block (bounds peak RAM)
+  # CNV malignancy: cells per row-block (bounds peak RAM). Each block is
+  # chunk_size x n_genes float32, and the loop holds ~2 blocks at once:
+  # 50000 x 24048 x 4B = 4.8 GB/block => ~9.6 GB working set, sized for the
+  # phantom 128GB budget. 10000 => ~1.0 GB/block, ~2 GB working set.
+  cnv_chunk_size: 10000
 
 # -------------------------------------------------------------
 # Proteomics defaults
@@ -143,6 +152,38 @@ datasets:
     subsample_per_donor: 5000        # per-donor cap; random_state = scrna.random_seed
     batch_key: "sample_id"           # = donor_id (within-study batch covariate)
     freeze_nerve_subset: false       # replication cohort → fresh cut, no reference freezes
+    freeze_cl15_split: false
+
+  # ---------------------------------------------------------------------------
+  # Uncapped variant of the cohort above: same study, same donors, no per-donor
+  # subsample. 1,020,902 cells instead of 614,951.
+  #
+  # This is a SEPARATE namespace on purpose. Raising the cap in-place would
+  # overwrite gbm_cellxgene_56c4912d's 77 GB of artifacts and destroy the
+  # capped cohort as a comparison arm. Everything here writes to
+  # data/processed/gbm_cellxgene_56c4912d_full/ and results/*/gbm_cellxgene_56c4912d_full/.
+  #
+  # Feasibility (measured, see markdowns/assessment_pipeline_memory_efficiency.md):
+  #   X at 1.02M cells x 24,048 genes ~= 2.04e9 nnz -> ~16.3 GB in memory (int32
+  #   indices still legal, 2.04e9 < 2**31). Fits in 36 GB only because
+  #   scrna_integration no longer holds the per-sample list and no longer
+  #   duplicates .X into a counts layer.
+  #
+  # Before running: data/raw/gbm_cellxgene_56c4912d_full/samples.txt must exist
+  # (Snakefile needs it at parse time). Generate with:
+  #   python scripts/derive_dataset_sample_sheet.py gbm_cellxgene_56c4912d_full
+  # ---------------------------------------------------------------------------
+  gbm_cellxgene_56c4912d_full:
+    description: "CELLxGENE Census GBM 10x — single largest study, UNCAPPED (full 1.02M cells)"
+    disease: "glioblastoma"
+    source: "h5ad"
+    raw_file: "cellxgene_data/gbm_10x_raw.h5ad"
+    filter: { dataset_id: "56c4912d-2bae-4b64-98f2-af8a84389208" }
+    gene_id_type: "ensembl"
+    sample_key: "donor_id"
+    subsample_per_donor: null        # no cap — this is the whole point of this arm
+    batch_key: "sample_id"
+    freeze_nerve_subset: false
     freeze_cl15_split: false
 
 # -------------------------------------------------------------

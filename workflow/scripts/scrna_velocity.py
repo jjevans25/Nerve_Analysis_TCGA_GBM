@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import scvelo as scv
 
 sys.path.insert(0, "workflow/scripts")
-from fair_utils import log_transformation, stamp_artifact, verify_artifact, write_provenance
+from fair_utils import H5AD_COMPRESSION, log_transformation, stamp_artifact, verify_artifact, write_provenance
 
 log = snakemake.log[0]
 log_transformation(log, "scrna_velocity", "Loading integrated latent AnnData")
@@ -35,7 +35,7 @@ scv.tl.velocity_graph(adata)
 log_transformation(log, "scrna_velocity", "Velocity graph computed")
 
 # --- Save outputs -------------------------------------------------------------
-adata.write_h5ad(snakemake.output.velocity_h5ad)
+adata.write_h5ad(snakemake.output.velocity_h5ad, compression=H5AD_COMPRESSION)
 verify_artifact(snakemake.output.velocity_h5ad, min_size_bytes=1024)
 
 fig, ax = plt.subplots(figsize=(8, 6))

@@ -102,6 +102,13 @@ def verify_artifact(path: Path | str, min_size_bytes: int = 1) -> None:
         raise ValueError(f"[FAIR-ALERT] Artifact exists but is suspiciously small ({p.stat().st_size} bytes): {p}")
 
 
+#: Compression applied to every pipeline .h5ad. AnnData defaults to none, which
+#: left data/processed at 143 GB of uncompressed HDF5. Single-cell count matrices
+#: are highly compressible (the raw Census pull is 7.1 GB gzipped for a 39.4 GB
+#: payload), and read cost is negligible next to the disk saved.
+H5AD_COMPRESSION = "gzip"
+
+
 @dataclass(frozen=True)
 class PurityResult:
     """Per-cluster batch purity result + cohort-level constants needed for reporting."""

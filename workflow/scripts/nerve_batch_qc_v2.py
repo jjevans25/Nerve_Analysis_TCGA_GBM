@@ -21,6 +21,7 @@ matplotlib.use("Agg")
 
 sys.path.insert(0, "workflow/scripts")
 from fair_utils import (
+    H5AD_COMPRESSION,
     compute_cluster_purity,
     log_transformation,
     stamp_artifact,
@@ -57,7 +58,7 @@ sc.tl.leiden(
 
 # Persist the cluster column back onto the h5ad on disk so downstream rules
 # can reuse it.
-adata.write_h5ad(snakemake.input.h5ad)
+adata.write_h5ad(snakemake.input.h5ad, compression=H5AD_COMPRESSION)
 
 n_cells = adata.n_obs
 samples = sorted(adata.obs["sample_id"].astype(str).unique().tolist())

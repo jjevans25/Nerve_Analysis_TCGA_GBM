@@ -96,7 +96,9 @@ log_transformation(
     "nerve_clinical_association",
     f"Loading {snakemake.input.h5ad} and {snakemake.input.clinical}",  # type: ignore[name-defined]
 )
-adata = ad.read_h5ad(snakemake.input.h5ad)  # type: ignore[name-defined]
+# Backed read: this rule only reads obs. Backed mode leaves .X on disk, which is
+# the entire multi-GB payload — see markdowns/assessment_pipeline_memory_efficiency.md.
+adata = ad.read_h5ad(snakemake.input.h5ad, backed="r")  # type: ignore[name-defined]
 clinical = pd.read_csv(snakemake.input.clinical, sep="\t")  # type: ignore[name-defined]
 
 # Per-sample covariate frame (one row per sample_id). Prefer the values

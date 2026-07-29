@@ -12,7 +12,7 @@ import torch
 
 sys.path.insert(0, "workflow/scripts")
 from counts_utils import recover_counts_from_log1p
-from fair_utils import log_transformation, stamp_artifact, verify_artifact, write_provenance
+from fair_utils import H5AD_COMPRESSION, log_transformation, stamp_artifact, verify_artifact, write_provenance
 
 # --- Reproducibility -----------------------------------------------------------
 SEED = snakemake.params.random_seed
@@ -55,38 +55,69 @@ for f in snakemake.input.h5ads:
 # join="outer": never drop a gene merely because one sample lacks it.
 # fill_value=0: belt-and-suspenders so no arm can ever NaN-pad missing genes.
 adata = ad.concat(adatas, join="outer", merge="same", fill_value=0)
+
+# Release the per-sample objects immediately. Without this the full input set
+# (~12 GB for the 170-sample Census cohort, ~21 GB for the 17-sample baseline)
+# stays resident alongside the concatenated copy for the rest of the script —
+# which is what forced the cohort to be halved on this 36 GB machine.
+n_samples_concat = len(adatas)
+adatas.clear()
+del adatas
+
 adata.obs_names_make_unique()
 n_genes_concat = adata.n_vars
 
 # Gene filtering happens ONCE, here, across the whole cohort — never per sample.
 sc.pp.filter_genes(adata, min_cells=snakemake.params.min_cells)
 
+# Guard the int32 headroom. scipy promotes CSR index arrays to int64 once nnz
+# exceeds 2**31, which silently doubles the matrix footprint (13 GB -> 26 GB at
+# full-cohort scale). If this ever trips, reduce the gene space (HVG selection)
+# rather than the cell count.
+if sp.issparse(adata.X) and adata.X.indices.dtype != np.int32:
+    log_transformation(snakemake.log[0], "scrna_integration",
+        f"[FAIR-ALERT] CSR indices promoted to {adata.X.indices.dtype} "
+        f"(nnz={adata.X.nnz}); matrix footprint has doubled", status="WARNING")
+
 # scVI requires raw integer counts. The baseline arm's .X is Seurat SCT log1p —
 # recover integer counts via expm1; census cohorts already ship integer counts
 # in .X. Explicit per-arm flag, never an X.max() heuristic. .X itself is left
 # untouched (log1p for the baseline) so every downstream consumer that reads .X
 # keeps its published behavior.
+#
+# When .X already IS counts (census arm) we do NOT materialize a "counts" layer:
+# it would be a bit-identical duplicate of the matrix (~10 GB for the Census
+# cohort), held through the whole of training and written into the output h5ad.
+# scVI reads .X directly when layer=None, so the copy buys nothing.
 if snakemake.params.counts_from_log1p:
     adata.layers["counts"] = recover_counts_from_log1p(adata.X)
     adata.uns["counts_recovery"] = "expm1_round_int32"
+    scvi_layer = "counts"
+    _counts_matrix = adata.layers["counts"]
 else:
-    adata.layers["counts"] = sp.csr_matrix(adata.X)
     adata.uns["counts_recovery"] = "identity"
+    scvi_layer = None
+    if not sp.issparse(adata.X):
+        adata.X = sp.csr_matrix(adata.X)
+    _counts_matrix = adata.X
+adata.uns["scvi_counts_source"] = scvi_layer or "X"
 
 # Fail fast if the scVI input is not clean non-negative integers.
-_counts_data = adata.layers["counts"].data
+_counts_data = _counts_matrix.data
 if _counts_data.size and (
     np.isnan(_counts_data).any()
     or (_counts_data < 0).any()
     or not np.all(_counts_data == _counts_data.astype(np.int32))
 ):
-    raise RuntimeError("[FAIR-ALERT] counts layer is not clean non-negative integers")
+    raise RuntimeError("[FAIR-ALERT] counts input is not clean non-negative integers")
+del _counts_matrix, _counts_data
 
 log_transformation(snakemake.log[0], "scrna_integration",
-                   f"Concatenated {len(adatas)} samples → {adata.n_obs} cells; "
+                   f"Concatenated {n_samples_concat} samples → {adata.n_obs} cells; "
                    f"genes {n_genes_concat} → {adata.n_vars} "
                    f"(global filter_genes(min_cells={snakemake.params.min_cells})); "
-                   f"scVI counts layer via {adata.uns['counts_recovery']}")
+                   f"scVI counts via {adata.uns['scvi_counts_source']} "
+                   f"({adata.uns['counts_recovery']})")
 
 # --- scVI setup ---------------------------------------------------------------
 scvi.settings.seed = SEED
@@ -94,7 +125,9 @@ scvi.settings.num_threads = snakemake.resources.threads
 
 scvi.model.SCVI.setup_anndata(
     adata,
-    layer="counts",          # raw integer counts (recovered for the baseline arm)
+    # "counts" layer for the baseline arm (recovered via expm1); None for cohorts
+    # whose .X already holds raw integer counts — see the counts block above.
+    layer=scvi_layer,
     batch_key=snakemake.params.batch_key,
 )
 
@@ -116,7 +149,7 @@ model.train(
 model.save(snakemake.output.model_dir, overwrite=True)
 
 adata.obsm["X_scVI"] = model.get_latent_representation()
-adata.write_h5ad(snakemake.output.latent_h5ad)
+adata.write_h5ad(snakemake.output.latent_h5ad, compression=H5AD_COMPRESSION)
 
 verify_artifact(snakemake.output.latent_h5ad, min_size_bytes=1024)
 

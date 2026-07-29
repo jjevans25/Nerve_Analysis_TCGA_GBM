@@ -23,7 +23,7 @@ import numpy as np
 import scanpy as sc
 
 sys.path.insert(0, "workflow/scripts")
-from fair_utils import log_transformation, stamp_artifact, verify_artifact, write_provenance
+from fair_utils import H5AD_COMPRESSION, log_transformation, stamp_artifact, verify_artifact, write_provenance
 
 log = snakemake.log[0]
 P = snakemake.params
@@ -117,7 +117,7 @@ adata.uns["normalization"] = "raw_counts_pre_qc"
 
 # --- Write + provenance --------------------------------------------------------
 Path(snakemake.output.h5ad).parent.mkdir(parents=True, exist_ok=True)
-adata.write_h5ad(snakemake.output.h5ad)
+adata.write_h5ad(snakemake.output.h5ad, compression=H5AD_COMPRESSION)
 verify_artifact(snakemake.output.h5ad, min_size_bytes=1024)
 
 prov = stamp_artifact(

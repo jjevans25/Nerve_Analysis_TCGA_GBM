@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, "workflow/scripts")
-from fair_utils import log_transformation, stamp_artifact, verify_artifact, write_provenance
+from fair_utils import H5AD_COMPRESSION, log_transformation, stamp_artifact, verify_artifact, write_provenance
 
 log = snakemake.log[0]
 sample_id = snakemake.params.sample_id
@@ -87,7 +87,7 @@ log_transformation(log, "loom_to_h5ad",
 log_transformation(log, "loom_to_h5ad", f"batch='{sample_id}' assigned")
 
 # --- Write h5ad ---------------------------------------------------------------
-adata.write_h5ad(snakemake.output.h5ad)
+adata.write_h5ad(snakemake.output.h5ad, compression=H5AD_COMPRESSION)
 verify_artifact(snakemake.output.h5ad, min_size_bytes=1024)
 
 # --- FAIR provenance ----------------------------------------------------------

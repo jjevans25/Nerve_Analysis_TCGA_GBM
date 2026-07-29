@@ -69,6 +69,9 @@ malig_full = ad.read_h5ad(snakemake.input.malig)  # type: ignore[name-defined]
 nerve = ad.read_h5ad(snakemake.input.nerve)  # type: ignore[name-defined]
 
 malig = malig_full[malig_full.obs["is_malignant"].astype(bool)].copy()
+# Release the whole-cohort object once the malignant subset exists — only ~20% of
+# its cells survive the filter, and nothing below reads it again.
+del malig_full
 log_transformation(
     log,
     "nerve_tumor_interaction",
@@ -116,6 +119,10 @@ combined = ad.concat(
     keys=["malignant", "nerve"],
     index_unique=None,
 )
+# Both compartments are fully represented in `combined`; LIANA never reads them
+# again. Counts captured first for the provenance block below.
+n_malignant_cells, n_nerve_cells = malig.n_obs, nerve.n_obs
+del malig, nerve
 combined.obs_names_make_unique()
 log_transformation(
     log,
@@ -372,8 +379,8 @@ prov = stamp_artifact(
         "resource_name": RESOURCE_NAME,
         "magnitude_rank_sig": MAGNITUDE_RANK_SIG,
         "top_n_per_cluster": TOP_N_PER_CLUSTER,
-        "n_malignant_cells": int(malig.n_obs),
-        "n_nerve_cells": int(nerve.n_obs),
+        "n_malignant_cells": int(n_malignant_cells),
+        "n_nerve_cells": int(n_nerve_cells),
         "n_nerve_clusters": int(len(nerve_groups)),
         "n_lr_rows_total": int(len(lr_full)),
         "n_lr_rows_sig": int((lr_full["magnitude_rank"] < MAGNITUDE_RANK_SIG).sum()),
