@@ -1329,3 +1329,27 @@ At that point the freeze forces a deliberate retirement (it raises a `[FAIR-ALER
 **Open Issues:** None blocking. Going forward, run `npx skills update -p -y` periodically to stay current — it now works because every entry carries `skillPath`. If future scope must stay strictly minimal, back up skill *content* (not just the lockfile) before any whole-repo `add`.
 
 **FAIR Notes:** Reusable — the skill provenance (source repo + `skillPath` + `computedHash` per skill) is captured in `skills-lock.json`, and the update path is now a documented, reproducible CLI command rather than an untracked manual copy. No scientific data artifacts touched; v1.0.0–v1.3.0 analysis baselines remain frozen and citable.
+
+---
+
+### [2026-07-28] | Phase: Local directory rename — reverted | Status: COMPLETE
+
+**Action:** The local project directory had been renamed `Nerve_Analysis_TCGA_GBM` → `GBM_Nerve_Tumor_Immune_Single_Cell_Analysis` to match the repo. Audited what actually depends on that path, then reverted the rename.
+
+**Outcome:**
+- **Reverted** the local dir to `Nerve_Analysis_TCGA_GBM`. The local/remote name mismatch is restored and remains deliberate per `CLAUDE.md:9-15`.
+- **Why it mattered — conda envs.** Snakemake 9.20 mixes `realpath(envs_dir)` into the env hash on purpose (`snakemake/deployment/conda.py:236-240`: *"moving the working directory around automatically invalidates all environments… hardcoded absolute RPATHs"*). Recomputed both ways: `scrna.yaml`→`ef772b6a…` (1.6 GB) and `notebooks.yaml`→`8e2fe802…` (878 MB) resolve to existing env dirs **only** under the old name. The rename stranded ~2.5 GB of live envs; the revert recovered them without a rebuild.
+- **Why it mattered — FAIR PIDs.** `workflow/scripts/fair_utils.py:19` seeds `uuid5` on the *resolved absolute path*, so every artifact_id shifted (`nerve_cells.h5ad`: `6119a339-…` → `c8198df0-…`). Post-revert it returns `6119a339-a1c1-501d-a543-c5b5eb7a25f1` again, matching existing provenance.
+- **Not affected** (verified, no action needed): `Snakefile`/`*.smk` (relative `configfile`, no `workdir:`), all `config.yaml` paths, all five marimo notebooks (`Path(__file__).parent.parent`), git, and Snakemake's output metadata (records `conda_env` as base64 of env **YAML content**, not path — so no spurious re-runs).
+- **Corrected the "6.5 GB" figure in `CLAUDE.md`:** only ~2.5 GB of `.snakemake/conda/` is live. The other three env dirs (~4 GB: `465f7a09…`, `5a394ede…`, `f7316445…`) were already orphaned by earlier edits to `base.yaml`/`proteomics.yaml`, which currently resolve to no env on disk and will rebuild on their next run regardless.
+- **Repaired the `claude_science/` venv** (pre-existing breakage, unrelated to the rename): 76 files in `claude_science/bin/` hardcoded `…/Projects/Claude_Setup/claude_science/`, a directory that has never existed here. `./claude_science/bin/snakemake` failed outright, so `execution_instructions.md` was pointing at a venv that could not run. Rewritten to the correct prefix; now returns 9.19.0. Note this is **older than the 9.20.0 on PATH** at `/opt/anaconda3/bin/snakemake`, which is what has actually been running the pipeline.
+
+**Artifacts:** `CLAUDE.md` (plans path corrected `Claude_TCGA_GBM` → `Nerve_Analysis_TCGA_GBM`; committed `81ff3e0`). `.claude/plans/project_writeup_skeleton.md` (placeholder repo URL resolved; gitignored). `claude_science/bin/*` (76 files; gitignored). `../TCGA_GBM_scRNA-seq_2.code-workspace` (folder path fixed; outside repo). `results/pinned_reference_verification.json` + `provenance/pinned_reference_v1.3.0.json` (see FAIR Notes). `CHANGELOG.md` (this entry).
+
+**Tool Versions:** snakemake 9.20.0 (`/opt/anaconda3/bin`), python 3.12.
+
+**Open Issues:**
+- **Root cause unfixed.** `fair_utils.py:19` seeding PIDs on absolute paths means any future move silently re-issues every identifier. Making `artifact_id`/`stamp_artifact` project-relative would fix it permanently, but re-issues every PID once and requires re-freezing v1.3.0 — deferred to its own change.
+- `README.md:40` and `execution_instructions.md:24` were left untouched: they already read `Nerve_Analysis_TCGA_GBM` and became correct again on revert.
+
+**FAIR Notes:** All ~60 files under `provenance/` were left stale per `CLAUDE.md:24-27` — the 9 pinned provenance JSONs still carry the original absolute path, which is precisely why their sha256 values did not drift. `verify_pinned_reference` passes: **37/37 unchanged, 0 modified, 0 missing**, and it activated the recovered env `8e2fe802…` rather than building one — direct confirmation the envs were reused. Caveat on that check: the run first re-executed `freeze_pinned_reference` (pre-existing "code has changed" trigger), rewriting the manifest's `frozen_at_utc`, so the pass is partly self-referential. The independent evidence is stronger: the newest recorded artifact mtime is **2026-07-22**, six days before this session, so none of the 37 pinned artifacts were touched. The 5 tracked `baseline_v1.*.json` files are unmodified (`git status` clean).
