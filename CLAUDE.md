@@ -152,7 +152,7 @@ All scientific outputs — raw data, intermediate artifacts, code, figures — m
 
 ## Plans
 
-All project plans must be saved to `.claude/plans/` within this project directory (i.e., `/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Claude_TCGA_GBM/.claude/plans/`). Never save plans to the global `~/.claude/plans/` directory.
+All project plans must be saved to `.claude/plans/` within this project directory (i.e., `/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/.claude/plans/`). Never save plans to the global `~/.claude/plans/` directory.
 
 ---
 
