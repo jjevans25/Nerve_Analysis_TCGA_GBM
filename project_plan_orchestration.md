@@ -17,7 +17,7 @@ Unlike conventional systems where data must be transferred via the PCIe bus from
 | Process Technology | 3nm | Enhanced power efficiency for long-running agentic tasks |
 | Memory Bandwidth | Up to 120 GB/s (Base) / 500+ GB/s (Max) | Facilitates rapid access to sparse AnnData matrices |
 | GPU Backend | Metal Performance Shaders (MPS) | Native acceleration for PyTorch and scvi-tools |
-| Memory Limit | Up to 128GB Unified Memory | Supports loading whole-tissue atlases locally |
+| Memory Limit | **36GB Unified Memory (this machine)** | Atlas-scale data must be streamed, not loaded whole |
 | Vector Unit | NEON/128 | High-throughput processing for non-GPU optimized tasks |
 
 > **Note:** PyTorch operations on Apple Silicon can exhibit a paradox where Float16 precision is occasionally *slower* than Float32, contrary to standard NVIDIA CUDA optimization patterns. Long-running deep learning sessions may also experience performance degradation due to memory high-watermark triggers, necessitating the use of `PYTORCH_MPS_HIGH_WATERMARK_RATIO`.
@@ -156,7 +156,7 @@ While the integration of the M4 Max, Claude Code, Snakemake, and BioRender creat
 
 - **Silent Failures in MPS:** Certain operations may fall back to the CPU without informing the agent, leading to massive increases in training time. The system must proactively monitor device usage.
 - **Agentic Laziness:** Agents might "one-shot" a task without end-to-end verification. Mitigated by the Snakemake architecture, which forces the agent to define verifiable rules and output artifacts before a task is considered complete.
-- **Finite Unified Memory:** Even 128GB can be exhausted. The agent must implement memory management strategies such as "Attention Slicing" or "Sequential Offloading" to prevent kernel panics during large model training.
+- **Finite Unified Memory:** This machine has **36GB**, and it is the binding constraint on cohort size. The agent must stream (backed reads, row-block chunking) rather than load whole matrices, and must release intermediate objects explicitly after concatenation or subsetting.
 - **BioRender Human-in-the-Loop:** AI-generated figure drafts require human verification to ensure they accurately reflect novel scientific findings before submission.
 
 ---
