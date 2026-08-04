@@ -124,3 +124,7 @@ markdowns/blocker_census_annotation_scoring.md
 markdowns/assessment_pipeline_memory_efficiency.md
 full_cellxgene_rerun.md
 project_plan_orchestration.md
+.claude/plans/plan_full_cellxgene_rerun_20260729.md
+markdowns/blocker_full_cohort_annotate_venv_conda_shadowing.md
+markdowns/status_full_cohort_run_20260802.md
+markdowns/task_conda_env_enforcement.md

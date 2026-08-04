@@ -11,16 +11,25 @@ This script trains a NEW model from scratch on the nerve subset only. The
 global v1.0.0 ``results/models/scvi_model`` is not touched.
 """
 
+import gc
 import os
 import sys
 import warnings
 from pathlib import Path
 
+# numba defaults to an OpenMP threading layer, which collides with the libomp
+# that torch/MPS has already initialised in this process. On 2026-08-02
+# sc.pp.neighbors (numba-jitted pynndescent) segfaulted twice at 377k cells —
+# SIGSEGV in __kmp_launch_worker, once at 32.8 GB peak RSS and again at 16.1 GB,
+# which rules out memory pressure and identifies a runtime conflict. "workqueue"
+# is numba's own non-OpenMP pool and is documented as always safe. This must be
+# set before numba is imported, i.e. before scanpy pulls in pynndescent/umap.
+os.environ.setdefault("NUMBA_THREADING_LAYER", "workqueue")
+
 import anndata as ad
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import scanpy as sc
 import torch
 
@@ -81,45 +90,67 @@ scvi.model.SCVI.setup_anndata(
     layer=None,
     batch_key=snakemake.params.batch_key,
 )
-scvi_model = scvi.model.SCVI(
-    adata,
-    n_latent=int(snakemake.params.n_latent),
-    n_layers=int(snakemake.params.n_layers),
-)
-log_transformation(log, "nerve_scanvi_retrain",
-                   f"Training baseline scVI (max_epochs={snakemake.params.scvi_max_epochs})")
-scvi_model.train(
-    accelerator=device,
-    devices=1,
-    max_epochs=int(snakemake.params.scvi_max_epochs),
-    early_stopping=True,
-)
-scvi_history = {k: list(v.iloc[:, 0]) for k, v in scvi_model.history.items()}
-
-# Save the baseline so a scANVI-stage crash doesn't lose the long pretrain.
+# The baseline is checkpointed so a stage-2 crash doesn't lose the ~4.5 h
+# pretrain — but until 2026-08-02 nothing ever *read* it back, so the protection
+# the comment promised was never actually realised and every retry paid the full
+# pretrain again. Reuse it when present. Note this path is deliberately NOT a
+# declared rule output: Snakemake removes a failed job's declared outputs ("since
+# they might be corrupted"), which is exactly how the stage-2 model was lost on
+# the 2026-08-02 14:44 failure while this checkpoint survived.
 baseline_dir = Path(snakemake.output.model_dir).parent / "nerve_scvi_baseline"
-scvi_model.save(str(baseline_dir), overwrite=True)
-log_transformation(log, "nerve_scanvi_retrain",
-                   f"Baseline scVI checkpointed at {baseline_dir}")
+
+if baseline_dir.exists():
+    scvi_model = scvi.model.SCVI.load(str(baseline_dir), adata=adata)
+    log_transformation(log, "nerve_scanvi_retrain",
+                       f"Reusing baseline scVI checkpoint at {baseline_dir} "
+                       "(skipping stage-1 pretrain)")
+else:
+    scvi_model = scvi.model.SCVI(
+        adata,
+        n_latent=int(snakemake.params.n_latent),
+        n_layers=int(snakemake.params.n_layers),
+    )
+    log_transformation(log, "nerve_scanvi_retrain",
+                       f"Training baseline scVI (max_epochs={snakemake.params.scvi_max_epochs})")
+    scvi_model.train(
+        accelerator=device,
+        devices=1,
+        max_epochs=int(snakemake.params.scvi_max_epochs),
+        early_stopping=True,
+    )
+    scvi_model.save(str(baseline_dir), overwrite=True)
+    log_transformation(log, "nerve_scanvi_retrain",
+                       f"Baseline scVI checkpointed at {baseline_dir}")
+
+# history_ is persisted inside model.pt, so the curves figure works either way.
+scvi_history = {k: list(v.iloc[:, 0]) for k, v in scvi_model.history.items()}
 
 # ----------------------------------------------------------------------------
 # Stage 2: scANVI fine-tune with cell_type labels
 # ----------------------------------------------------------------------------
-scanvi_model = scvi.model.SCANVI.from_scvi_model(
-    scvi_model,
-    labels_key=str(snakemake.params.labels_key),
-    unlabeled_category=str(snakemake.params.unlabeled_category),
-)
-log_transformation(log, "nerve_scanvi_retrain",
-                   f"Training scANVI (max_epochs={snakemake.params.scanvi_max_epochs}, "
-                   f"n_samples_per_label={snakemake.params.n_samples_per_label})")
-scanvi_model.train(
-    accelerator=device,
-    devices=1,
-    max_epochs=int(snakemake.params.scanvi_max_epochs),
-    n_samples_per_label=int(snakemake.params.n_samples_per_label),
-    early_stopping=True,
-)
+scanvi_sidecar_in = Path(snakemake.output.model_dir).parent / "nerve_scanvi_stage2"
+if scanvi_sidecar_in.exists():
+    scanvi_model = scvi.model.SCANVI.load(str(scanvi_sidecar_in), adata=adata)
+    log_transformation(log, "nerve_scanvi_retrain",
+                       f"Reusing stage-2 scANVI checkpoint at {scanvi_sidecar_in} "
+                       "(skipping scANVI fine-tune)")
+else:
+    scanvi_model = scvi.model.SCANVI.from_scvi_model(
+        scvi_model,
+        labels_key=str(snakemake.params.labels_key),
+        unlabeled_category=str(snakemake.params.unlabeled_category),
+    )
+    log_transformation(log, "nerve_scanvi_retrain",
+                       f"Training scANVI (max_epochs={snakemake.params.scanvi_max_epochs}, "
+                       f"n_samples_per_label={snakemake.params.n_samples_per_label})")
+    scanvi_model.train(
+        accelerator=device,
+        devices=1,
+        max_epochs=int(snakemake.params.scanvi_max_epochs),
+        n_samples_per_label=int(snakemake.params.n_samples_per_label),
+        early_stopping=True,
+    )
+
 scanvi_history = {k: list(v.iloc[:, 0]) for k, v in scanvi_model.history.items()}
 
 # ----------------------------------------------------------------------------
@@ -132,6 +163,19 @@ adata.obsm["X_scANVI"] = X_scanvi.astype(np.float32)
 
 adata.obs["scanvi_predicted_celltype"] = scanvi_model.predict()
 
+# Persist the trained model *before* the neighbors/UMAP step, because a crash in
+# that purely visual step must not cost the ~2.5 h stage-2 train (it did on
+# 2026-08-01). Write to an undeclared sidecar as well: on failure Snakemake
+# deletes the declared output, so the sidecar is what actually survives and what
+# the reuse branch below can pick up.
+scanvi_dir = Path(snakemake.output.model_dir)
+scanvi_sidecar = scanvi_dir.parent / "nerve_scanvi_stage2"
+scanvi_model.save(str(scanvi_sidecar), overwrite=True)
+scanvi_model.save(str(scanvi_dir), overwrite=True)
+log_transformation(log, "nerve_scanvi_retrain",
+                   f"scANVI model saved at {scanvi_dir} (+ crash-safe sidecar at "
+                   f"{scanvi_sidecar}) before neighbors/UMAP")
+
 # Held-out classification accuracy on the labelled subset.
 labels_true = adata.obs[snakemake.params.labels_key].astype(str)
 labels_pred = adata.obs["scanvi_predicted_celltype"].astype(str)
@@ -143,15 +187,22 @@ else:
 log_transformation(log, "nerve_scanvi_retrain",
                    f"Classifier accuracy on labelled cells: {acc:.4f}")
 
+# Release the model and the MPS allocator pool before the kNN graph. The scANVI
+# weights and torch's cached MPS blocks are dead weight from here on, and
+# sc.pp.neighbors needs headroom on a 36 GB machine: at 377k cells the previous
+# run exhausted memory here and OpenMP segfaulted spawning a worker thread.
+del scanvi_model
+gc.collect()
+if device == "mps":
+    torch.mps.empty_cache()
+
 log_transformation(log, "nerve_scanvi_retrain", "Computing neighbors + UMAP on X_scANVI")
 sc.pp.neighbors(adata, use_rep="X_scANVI", random_state=SEED)
 sc.tl.umap(adata, random_state=SEED)
 
 # ----------------------------------------------------------------------------
-# Save model + latent h5ad + training curves
+# Save latent h5ad + training curves (model already saved above)
 # ----------------------------------------------------------------------------
-scanvi_model.save(snakemake.output.model_dir, overwrite=True)
-
 adata.write_h5ad(snakemake.output.latent_h5ad, compression=H5AD_COMPRESSION)
 verify_artifact(snakemake.output.latent_h5ad, min_size_bytes=1_000_000)
 

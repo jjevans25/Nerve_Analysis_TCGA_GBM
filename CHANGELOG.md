@@ -33,13 +33,13 @@ Format each entry with: date, phase, action taken, outcome, and any open issues.
 
 ```
 [STATUS]
-Phase:          Repo rename + documentation resync — COMPLETE
-Last Updated:   2026-07-28
+Phase:          Full-cohort rerun (gbm_cellxgene_56c4912d_full) — COMPLETE, all 5 targets delivered
+Last Updated:   2026-08-02
 Repo:           github.com/jjevans25/GBM_Nerve_Tumor_Immune_Single_Cell_Analysis (renamed 2026-07-28; local dir intentionally still Nerve_Analysis_TCGA_GBM — see CLAUDE.md)
 Active Agent:   lead-researcher
-Current Task:   feat/nerve-tumor-immune-interaction merged to main and pushed (main @ 2cb6776; reconciled with the stale PR #1 merge commit — no content change). README.md and execution_instructions.md rewritten to current scope: immune arm, LIANA crosstalk, replication cohort, structural v1.3.0 pin. Removed guidance that `--forcerun nerve_cell_subset` can re-cut the reference cohort (that rule is undefined while pinned). No analysis code ran this session.
-Blocked On:     Nothing. Prior science state unchanged: both explorers (04 reference, 05 Census) runnable, inputs valid.
-Next Action:    Researcher review of the 30/40 curated-axis replication and the refreshed concordance (Jaccard 0.4691 / ρ 0.6249 — the old 0.4248/0.5357 figures are void). Then decide on markdowns/blocker_census_annotation_scoring.md (NEW, open — expensive: re-clusters the Census cohort and invalidates the above). Still open from 2026-07-25: review of the 9 flagged micro-clusters. Note `marimo` on PATH has a broken matplotlib; run notebooks via the snakemake notebooks env or `claude_science/bin/python -m marimo`.
+Current Task:   NONE — the uncapped arm `gbm_cellxgene_56c4912d_full` is COMPLETE. All 5 targets on disk; capped arm untouched; pinned v1.3.0 re-verified 37/37 (2026-08-02T22:19Z). Took 3 attempts: Option A venv patch (5 packages), then two SIGSEGVs in `sc.pp.neighbors` traced by controlled experiment to numba's OpenMP layer colliding with torch's libomp, fixed via `NUMBA_THREADING_LAYER=workqueue` + stage-1 checkpoint reuse. **Arm comparison DELIVERED** — full: Jaccard 0.4529 / ρ 0.6083 vs capped 0.4691 / 0.6249 (recall +2.4 pp, precision −3.4 pp).
+Blocked On:     Nothing. **[FAIR-ALERT]** every `script:`-rule artifact in this arm was produced by the `claude_science` venv, NOT the declared `scrna.yaml` conda env — not reproducible from the declared spec. Defect 1 (conda-env shadowing) is OPEN and tracked at `markdowns/task_conda_env_enforcement.md`.
+Next Action:    (1) **Researcher scientific call:** are the full arm's 371 extra non-reference LR pairs depth-limited discoveries or higher-power false positives? Note the reference is the 17-sample v1.3.0 baseline, so "absent from reference" is weak evidence against a 170-sample cohort. (2) Researcher decision on `markdowns/task_conda_env_enforcement.md` (Option B) — may shift Leiden cluster IDs, so it needs sign-off, not just scheduling; pin `numba` when actioned (currently unpinned, and it caused the two segfaults). (3) Review 16/43 failing purity_v2 clusters in the full arm (capped: 9/33). (4) Carried over: 30/40 curated-axis replication review; `markdowns/blocker_census_annotation_scoring.md` (open); the 9 flagged micro-clusters from 2026-07-25. Note `marimo` on PATH has a broken matplotlib; run notebooks via the snakemake notebooks env or `claude_science/bin/python -m marimo`.
 ```
 
 Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLETE; freeze insulator retained; cluster set {0-14, 16-27}.
@@ -48,6 +48,265 @@ Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLE
 ---
 
 ## Session Log
+
+---
+
+### [2026-08-01 → 2026-08-02] | Phase: Full-cohort rerun unblock (Option A) + Option B tracked | Status: COMPLETE
+
+**Action:** Resume the failed `gbm_cellxgene_56c4912d_full` run (died 2026-07-30 at 343/360 in
+`ds_scrna_annotate` on `ImportError: Please install the igraph package`) by taking **Option A** from
+`markdowns/blocker_full_cohort_annotate_venv_conda_shadowing.md` — patch the `claude_science` venv —
+and open **Option B** (fix the conda-env shadowing) as a separately tracked task.
+
+**[FAIR-ALERT] — READ BEFORE REUSING THESE ARTIFACTS.**
+Every `script:`-rule artifact in `data/processed/gbm_cellxgene_56c4912d_full/`,
+`results/*/gbm_cellxgene_56c4912d_full/` and `provenance/gbm_cellxgene_56c4912d_full/` was produced
+by **`claude_science/bin/python`**, *not* by the `scrna.yaml` conda environment the rules declare.
+`--use-conda` was passed and the log prints `Activating conda environment:
+.snakemake/conda/ef772b6a…`, but that environment never reaches `sys.path` (Defect 1 below). These
+artifacts are **not reproducible from the declared environment spec.** Do not treat them as such.
+Re-deriving them under a correctly-enforced `scrna.yaml` may shift Leiden cluster IDs and cascade
+through annotation, purity, concordance, and every downstream table. Known unclosed drift: venv
+`torch 2.11.0` vs the `scrna.yaml` pin `torch 2.12.0`.
+
+**Outcome:**
+
+*Option A — venv patch (dry-run gated).* `pip install --dry-run` was run first and the resolver plan
+inspected; it proposed only new packages and would not move `numpy`/`pandas`/`scanpy`/`scvi-tools`/
+`torch`/`anndata`/`scipy`/`matplotlib`, so the install proceeded. Installed at the `scrna.yaml`
+pins: `igraph==0.11.8`, `leidenalg==0.10.2`, `gseapy==1.1.3`, `liana==1.7.1`, `decoupler==2.1.6`
+(plus transitive `adjustText`, `legendkit`, `marsilea`, `mizani`, `plotnine`, `texttable`). The
+`pip freeze` delta is **11 pure additions, zero modified pins** — see
+`logs/venv_freeze_pre_optionA_20260801.txt` vs `logs/venv_freeze_post_optionA_20260801.txt`. That
+diff, not this prose, is the authoritative record of what Option A changed.
+
+*Scope correction — it was four missing packages, not two.* The blocker doc proposed installing only
+`igraph`+`leidenalg`. An audit of every module-level import across all 17 remaining jobs found
+`gseapy` (`workflow/scripts/nerve_cell_heterogeneity.py:192`) and `liana`
+(`nerve_tumor_interaction.py:40`, `nerve_tumor_immune_interaction.py:42`) also absent and unguarded.
+The two-package fix would have failed twice more. `infercnvpy` is absent but genuinely unused —
+`scrna_malignancy.py` uses a custom CNV path — and was deliberately **not** installed.
+
+*Root-cause correction — the blocker doc's regression window was wrong.* It guessed commit `c2a3d31`
+reinstalled from `requirements.txt` and dropped `igraph`. `CHANGELOG.md:1345` records that the repair
+only rewrote 76 hardcoded `Claude_Setup/` path prefixes in `claude_science/bin/` and installed
+nothing. Before it, `claude_science/bin/snakemake` was broken and `/opt/anaconda3/bin/snakemake` was
+the real driver — and anaconda base has `igraph 1.0.0` / `leidenalg 0.11.0`, which is why the capped
+arm's Leiden passed on 2026-07-20. `c2a3d31` made the venv's snakemake runnable; the 2026-07-29
+runbook opened with `source claude_science/bin/activate`; the shadowing interpreter silently changed
+from anaconda base to the venv. **Base is not a fallback** — base `scanpy` now fails to import on a
+numpy/h5py ABI mismatch (`numpy.dtype size changed, Expected 96 from C header, got 88`).
+
+*`ds_scrna_annotate` — re-run in isolation as a smoke gate, exit 0.* 47 Leiden clusters at
+resolution 1.0 over **1,006,344 cells** (matches the post-QC count exactly); 24,139/24,139 genes
+mapped to symbols. **Peak RSS 27.22 GB** (27,218,329,600 B), wall clock **892.84 s = 14 m 53 s**.
+This settles the attribution question the blocker doc raised: annotate alone accounts for 27.22 of
+the failed run's 29.40 GB whole-run peak, so `ds_scrna_annotate` — **not** `ds_scrna_integration` —
+is the memory ceiling, and the 2026-07-28 integration remediation is not implicated. It is still
+well above the runbook's "expect < 20 GB" and leaves ~3 GB against the ~30 GB usable budget.
+
+*Remaining 16 jobs — running.* Dry-run confirmed 16 jobs, all `ds_*` (the pinned v1.3.0 insulator
+holds). Deviation from the documented resume command, taken on the 27.22 GB measurement and
+confirmed with the researcher: **`--resources mem_mb=28000` added.** `ds_nerve_cell_subset` and
+`ds_immune_cell_subset` both depend only on `malignancy_labeled.h5ad` and are mutually independent,
+so they could otherwise co-schedule. Every remaining rule declares `mem_mb=28000`, so the flag
+forces strict one-at-a-time execution. The 2026-07-29 plan omitted it to avoid serializing the 340
+ingest/QC jobs; those are complete, so the cost is now zero. Per `CLAUDE.md` this is a **scheduler
+gate only** — it cannot cap a single process's RAM.
+
+**Tooling defect found (`--allowed-rules` argument order).** `--allowed-rules` takes `nargs='+'` and
+silently swallows target paths placed after it, leaving Snakemake with no target; it then falls back
+to rule `all` and raises a misleading `MissingInputException` naming the five final artifacts. Pass
+targets **first**. Same class of footgun as `--rerun-triggers=mtime` requiring the `=`. Confirmed on
+snakemake 9.19.0. Documented in the blocker doc, `markdowns/task_conda_env_enforcement.md`, and
+memory — this pattern is used as the pinned-reference insulator throughout the project, so getting
+the order wrong is a live risk to that guarantee.
+
+*Resume batch — 13/16 jobs completed, then `ds_nerve_scanvi_retrain` **SEGFAULTED**.* Wall clock
+36,160.88 s = **10 h 02 m 41 s**; **peak RSS 32.78 GB** (32,782,401,536 B) on a 36 GB machine.
+
+The crash is **not** an ImportError — Option A held through all 13 completed rules, including the
+first-ever executions of `liana` (both LIANA rules) and `gseapy` in this environment. It is:
+
+```
+EXC_BAD_ACCESS (SIGSEGV), KERN_INVALID_ADDRESS at 0x580
+  libomp.dylib  __kmp_suspend_initialize_thread
+  libomp.dylib  __kmp_fork_barrier / __kmp_launch_worker
+```
+
+— an OpenMP worker thread failing to initialise inside `sc.pp.neighbors()`
+(`nerve_scanvi_retrain.py:147`), 21 s after the "Computing neighbors + UMAP" line. Thread-stack
+allocation failing under memory exhaustion presents exactly this way, as a null deref rather than a
+clean OOM. The capped arm runs this same code path fine at 270,520 cells (~1 m 39 s); this arm has
+**377,343**. Crash report: `~/Library/Logs/DiagnosticReports/python3.12-2026-08-02-001047.ips`.
+
+**`--resources mem_mb=28000` did not and cannot prevent this** — per `CLAUDE.md` it is a scheduler
+gate only and cannot cap a single process's RAM. It did do its actual job (no co-scheduling).
+
+*Script-ordering defect — the real cost.* scANVI had **finished training** (classifier accuracy
+**0.5979**; capped arm 0.6369) before the crash, but `scanvi_model.save()` sat at line 153, *after*
+the `neighbors`/`umap` calls at 147–148. A crash in a purely visual step therefore destroyed
+**2 h 22 m** of completed training. Line 99 shows the author had already reasoned about this exact
+failure mode for stage 1 ("Save the baseline so a scANVI-stage crash doesn't lose the long
+pretrain") but did not extend the guard to stage 2. Compounding it, the stage-1 checkpoint is
+**written but never read** — line 84 unconditionally constructs a fresh `SCVI` and line 91
+unconditionally trains — so the protective intent in that comment was never actually implemented and
+a re-run pays the full ~7 h again.
+
+**CODE CHANGE (researcher-approved, option "reorder save + free memory"):**
+`workflow/scripts/nerve_scanvi_retrain.py` —
+1. `scanvi_model.save()` moved to immediately after `predict()`, before any visualization.
+2. `del scanvi_model` + `gc.collect()` + `torch.mps.empty_cache()` inserted before
+   `sc.pp.neighbors`, releasing model weights and torch's cached MPS blocks so the kNN graph has
+   headroom.
+3. Removed a pre-existing unused `import pandas as pd` (the file's only flake8 finding; confirmed
+   pre-existing at HEAD, and `pd.` has zero occurrences).
+
+`flake8` exit 0. **No scientific impact** — identical model, identical seed, merely persisted
+earlier with memory released; `scanvi_history` is captured at line 124 into a plain dict, so the
+training-curves figure does not need the model after the `del`. Dry-run confirmed the edit does
+**not** schedule the pinned baseline `nerve_scanvi_retrain` rule — `--rerun-triggers=mtime`
+correctly suppresses the code trigger, so the v1.3.0 freeze is intact. Caveat recorded honestly:
+the memory release is a well-founded mitigation, **not a guarantee**. If the segfault was a genuine
+OpenMP runtime conflict (torch's `libomp` vs numba/pynndescent's) rather than memory pressure, it
+can recur — but it would then cost only the UMAP step, since the model is already on disk.
+
+*Attempt 2 also SEGFAULTED — and disproved the memory hypothesis.* The mitigation cut peak RSS to
+**16.05 GB** (from 32.78 GB) and `sc.pp.neighbors` crashed anyway with the **identical** signature.
+Memory was therefore never the cause. The crash report's loaded images identified it:
+`libomp.dylib` (torch/sklearn) + `libtbb.12.8.dylib` + **`omppool.cpython-312-darwin.so`** — numba's
+OpenMP threading pool — coexisting in one process. numba-jitted pynndescent inside `sc.pp.neighbors`
+spins up an OpenMP worker that collides with the `libomp` torch/MPS already initialised.
+
+**The save-before-UMAP fix worked at the script level but was defeated by Snakemake.** The 66 MB
+model was verified on disk mid-run, then removed: `Removing output files of failed job
+ds_nerve_scanvi_retrain since they might be corrupted`. It is a declared `output:`, so Snakemake
+cleans it on failure. **The stage-1 `nerve_scvi_baseline` survived precisely because it is NOT a
+declared output** — the undeclared checkpoint lived, the declared one died. This is a general lesson
+for long-training rules in this project.
+
+*Root cause proven by controlled experiment*, not inference — 200,000 synthetic cells × 30 dims, no
+project data, torch/MPS initialised then `sc.pp.neighbors`:
+
+| Arm | `NUMBA_THREADING_LAYER` | Result |
+|---|---|---|
+| Control | default (OpenMP) | **exit 139 — SIGSEGV** |
+| Treatment | `workqueue` | **exit 0**, `NEIGHBORS OK (200000, 200000)` |
+
+**SECOND CODE CHANGE (researcher-approved):** `workflow/scripts/nerve_scanvi_retrain.py` —
+1. `os.environ.setdefault("NUMBA_THREADING_LAYER", "workqueue")` set **before** any import that
+   pulls in numba (scanpy → pynndescent/umap). `E402` is project-ignored per `.flake8`.
+2. Stage-1 baseline is now **loaded when present** instead of always retraining — implementing what
+   the line-99 comment had promised since it was written but never did (line 84 unconditionally
+   constructed a fresh `SCVI`). Cut the retry from ~7 h to 2 h 35 m.
+3. Stage-2 model also written to an **undeclared sidecar** (`nerve_scanvi_stage2`) so Snakemake's
+   failure cleanup cannot destroy it again.
+
+`flake8` exit 0. `history_` is persisted inside `model.pt` (verified: 400 epochs of loss series), so
+the training-curves figure works from a loaded checkpoint.
+
+*Attempt 3 — SUCCESS, exit 0.* Baseline reuse confirmed in the log (`Reusing baseline scVI
+checkpoint … (skipping stage-1 pretrain)`), stage-1 skipped in <1 s vs 4 h 36 m 55 s of retraining.
+`sc.pp.neighbors` + UMAP completed in **3 m 18 s** (22:02:50 → 22:06:08) — the step that segfaulted
+twice. Wall clock **9,345.54 s = 2 h 35 m 46 s**, **peak RSS 15.02 GB**. Classifier accuracy
+**0.5979** reproduced bit-identically across all three attempts, confirming seed control.
+
+**GOAL-BACKWARD VERIFICATION — all five targets present and non-empty:**
+
+| Target | Size |
+|---|---|
+| `cohort_concordance_summary.json` | 4.0K |
+| `nerve_cluster_sample_purity_v2.csv` | 4.0K |
+| `nerve_celltype_label_summary.csv` | 4.0K |
+| `nerve_scanvi_training_curves.png` | 104K |
+| `05_census_nerve_immune_explorer.html` | 896K |
+
+- **Capped arm untouched** — zero files under `data/processed/gbm_cellxgene_56c4912d/` or
+  `results/tables/gbm_cellxgene_56c4912d/` modified since 2026-07-31.
+- **Pinned v1.3.0 reference intact — freshly re-verified 2026-08-02T22:19 UTC: `pass: true`,
+  37 checked / 37 unchanged / 0 modified / 0 missing.** (The on-disk verification JSON had been
+  stale from Jul 28; it was force-re-run via `--allowed-rules verify_pinned_reference --forcerun`,
+  dry-run confirmed 1 job.)
+- `nerve_cluster_sample_purity_v2`: full arm **43 clusters, 27 pass / 16 fail**; capped arm 33
+  clusters, 24 pass / 9 fail. More clusters at the same resolution and a higher absolute fail count
+  — consistent with the finer partition at 1.66× depth; the small-tail failures are the same class
+  flagged on 2026-07-25 and remain a researcher-review item.
+
+**SCIENTIFIC RESULT — the arm comparison (`cohort_concordance_summary.json`), the payoff:**
+
+| Metric | Capped (614,951 cells) | Full (1,020,902 cells) | Δ |
+|---|---|---|---|
+| Reference significant pairs | 3,368 | 3,368 | — (same reference) |
+| Dataset significant pairs | 4,583 | 5,034 | +451 (+9.8%) |
+| Shared pairs | 2,539 | 2,619 | +80 (+3.2%) |
+| Union pairs | 5,412 | 5,783 | +371 |
+| **Jaccard overlap** | **0.4691** | **0.4529** | **−0.0162** |
+| **Spearman ρ (shared)** | **0.6249** | **0.6083** | **−0.0166** |
+
+**1.66× the cells did not improve concordance — both summary metrics moved slightly down.** But
+Jaccard is symmetric and penalises the larger set; decomposing it: reference **recall improved**
+(2,539/3,368 = 75.4% → 2,619/3,368 = **77.8%**, +2.4 pp) while **precision fell** (55.4% → **52.0%**,
+−3.4 pp). The added depth surfaced 451 more significant pairs, only 80 of which were reference
+pairs. Spearman ρ on shared pairs is essentially flat (−2.7% relative), i.e. the depth changed
+*which* pairs clear significance, not how the shared ones rank. Whether the 371 extra non-reference
+pairs are depth-limited discoveries or higher-power false positives is a **scientific call for the
+researcher**; note the reference is the 17-sample v1.3.0 baseline, so "absent from the reference"
+carries limited evidential weight against a 170-sample cohort.
+
+**Other results from the completed 13:** `ds_scrna_malignancy` CNV threshold 0.0056, **125,305/
+1,006,344 malignant (12.5%)**, 117,134 reference cells. `ds_immune_cell_subset` **329,608 microglia
+(32.8%)** → 28 clusters, batch purity 18/28 PASS. `ds_nerve_cell_subset` **377,343 non-malignant
+nerve cells (37.5%)** — the silent-placeholder path (`[[nerve-subset-silent-placeholder]]`) did
+**not** trigger. Both LIANA rules passed the raw-counts scale guard identically
+(`X.max() 53027.000 → 8.740`), confirming the 2026-07-26 per-consumer normalization fix holds:
+35,255 tumor–nerve LR rows / 2,090 sig pairs; 84,422 three-way rows (immune–nerve 46,777,
+nerve–tumor 35,255, immune–tumor 2,390) / 5,223 sig pairs. GSEA: **80 result blocks, 0 clusters
+skipped**. `ds_scrna_annotate` 24,139/24,139 genes mapped.
+
+**Note on `Unknown` = 20%:** `nerve_celltype_labels.py:120` sets `Unknown` as the bottom
+`unknown_percentile` (default 20th) of max marker score, so it is **20.0% by construction in every
+cohort** and carries no biological signal — do not compare the Unknown *fraction* between arms. Two
+label groups do score on reduced panels in **both** arms: `oligodendrocyte` 3/4 markers,
+`ependymal` 5/6. That caveat is real and is not depth-related.
+
+**Artifacts:** `data/processed/gbm_cellxgene_56c4912d_full/annotated.h5ad` (5.19 GB, sha256
+`5c32c067…`, artifact_id `1b2f56e9-578b-53f4-aa26-53d65f5a6fd8`);
+`results/tables/gbm_cellxgene_56c4912d_full/annotation_summary.csv`;
+`provenance/gbm_cellxgene_56c4912d_full/annotation_provenance.json`;
+`data/processed/gbm_cellxgene_56c4912d_full/malignancy_labeled.h5ad`;
+`logs/full_cohort_annotate_20260801_135036.log`; `logs/venv_freeze_{pre,post}_optionA_20260801.txt`;
+`markdowns/task_conda_env_enforcement.md` (new).
+
+**Tool Versions:** snakemake 9.19.0 (`claude_science/bin/snakemake`); scanpy 1.12.1; anndata 0.12.10;
+scvi-tools 1.4.2; torch 2.11.0 (**pin says 2.12.0**); igraph 0.11.8; leidenalg 0.10.2; gseapy 1.1.3;
+liana 1.7.1; decoupler 2.1.6; numpy 2.3.5; pandas 2.3.3.
+
+**Open Issues:**
+- **Defect 1 (conda-env shadowing) remains OPEN** → `markdowns/task_conda_env_enforcement.md`.
+  Blast radius is every `script:`-rule artifact in the repo's history, both arms — not just this run.
+- **`numba` is unpinned in `scrna.yaml`** (0 matches) — the threading conflict is downstream of
+  Defect 1: the env that actually executes is the venv, which drifted. The capped arm passed this
+  same code on 2026-07-25 under anaconda base (a different numba build); base is now broken outright
+  (`numpy.core.multiarray failed to import`). Pin `numba` when Option B is actioned.
+- **Scientific call for the researcher:** are the 371 extra non-reference LR pairs in the full arm
+  genuine depth-limited discoveries or higher-power false positives? See the concordance table.
+- **Snakemake deletes a failed rule's declared outputs.** Any mid-rule checkpoint meant to survive a
+  crash must be written to an undeclared sidecar path. Applied here to stage 2; worth auditing other
+  long-training rules for the same exposure.
+- No cluster was assigned `tumor_gbm` or `inhibitory_neuron` at resolution 1.0 despite both being
+  scored, and `astrocyte` took 391,369 cells at mean confidence 6.09 — while malignancy flagged only
+  125,305 cells (12.5%) overall, so the large astrocyte compartment is mostly **not** malignant by
+  CNV. Plausible for a multi-donor Census cohort carrying non-tumour brain tissue, but worth a look
+  rather than an assumption. Researcher review.
+- 47 clusters here vs 33 in the capped arm — cluster IDs are **not** comparable one-to-one between
+  arms. Use the concordance summary, not cluster-number matching.
+- **`--allowed-rules` argument order** (see above) is a live risk to the pinned-reference insulator,
+  since that flag is exactly how the v1.3.0 freeze is protected across this project.
+
+**FAIR Notes:** The `[FAIR-ALERT]` above is the substantive one. Provenance JSON with input/output
+sha256 and `artifact_id` was written for every completed rule. `provenance/baseline_v1.*.json` was
+not touched. No `workflow/envs/*.yaml`, `Snakefile`, or analysis-script changes were made — the
+`scrna.yaml` spec is correct; it simply never loads.
 
 ---
 
