@@ -1,6 +1,7 @@
 # Plan — Compartment Integrity Fix (`scrna_annotate` → downstream)
 
-**Status:** reviewed against code, approved for execution · **Arms:** `gbm_cellxgene_56c4912d_full` + `gbm_cellxgene_56c4912d`
+**Status:** Phases 0-4 COMPLETE and committed · Phase 5 (the re-run) awaits approval
+**Arms:** `gbm_cellxgene_56c4912d_full` + `gbm_cellxgene_56c4912d`
 **Trigger:** S1PR1 localization audit, `markdowns/s1pr1_localization_report.md` (2026-08-05)
 
 > **Approved 2026-08-05.** A second pass verified every structural claim below against the code
@@ -75,6 +76,54 @@ itself is clean — I measured it at **99.5% pure** — but the compartment it i
 4. Gene coordinates for D4 sourced from a **new Ensembl 113 GTF rule** + `infercnvpy` (C1 below).
 5. **Bundle** `markdowns/task_conda_env_enforcement.md` (Defect 1) into this work, in Phase 4.
 6. Approval gates **after Phase 1** and **before Phase 5**; Phases 2–4 run through.
+
+---
+
+---
+
+## Results — Phases 2-4 (2026-08-05, committed `c9874d4` → `a375811`)
+
+Measured on a 60k-cell subsample of the full arm against Census `cell_type`:
+
+| gate | before | after | required | |
+|---|---|---|---|---|
+| malignancy precision | 0.479 | **0.934** | ≥0.85 | PASS |
+| malignancy recall | 0.180 | **0.894** | ≥0.80 | PASS |
+| tumor compartment malignant | 47.9% | **93.4%** | ≥85% | PASS |
+| immune compartment purity | 99.5% | **99.7%** | ≥95% | PASS |
+| nerve compartment neural | 11.1% | **82.9%** | ≥80% (revised) | PASS |
+
+**The CNV score definition mattered more than any of the plumbing.** With correct coordinates, a
+clean reference and library-size normalization, the caller still only reached 0.62/0.40 — because a
+genome-wide *spread* score scored normal neural cells HIGHER than malignant ones (0.063 vs 0.057).
+Cell-type identity and copy number are confounded in that metric. A chr7-gain minus chr10-loss
+contrast, measured inside a single cell, cancels the baseline: AUC 0.859 → 0.958.
+
+### Decisions taken during execution
+
+1. **Nerve compartment narrowed** — `astrocyte` (10.0% truly neural) and `opc` (18.9%) removed;
+   gate relaxed 0.85 → 0.80. See CHANGELOG for the full rationale and the stated cost (OPCs remain
+   annotated everywhere; they are excluded from this compartment only, and that must be reported
+   rather than read as biology).
+2. **Ambiguity is only flagged across compartments** — a macrophage-vs-neutrophil tie lands in the
+   immune compartment either way; flagging it discarded correctly-placed cells. Cut `ambiguous`
+   from 17.7% to 7.5%.
+3. **Defect 1 root cause was the calling shell**, not Snakemake or the venv build. Fixed with
+   `scripts/run_snakemake.sh`; **Phase 5 must be launched through it.**
+4. **infercnvpy not used** — it met neither a need nor a risk budget once the in-place rebuild
+   passed the gate. Recorded as a deviation.
+
+### Correction to this document
+
+The D4 section's claim that the symbol map carries a usable `chromosome` column was wrong in a way
+worth naming: the column exists but every one of its 61,497 values is the literal string
+`"unknown"`. A column being present is not the same as a column being populated.
+
+### One finding that changes interpretation of existing results
+
+The pre-fix immune compartment was **myeloid-only** (3.1% lymphoid): `t_cell` was its own label and
+was never in `source_label`. Every existing immune-side LIANA result is therefore a *myeloid* result,
+not an immune one.
 
 ---
 
