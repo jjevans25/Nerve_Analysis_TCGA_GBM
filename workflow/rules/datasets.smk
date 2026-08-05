@@ -211,9 +211,10 @@ rule ds_scrna_annotate:
         model_dir   = _md("scvi_model"),
         symbol_map  = _dp("gene_symbol_map.tsv"),
     output:
-        h5ad       = _dp("annotated.h5ad"),
-        summary    = _tb("annotation_summary.csv"),
-        provenance = _pv("annotation_provenance.json"),
+        h5ad           = _dp("annotated.h5ad"),
+        summary        = _tb("annotation_summary.csv"),
+        cluster_scores = _tb("annotation_cluster_scores.csv"),
+        provenance     = _pv("annotation_provenance.json"),
     log:
         os.path.join(config["dirs"]["logs"], "{dataset}_annotate.log"),
     conda:
@@ -222,10 +223,13 @@ rule ds_scrna_annotate:
         mem_mb  = config["resources"]["default_mem_mb"],
         threads = config["resources"]["default_threads"],
     params:
-        leiden_resolution = config["nerve_cells"]["leiden_resolution"],
-        markers           = config["nerve_cells"]["markers"],
-        random_seed       = config["scrna"]["random_seed"],
-        census_version    = config["databases"]["cellxgene_census_version"],
+        leiden_resolution  = ANNOTATE_LEIDEN_RESOLUTION,
+        markers            = config["nerve_cells"]["markers"],
+        annotation_markers = ANNOTATION_MARKERS,
+        ambiguous_margin   = ANNOTATE_AMBIGUOUS_MARGIN,
+        panel_compartment  = ANNOTATE_PANEL_COMPARTMENT,
+        random_seed        = config["scrna"]["random_seed"],
+        census_version     = config["databases"]["cellxgene_census_version"],
     script:
         "../scripts/scrna_annotate.py"
 
@@ -422,7 +426,7 @@ rule ds_immune_cell_subset:
         mem_mb  = config["resources"]["default_mem_mb"],
         threads = config["resources"]["default_threads"],
     params:
-        source_label              = config["immune_cells"]["source_label"],
+        source_labels             = IMMUNE_SOURCE_LABELS,
         leiden_resolution         = config["immune_cells"]["leiden_resolution"],
         n_top_genes               = config["scrna"]["n_top_genes"],
         random_seed               = config["scrna"]["random_seed"],

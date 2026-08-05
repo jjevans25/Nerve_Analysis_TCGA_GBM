@@ -313,7 +313,22 @@ nerve_cells:
 # -------------------------------------------------------------
 immune_cells:
   leiden_resolution: 1.0             # tune upward if subtypes under-split
-  source_label: "microglia"          # cell_type_predicted value = immune blob
+  # Was a single string, "microglia" — correct only while the annotation had no
+  # myeloid panels and lumped every immune cell into one argmax bucket (which is
+  # why the immune mask measured 99.5% pure). With per-lineage panels now in
+  # annotation_markers, those cells get their own labels and would fall out of
+  # this compartment entirely; the purity gate would still pass, because purity
+  # is not a size check. Hence a list, plus compartment_audit's size gate.
+  # `source_label` (str) is still honored for backward compatibility.
+  source_labels:
+    - "microglia"
+    - "macrophage"
+    - "t_cell"
+    - "nk_cell"
+    - "b_plasma"
+    - "neutrophil"
+    - "dc"
+    - "mast"
   subtype_markers:
     microglia:  ["P2RY12", "CX3CR1", "TMEM119", "AIF1", "C1QA", "C1QB", "C1QC"]
     tam:        ["CD68", "CD163", "MRC1", "MARCO", "LYVE1", "F13A1"]
@@ -333,6 +348,80 @@ immune_cells:
     # tables (the interaction groups immune cells by subtype, not by leiden id).
     # e.g. drop a subtype that is a doublet/artifact call. Default: keep all.
     exclude_subtypes: []
+
+# -------------------------------------------------------------
+# Whole-cohort annotation marker panels (scrna_annotate ONLY)
+#
+# Deliberately separate from `nerve_cells.markers`. That block is also read by
+# scrna_qc (to set is_nerve_marker) on every per-sample job — 170 donors x 2
+# arms — so editing it invalidates every QC artifact and cascades into the 11 h
+# scVI train. It is also semantically wrong: CD163/MRC1 are not nerve markers.
+# Panels here are merged over nerve_cells.markers and win on conflict.
+#
+# Why these exist at all: before this block, the only non-neural panels were
+# four hardcoded in scrna_annotate.py (microglia, t_cell, endothelial,
+# tumor_gbm). Every macrophage, mural, mast, B, NK, neutrophil and DC in the
+# cohort therefore had nowhere to go and was forced into the nearest neural
+# panel — which is how the "nerve" compartment ended up 27.5% myeloid. A panel
+# per lineage gives those cells somewhere true to land. Defect D3.
+#
+# leiden_resolution: annotate clusters 1M cells; at res 1.0 that is 47 clusters,
+# and cluster-level argmax then averages genuinely different populations
+# together (cluster 4 = 70,881 cells, 82.5% malignant, labelled 'opc'). 2.0
+# splits them finely enough to be callable. Kept separate from
+# nerve_cells.leiden_resolution, which governs a different clustering pass
+# inside the nerve subset and must not move with it.
+# -------------------------------------------------------------
+annotation_markers:
+  leiden_resolution: 2.0
+  # Cluster is labelled 'ambiguous' when its best and second-best panel z-scores
+  # differ by less than this AND the two panels sit in different compartments.
+  # Forcing a call on an indistinguishable margin is what downstream code then
+  # trusts as fact — but only cross-compartment ties actually threaten
+  # compartment integrity. A macrophage-vs-neutrophil tie lands in the immune
+  # compartment either way, so calling it 'ambiguous' would discard a correctly
+  # placed immune cell for no gain; a tumor_gbm-vs-astrocyte tie is exactly the
+  # confusion that produced this whole defect and must be surfaced.
+  ambiguous_margin: 0.10
+  panel_compartment:
+    neuron: neural
+    excitatory_neuron: neural
+    inhibitory_neuron: neural
+    opc: neural
+    oligodendrocyte: neural
+    astrocyte: neural
+    ependymal: neural
+    microglia: immune
+    macrophage: immune
+    t_cell: immune
+    nk_cell: immune
+    b_plasma: immune
+    neutrophil: immune
+    dc: immune
+    mast: immune
+    endothelial: vascular
+    mural: vascular
+    tumor_gbm: malignant
+  panels:
+    # --- annotation-only override of a neural panel ---
+    # VIM is expressed across AC-like and MES-like malignant cells, so the
+    # original GFAP/S100B/AQP4/VIM panel cannot separate a normal astrocyte from
+    # a tumor cell. Replaced with transporter/enzyme markers specific to mature
+    # astrocytes. nerve_cells.markers.astrocyte is intentionally left unchanged.
+    astrocyte:   ["GFAP", "S100B", "AQP4", "SLC1A2", "SLC1A3", "ALDH1L1", "GJA1"]
+    # --- non-neural panels (previously hardcoded in scrna_annotate.py) ---
+    microglia:   ["AIF1", "CX3CR1", "TMEM119", "P2RY12", "PTPRC"]
+    t_cell:      ["CD3D", "CD3E", "CD4", "CD8A", "CD8B"]
+    endothelial: ["PECAM1", "CDH5", "VWF", "ENG"]
+    tumor_gbm:   ["SOX2", "NES", "CD44", "PROM1", "MKI67"]
+    # --- newly added: the lineages with no panel at all before this ---
+    macrophage:  ["CD163", "MRC1", "MSR1", "F13A1"]
+    mural:       ["PDGFRB", "RGS5", "ACTA2", "DCN"]
+    mast:        ["TPSAB1", "CPA3", "KIT"]
+    b_plasma:    ["CD79A", "MS4A1", "MZB1"]
+    nk_cell:     ["NKG7", "GNLY", "KLRD1"]
+    neutrophil:  ["FCGR3B", "CSF3R", "S100A8"]
+    dc:          ["FLT3", "CLEC9A", "LAMP3"]
 
 # -------------------------------------------------------------
 # Compartment integrity audit (the Test Oracle)

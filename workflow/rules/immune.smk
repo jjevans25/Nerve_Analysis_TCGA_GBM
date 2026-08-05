@@ -23,7 +23,7 @@ rule immune_cell_subset:
         mem_mb  = config["resources"]["default_mem_mb"],
         threads = config["resources"]["default_threads"],
     params:
-        source_label              = config["immune_cells"]["source_label"],
+        source_labels             = IMMUNE_SOURCE_LABELS,
         leiden_resolution         = config["immune_cells"]["leiden_resolution"],
         n_top_genes               = config["scrna"]["n_top_genes"],
         random_seed               = config["scrna"]["random_seed"],

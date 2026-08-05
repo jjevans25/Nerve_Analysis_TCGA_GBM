@@ -35,3 +35,61 @@ def is_log1p_scale(X, max_plausible: float = LOG1P_MAX_PLAUSIBLE) -> bool:
     markdowns/blocker_census_liana_raw_counts.md.
     """
     return float(X.max()) <= max_plausible
+
+
+def library_sizes(X: sp.csr_matrix, block: int = 100_000) -> np.ndarray:
+    """Total UMIs per cell — the denominator for library-size normalization."""
+    out = np.zeros(X.shape[0], dtype=np.float64)
+    for lo in range(0, X.shape[0], block):
+        hi = min(lo + block, X.shape[0])
+        out[lo:hi] = np.asarray(X[lo:hi].sum(axis=1)).ravel()
+    return out
+
+
+def normalize_log1p_inplace(
+    X: sp.csr_matrix,
+    lib: np.ndarray,
+    target_sum: float = 1e4,
+    block: int = 100_000,
+) -> None:
+    """Library-size normalize + log1p a CSR counts matrix IN PLACE, allocating nothing.
+
+    Marker-gene scoring assumes log1p input. A full normalized copy of the Census
+    cohort is 16.5 GB on top of the 16.5 GB original — 33 GB on a 36 GB machine,
+    which does not fit. Scaling `X.data` row-block-wise through `indptr` touches
+    only the existing buffer, so peak memory is unchanged. Pair with
+    `denormalize_log1p_inplace` to hand raw counts back to downstream consumers.
+    """
+    if not sp.isspmatrix_csr(X):
+        raise TypeError(f"expected CSR, got {type(X)!r}")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        scale = np.where(lib > 0, target_sum / lib, 0.0).astype(np.float32)
+    for lo in range(0, X.shape[0], block):
+        hi = min(lo + block, X.shape[0])
+        start, stop = X.indptr[lo], X.indptr[hi]
+        counts = np.diff(X.indptr[lo:hi + 1])
+        X.data[start:stop] *= np.repeat(scale[lo:hi], counts)
+    np.log1p(X.data, out=X.data)
+
+
+def denormalize_log1p_inplace(
+    X: sp.csr_matrix,
+    lib: np.ndarray,
+    target_sum: float = 1e4,
+    block: int = 100_000,
+) -> None:
+    """Invert `normalize_log1p_inplace`, restoring integer counts IN PLACE.
+
+    Downstream consumers (scVI, the CNV caller, LIANA's own normalization step)
+    all require raw counts in `.X`. Counts are integers, so `rint` absorbs the
+    float32 round-trip error exactly for the magnitudes seen here.
+    """
+    np.expm1(X.data, out=X.data)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        unscale = np.where(lib > 0, lib / target_sum, 0.0).astype(np.float32)
+    for lo in range(0, X.shape[0], block):
+        hi = min(lo + block, X.shape[0])
+        start, stop = X.indptr[lo], X.indptr[hi]
+        counts = np.diff(X.indptr[lo:hi + 1])
+        X.data[start:stop] *= np.repeat(unscale[lo:hi], counts)
+    np.rint(X.data, out=X.data)

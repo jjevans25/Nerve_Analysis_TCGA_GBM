@@ -13,6 +13,7 @@ rule scrna_annotate:
     output:
         h5ad       = os.path.join(config["dirs"]["data_processed"], "annotated.h5ad"),
         summary    = os.path.join(config["dirs"]["tables"],         "annotation_summary.csv"),
+        cluster_scores = os.path.join(config["dirs"]["tables"],      "annotation_cluster_scores.csv"),
         provenance = os.path.join(config["dirs"]["provenance"],     "annotation_provenance.json"),
     log:
         os.path.join(config["dirs"]["logs"], "scrna_annotate.log"),
@@ -22,10 +23,13 @@ rule scrna_annotate:
         mem_mb  = config["resources"]["default_mem_mb"],
         threads = config["resources"]["default_threads"],
     params:
-        leiden_resolution = config["nerve_cells"]["leiden_resolution"],
-        markers           = config["nerve_cells"]["markers"],
-        random_seed       = config["scrna"]["random_seed"],
-        census_version    = config["databases"]["cellxgene_census_version"],
+        leiden_resolution  = ANNOTATE_LEIDEN_RESOLUTION,
+        markers            = config["nerve_cells"]["markers"],
+        annotation_markers = ANNOTATION_MARKERS,
+        ambiguous_margin   = ANNOTATE_AMBIGUOUS_MARGIN,
+        panel_compartment  = ANNOTATE_PANEL_COMPARTMENT,
+        random_seed        = config["scrna"]["random_seed"],
+        census_version     = config["databases"]["cellxgene_census_version"],
     script:
         "../scripts/scrna_annotate.py"
 

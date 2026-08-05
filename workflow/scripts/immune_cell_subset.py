@@ -19,7 +19,6 @@ import sys
 import anndata as ad
 import matplotlib
 import matplotlib.pyplot as plt
-import pandas as pd
 import scanpy as sc
 
 matplotlib.use("Agg")
@@ -44,7 +43,18 @@ n_total = adata.n_obs
 # ---------------------------------------------------------------------------
 # Step 1: Filter to non-malignant immune cells
 # ---------------------------------------------------------------------------
-source_label: str = snakemake.params.source_label  # type: ignore[name-defined]
+# The immune compartment is the union of every annotated immune lineage, not a
+# single label. It was one string ("microglia") only because the annotation had
+# no myeloid panels and lumped all immune cells into one argmax bucket; once
+# macrophage/DC/NK/B/neutrophil/mast panels exist, a single label silently drops
+# most of the compartment while purity-style QC still passes. `source_label`
+# (str) remains accepted so the reference cohort's config keeps working.
+_configured = getattr(snakemake.params, "source_labels", None)  # type: ignore[name-defined]
+if _configured is None:
+    _configured = [snakemake.params.source_label]  # type: ignore[name-defined]
+elif isinstance(_configured, str):
+    _configured = [_configured]
+source_labels: list[str] = [str(s) for s in _configured]
 
 
 def _norm(s: str) -> str:
@@ -52,7 +62,29 @@ def _norm(s: str) -> str:
 
 
 adata.obs["_ctype_norm"] = adata.obs["cell_type_predicted"].astype(str).map(_norm)
-immune_mask = (adata.obs["_ctype_norm"] == _norm(source_label)) & (
+_targets = {_norm(s) for s in source_labels}
+observed = set(adata.obs["_ctype_norm"].unique())
+
+# A configured label that matches nothing is a typo or a stale panel name, not
+# an absent population — fail loudly rather than silently selecting fewer cells.
+_unmatched = sorted(t for t in _targets if t not in observed)
+if _unmatched and len(_unmatched) == len(_targets):
+    raise RuntimeError(
+        f"[FAIR-ALERT] none of the configured immune source labels {source_labels} "
+        f"appear in cell_type_predicted. Observed labels: {sorted(observed)}. "
+        "This selects an empty immune compartment; check immune_cells.source_labels "
+        "against the panel names in annotation_markers."
+    )
+if _unmatched:
+    log_transformation(
+        log,
+        "immune_cell_subset",
+        f"Configured immune labels with no cells in this cohort: {_unmatched} "
+        f"(matched: {sorted(_targets - set(_unmatched))})",
+        status="WARNING",
+    )
+
+immune_mask = adata.obs["_ctype_norm"].isin(_targets) & (
     ~adata.obs["is_malignant"].astype(bool)
 )
 adata_immune = adata[immune_mask].copy()
@@ -63,7 +95,8 @@ log_transformation(
     log,
     "immune_cell_subset",
     f"Retained {n_immune}/{n_total} non-malignant immune cells "
-    f"(cell_type_predicted == '{source_label}'; {100 * n_immune / n_total:.1f}%)",
+    f"(cell_type_predicted in {source_labels}; {100 * n_immune / n_total:.1f}%)\n"
+    f"  breakdown: {adata_immune.obs['cell_type_predicted'].value_counts().to_dict()}",
 )
 
 if n_immune < 20:
@@ -71,7 +104,7 @@ if n_immune < 20:
         log,
         "immune_cell_subset",
         f"[FAIR-ALERT] only {n_immune} immune cells selected — the "
-        f"'{source_label}' population is missing or vanishingly small. "
+        f"{source_labels} population is missing or vanishingly small. "
         "Downstream subtype resolution and interaction inference will be "
         "underpowered.",
         status="WARNING",
@@ -174,7 +207,7 @@ prov = stamp_artifact(
     input_paths=[snakemake.input.h5ad],  # type: ignore[name-defined]
     tool_versions={"scanpy": sc.__version__, "anndata": ad.__version__},
     parameters={
-        "source_label": source_label,
+        "source_labels": source_labels,
         "leiden_resolution": snakemake.params.leiden_resolution,  # type: ignore[name-defined]
         "n_cells_total": n_total,
         "n_cells_immune": n_immune,
