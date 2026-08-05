@@ -262,6 +262,7 @@ rule ds_scrna_malignancy:
         reference_confidence_quantile = config["scrna"]["cnv_reference_confidence_quantile"],
         min_reference_cells = config["scrna"]["cnv_min_reference_cells"],
         min_genes_placed_fraction = config["scrna"]["cnv_min_genes_placed_fraction"],
+        cnv_exclusion_sd = config["scrna"]["cnv_exclusion_sd"],
         cnv_gain_contigs = config["scrna"]["cnv_gain_contigs"],
         cnv_loss_contigs = config["scrna"]["cnv_loss_contigs"],
     script:
@@ -293,6 +294,8 @@ rule ds_nerve_cell_subset:
     params:
         leiden_resolution = config["nerve_cells"]["leiden_resolution"],
         cell_types        = config["nerve_cells"]["cell_types"],
+        neuron_labels     = config["nerve_cells"].get("neuron_labels", []),
+        malignant_flag    = config["nerve_cells"].get("malignant_flag", "is_malignant"),
         markers           = config["nerve_cells"]["markers"],
         random_seed       = config["scrna"]["random_seed"],
         n_top_genes       = config["scrna"]["n_top_genes"],
@@ -620,7 +623,8 @@ rule ds_nerve_scanvi_retrain:
         n_layers            = config["scrna"]["n_layers"],
         random_seed         = config["scrna"]["random_seed"],
         batch_key           = config["nerve_scanvi"]["batch_key"],
-        labels_key          = config["nerve_scanvi"]["labels_key"],
+        labels_key          = lambda wc: _entry(wc.dataset).get(
+            "scanvi_labels_key", config["nerve_scanvi"]["labels_key"]),
         unlabeled_category  = config["nerve_scanvi"]["unlabeled_category"],
         scvi_max_epochs     = config["nerve_scanvi"]["scvi_max_epochs"],
         scanvi_max_epochs   = config["nerve_scanvi"]["scanvi_max_epochs"],
@@ -690,6 +694,7 @@ rule ds_compartment_audit:
         immune_classes   = config["compartment_audit"]["immune_classes"],
         gates            = config["compartment_audit"]["gates"],
         per_arm          = lambda wc: config["compartment_audit"].get("per_arm", {}).get(wc.dataset, {}),
+        sidecar_dir      = config["compartment_audit"]["sidecar_dir"],
     script:
         "../scripts/compartment_audit.py"
 

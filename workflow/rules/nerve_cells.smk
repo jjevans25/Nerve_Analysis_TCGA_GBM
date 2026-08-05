@@ -38,6 +38,8 @@ if not BASELINE_PINNED:
         params:
             leiden_resolution  = config["nerve_cells"]["leiden_resolution"],
             cell_types         = config["nerve_cells"]["cell_types"],
+            neuron_labels      = config["nerve_cells"].get("neuron_labels", []),
+            malignant_flag     = config["nerve_cells"].get("malignant_flag", "is_malignant"),
             markers            = config["nerve_cells"]["markers"],
             random_seed        = config["scrna"]["random_seed"],
             n_top_genes        = config["scrna"]["n_top_genes"],

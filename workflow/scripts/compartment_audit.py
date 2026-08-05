@@ -191,6 +191,7 @@ def evaluate_gates(observed: dict[str, float]) -> pd.DataFrame:
          GATES.get("immune_size_fraction_of_baseline_min")),
         ("nerve_compartment_n_min",     "nerve_compartment_n",         ">=", PER_ARM.get("nerve_n_min")),
         ("nerve_compartment_n_max",     "nerve_compartment_n",         "<=", PER_ARM.get("nerve_n_max")),
+        ("neuron_group_n_min",          "neuron_group_n",              ">=", PER_ARM.get("neuron_n_min")),
     ]
 
     rows: list[dict[str, object]] = []
@@ -226,6 +227,16 @@ malig_obs = classify(
 nerve_obs = classify(load_obs(snakemake.input.nerve, ["cell_type", "nerve_leiden"]), lookup)
 immune_obs = classify(load_obs(snakemake.input.immune, ["cell_type", "immune_subtype"]), lookup)
 
+# The nerve compartment is split into glia and neurons (see nerve_cell_subset);
+# audit them separately, because a 3.4k-cell neuron group can be entirely wrong
+# without moving the combined figure at all.
+_nerve_full = ad.read_h5ad(snakemake.input.nerve, backed="r")
+if "nerve_subcompartment" in _nerve_full.obs.columns:
+    nerve_obs["nerve_subcompartment"] = _nerve_full.obs["nerve_subcompartment"].astype(str).values
+else:
+    nerve_obs["nerve_subcompartment"] = "glia"
+del _nerve_full
+
 unmapped = sorted(set(malig_obs.loc[malig_obs["census_class"] == UNMAPPED, "census_cell_type"]))
 if unmapped:
     log_transformation(log, "compartment_audit",
@@ -242,15 +253,17 @@ log_transformation(log, "compartment_audit",
 # ---------------------------------------------------------------------------
 # Composition + confusion
 # ---------------------------------------------------------------------------
-audit = pd.concat(
-    [
-        composition(malig_obs, "cohort"),
-        composition(nerve_obs, "nerve"),
-        composition(tumor_obs, "tumor"),
-        composition(immune_obs, "immune"),
-    ],
-    ignore_index=True,
-)
+_frames = [
+    composition(malig_obs, "cohort"),
+    composition(nerve_obs, "nerve"),
+    composition(tumor_obs, "tumor"),
+    composition(immune_obs, "immune"),
+]
+for _sub in sorted(nerve_obs["nerve_subcompartment"].unique()):
+    _frames.append(
+        composition(nerve_obs[nerve_obs["nerve_subcompartment"] == _sub], f"nerve_{_sub}")
+    )
+audit = pd.concat(_frames, ignore_index=True)
 
 cluster_audit = nerve_cluster_audit(nerve_obs)
 confusion, malig_stats = malignancy_confusion(malig_obs)
@@ -272,6 +285,9 @@ observed: dict[str, float] = {
     "max_nerve_cluster_endothelial_fraction": max_endo,
     "nerve_compartment_n":                    float(len(nerve_obs)),
     "immune_size_fraction_of_baseline":       immune_size_frac,
+    "neuron_group_n": float(
+        (nerve_obs["nerve_subcompartment"] == "neuron").sum()
+    ),
 }
 
 gates = evaluate_gates(observed)
@@ -286,15 +302,30 @@ log_transformation(log, "compartment_audit", "Gate results:\n" + gates.to_string
 # ---------------------------------------------------------------------------
 # Write
 # ---------------------------------------------------------------------------
-for frame, path in (
-    (audit,         snakemake.output.audit),
-    (cluster_audit, snakemake.output.cluster_audit),
-    (confusion,     snakemake.output.confusion),
-    (gates,         snakemake.output.gates),
-):
+_outputs = (
+    (audit,         snakemake.output.audit,         "compartment_audit.csv"),
+    (cluster_audit, snakemake.output.cluster_audit, "nerve_compartment_cluster_audit.csv"),
+    (confusion,     snakemake.output.confusion,     "malignancy_confusion.csv"),
+    (gates,         snakemake.output.gates,         "compartment_audit_gates.csv"),
+)
+for frame, path, _ in _outputs:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(path, index=False)
     verify_artifact(path, min_size_bytes=32)
+
+# Durable sidecar copy at an UNDECLARED path.
+#
+# Snakemake deletes the declared outputs of a failed job. For an ordinary rule
+# that is correct — a half-written artifact is worse than none. For this rule it
+# is exactly backwards: when a gate fails, the cross-tabs explaining WHY are the
+# whole point, and they were just deleted along with the failure. (Learned the
+# hard way twice in this project; see the CHANGELOG note on undeclared sidecars.)
+sidecar = Path(snakemake.params.sidecar_dir) / ARM
+sidecar.mkdir(parents=True, exist_ok=True)
+for frame, _, name in _outputs:
+    frame.to_csv(sidecar / name, index=False)
+log_transformation(log, "compartment_audit",
+    f"Durable copies written to {sidecar} (undeclared — survives a failed gate)")
 
 prov = stamp_artifact(
     output_path=snakemake.output.audit,

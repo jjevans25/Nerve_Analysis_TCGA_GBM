@@ -80,7 +80,21 @@ log_transformation(
 
 # Standardize obs labels.
 malig.obs["cell_label"] = "malignant"
-nerve.obs["cell_label"] = "nerve_c" + nerve.obs["nerve_leiden"].astype(str)
+# Neurons are carried as ONE group, glia per cluster. Splitting ~3.4k neurons
+# spread across 170 donors into per-cluster groups would give LIANA a handful of
+# cells per group and turn sampling noise into "interactions"; pooling glia
+# would throw away real cluster structure. The `nerve_` prefix is kept on both
+# so the compartment key stays comparable with the pinned v1.3.0 reference —
+# renaming it would break every concordance pair.
+if "nerve_subcompartment" in nerve.obs.columns:
+    _is_neuron = nerve.obs["nerve_subcompartment"].astype(str).eq("neuron").to_numpy()
+    nerve.obs["cell_label"] = np.where(
+        _is_neuron,
+        "nerve_neuron",
+        "nerve_c" + nerve.obs["nerve_leiden"].astype(str),
+    )
+else:
+    nerve.obs["cell_label"] = "nerve_c" + nerve.obs["nerve_leiden"].astype(str)
 
 # Use HGNC symbols as var index for LIANA (consensus resource is HGNC-keyed).
 # Both AnnDatas already carry `gene_symbol` in var.

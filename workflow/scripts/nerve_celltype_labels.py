@@ -20,7 +20,6 @@ variational objective but is not used for the classification loss.
 
 import os
 import sys
-from pathlib import Path
 
 import anndata as ad
 import numpy as np
@@ -123,14 +122,24 @@ final = tentative.copy()
 final[unknown_mask] = "Unknown"
 
 adata.obs["cell_type_score_max"] = max_score
-adata.obs["cell_type"] = pd.Categorical(
+# Defect D6: this wrote to `cell_type`, which on a CELLxGENE cohort is the
+# authors' CL-ontology annotation — the ONLY external ground truth these arms
+# carry, and the oracle the whole compartment audit is built on. Overwriting it
+# with pipeline-derived strings destroyed it in every downstream artifact and
+# forced the S1PR1 investigation to re-join against the parent object. Marker
+# labels now live in their own column and `cell_type` is never touched.
+adata.obs["cell_type_marker_label"] = pd.Categorical(
     final, categories=list(LABEL_GROUPS.keys()) + ["Unknown"]
 )
+if "cell_type" in adata.obs.columns:
+    log_transformation(log, "nerve_celltype_labels",
+        "Preserved the external `cell_type` annotation; marker-derived labels "
+        "written to `cell_type_marker_label`.")
 
 # ----------------------------------------------------------------------------
 # Targets / verification gates
 # ----------------------------------------------------------------------------
-counts = adata.obs["cell_type"].value_counts()
+counts = adata.obs["cell_type_marker_label"].value_counts()
 total = int(counts.sum())
 unknown_frac = float(counts.get("Unknown", 0)) / total
 log_transformation(log, "nerve_celltype_labels",
@@ -158,7 +167,7 @@ for lbl in LABEL_GROUPS:
 
 summary = pd.DataFrame(
     {
-        "cell_type": list(counts.index),
+        "cell_type_marker_label": list(counts.index),
         "n_cells": counts.values,
         "fraction": (counts.values / total).round(4),
         "n_markers_used": [len(resolved.get(lbl, [])) for lbl in counts.index],

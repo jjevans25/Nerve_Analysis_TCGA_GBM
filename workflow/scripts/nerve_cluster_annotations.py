@@ -14,7 +14,6 @@ score columns to support downstream clinical-association work.
 
 import os
 import sys
-from pathlib import Path
 
 import anndata as ad
 import numpy as np
@@ -82,26 +81,14 @@ log_transformation(
 # --- Empty-data guard (mirrors nerve_cell_heterogeneity:78-113) ----------------
 n_clusters = adata.obs["nerve_leiden"].nunique() if "nerve_leiden" in adata.obs else 0
 if adata.n_obs == 0 or n_clusters == 0:
-    log_transformation(
-        log,
-        "nerve_cluster_annotations",
-        "[FAIR-ALERT] Empty nerve-cell AnnData — writing placeholder annotation CSV.",
-        status="WARNING",
+    # Defect D7: this used to write an empty annotation CSV and exit 0, turning
+    # an upstream mask failure into a green run. An empty nerve compartment is
+    # never a biological result here. Same hard fail as nerve_cell_subset.
+    raise RuntimeError(
+        "[FAIR-ALERT] nerve-cell AnnData is empty "
+        f"(n_obs={adata.n_obs}, n_clusters={n_clusters}). Refusing to write a "
+        "placeholder annotation table that would read as a successful run."
     )
-    pd.DataFrame(
-        columns=["cluster", "label", "top_markers", "interpretation"]
-    ).to_csv(snakemake.output.annotations, index=False)  # type: ignore[name-defined]
-    prov_empty = stamp_artifact(
-        output_path=snakemake.output.annotations,  # type: ignore[name-defined]
-        rule_name="nerve_cluster_annotations",
-        input_paths=[snakemake.input.h5ad, snakemake.input.markers],  # type: ignore[name-defined]
-        tool_versions={"scanpy": sc.__version__, "anndata": ad.__version__},
-        parameters={"n_clusters": 0, "n_cells": 0, "note": "no nerve cells found"},
-        description="Placeholder: no nerve cells available for annotation",
-        ontology_operation="operation:3431",
-    )
-    write_provenance(prov_empty, snakemake.output.provenance)  # type: ignore[name-defined]
-    raise SystemExit(0)
 
 log_transformation(
     log,
@@ -110,6 +97,8 @@ log_transformation(
 )
 
 # --- Step A: dominant cell_type_predicted per cluster --------------------------
+
+
 def _mode_or_na(s: pd.Series) -> str:
     counts = s.dropna().value_counts()
     return counts.index[0] if len(counts) else "unknown"
@@ -128,6 +117,8 @@ dominant_pct = (
 )
 
 # --- Step B: top 5 marker symbols per cluster ----------------------------------
+
+
 def _pick_symbol(row: pd.Series) -> str:
     sym = row.get("gene_symbol")
     if isinstance(sym, str) and sym.strip():
@@ -192,7 +183,8 @@ cluster_scores = (
 log_transformation(
     log,
     "nerve_cluster_annotations",
-    f"Computed module scores for {len(modules_used)}/{len(snakemake.params.markers)} modules",  # type: ignore[name-defined]
+    f"Computed module scores for {len(modules_used)}/"
+    f"{len(snakemake.params.markers)} modules",  # type: ignore[name-defined]
 )
 
 # --- Step D: assemble per-cluster annotation rows ------------------------------
@@ -259,7 +251,8 @@ verify_artifact(snakemake.output.annotations)  # type: ignore[name-defined]
 prov = stamp_artifact(
     output_path=snakemake.output.annotations,  # type: ignore[name-defined]
     rule_name="nerve_cluster_annotations",
-    input_paths=[snakemake.input.h5ad, snakemake.input.markers, snakemake.input.symbol_map],  # type: ignore[name-defined]
+    input_paths=[snakemake.input.h5ad, snakemake.input.markers,  # type: ignore[name-defined]
+                 snakemake.input.symbol_map],  # type: ignore[name-defined]
     tool_versions={
         "scanpy": sc.__version__,
         "anndata": ad.__version__,

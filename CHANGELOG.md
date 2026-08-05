@@ -1820,3 +1820,133 @@ has the same `nargs='+'` target-swallowing behaviour as `--allowed-rules` — pa
 (annotate fixes, CNV rebuild on infercnvpy, D5/D6/D7 + conda-env enforcement + numba pin) are
 approved to run through. **Phase 5 — the 6-10h full-arm and 4-7h capped-arm re-run — requires
 researcher approval before it starts.**
+
+---
+
+## [2026-08-05] Phases 2-4 — Compartment integrity fix: annotation, CNV, masks, environment
+
+**Phase:** Compartment integrity fix, Phases 2-4 of 6. Phase 5 (the re-run) awaits approval.
+
+### Phase 2 — D1/D2/D3, `scrna_annotate.py`
+
+- **D1.** `sc.tl.score_genes` assumes log-normalized input and does not check; the Census arms
+  carry raw UMIs, so panels were compared on absolute count scales. `.X` is now normalized +
+  log1p'd **in place** for scoring and restored to counts before writing — a normalized copy is
+  16.5 GB on top of 16.5 GB and does not fit in 36 GB. Round-trip verified bit-exact (20k x 3k
+  matrix incl. a 53,027-count outlier), guarded at runtime by a sum-drift check.
+- **D2.** Argmax now runs over per-panel **z-scores**, so panels compete on relative enrichment.
+  Annotate resolution 1.0 -> 2.0 on its own config key. Clusters whose top-vs-second margin is
+  below a floor **and cross a compartment boundary** are labelled `ambiguous`; same-compartment
+  ties (macrophage vs neutrophil) keep the top label. That refinement cut ambiguous from 17.7% to
+  7.5% and recovered ~6,150 correctly-placed immune cells.
+- **D3.** Astrocyte panel drops VIM for SLC1A2/SLC1A3/ALDH1L1/GJA1; seven lineages that had **no
+  panel at all** (macrophage, mural, mast, B/plasma, NK, neutrophil, DC) now have one.
+- **C2.** All of this lives in a new `annotation_markers:` block, NOT `nerve_cells.markers`, which
+  `scrna_qc` also reads per-sample and which would have cascaded into the 11 h scVI train.
+- **C3.** `immune_cells.source_label` (str) -> `source_labels` (list).
+
+### Phase 3 — D4, `scrna_malignancy.py` + new `download_gene_positions` rule
+
+Three stacked defects: gene order came from the Ensembl **accession counter**, not coordinates;
+library-size normalization was missing entirely; and the "normal" reference was drawn from the same
+annotation this rule should be independent of (degrading to T-cells-only in the capped arm).
+
+No coordinates existed anywhere in the project (`dataset_gene_symbol_map.py` writes the literal
+string `"unknown"`), so a new SHA-pinned Ensembl 113 GTF rule supplies them — 100% of both arms'
+genes map. Windows now run **within** each contig.
+
+That reached only 0.62/0.40. The remaining problem was the score itself: measured by genome-wide
+spread, **normal neural cells scored HIGHER than malignant ones** (0.063 vs 0.057), because an
+oligodendrocyte differs from an immune reference across whole chromosomes for reasons unrelated to
+dosage. Replaced with a **chr7-gain minus chr10-loss contrast**, measured inside a single cell so
+the cell-type baseline cancels. +7/-10 is a WHO 2021 IDH-wildtype GBM criterion and also fell out
+of this cohort unprompted as the most-up and most-down contig (+0.043 / -0.038).
+
+    AUC        0.859 -> 0.958
+    precision  0.479 -> 0.934   (gate >= 0.85)  PASS
+    recall     0.180 -> 0.894   (gate >= 0.80)  PASS
+
+### Phase 4 — D5/D6/D7, compartment definition, environment
+
+- **D5.** Exact canonical-label matching replaces substring matching, plus a hard fail when a
+  configured `cell_types` entry matches no observed label. The old bidirectional substring test is
+  what dropped 70,881 `opc` cells in silence.
+- **D6.** `nerve_celltype_labels.py` writes `cell_type_marker_label`; **`cell_type` is never
+  touched**. `nerve_scanvi.labels_key` follows, per-arm overridable.
+- **D7.** Both remaining placeholder-on-empty paths hard-fail.
+- Nerve compartment split into `glia` / `neuron` (`nerve_subcompartment`); neurons minted as one
+  `nerve_neuron` LIANA group, glia per cluster. The `nerve_` prefix is kept so the concordance pair
+  key stays comparable with the pinned v1.3.0 reference.
+
+### Researcher decision — nerve compartment narrowed (2026-08-05)
+
+Post-fix the nerve compartment reached 61.9% neural (from 11.1%), short of the 85% gate. The
+residual was concentrated in two labels:
+
+    oligodendrocyte    90.2% truly neural       excluded: opc        18.9%
+    excitatory_neuron  84.2%                              astrocyte  10.0%
+    neuron             61.5%
+
+These are the AC-like/OPC-like malignant states sharing GFAP/PTPRZ1/SLC1A3 with normal glia; Census
+reports **347 astrocytes in 1,006,344 cells (0.03%)** against the ~1.5% the panel calls. They are
+CNV-quiet on +7/-10, so the caller cannot remove them, and tightening does not help — at 0 SD the
+compartment is still only 78% neural and has lost 58% of its true neural cells.
+
+**Decision: drop `astrocyte` and `opc` from `nerve_cells.cell_types`; gate relaxed 0.85 -> 0.80.**
+Measured result 82.9% neural, retaining 69.2% of true neural cells.
+
+> **KNOWN COST — must be reported, not treated as a finding.** OPCs are a real neural population
+> (21,460 cells in the full arm) and relevant to neuron-glia-tumor crosstalk. They remain annotated
+> and present in every artifact; they are excluded from THIS COMPARTMENT only. Their absence from
+> the interaction tables is a masking decision.
+
+### Defect 1 (conda env enforcement) — CLOSED, root cause was neither candidate approach
+
+`markdowns/task_conda_env_enforcement.md` proposed reinstalling Snakemake outside the venv or
+rebuilding `claude_science`. **Neither was needed.** Root cause: the venv is *active in the calling
+shell*, so its exported `VIRTUAL_ENV` and PATH entry re-shadow `conda activate` inside every job
+subshell. Unsetting `VIRTUAL_ENV` and stripping the venv from PATH before launching Snakemake makes
+all four acceptance criteria pass. `CONDA_PREFIX` must be **left set** — unsetting it makes conda's
+own deactivate-script lookup raise inside `posixpath.join`.
+
+New `scripts/run_snakemake.sh` does this; new `conda_env_smoke_test` rule asserts it (14/14 pass:
+`sys.executable` in the conda env, igraph 0.11.8, torch 2.12.0, liana 1.7.1, infercnvpy 0.4.3, all
+resolving inside the env). **Phase 5 must be launched via the wrapper or enforcement silently
+reverts.**
+
+`numba==0.65.0` + `llvmlite==0.47.0` pinned in `scrna.yaml` (previously transitive and unpinned;
+numba's threading layer caused both SIGSEGVs). This changed the env hash; the env was rebuilt and
+re-verified now, deliberately, rather than mid-run.
+
+### Tool failures worth recording
+
+- **Snakemake deletes a failed job's declared outputs** — and the compartment audit is the one rule
+  where that is exactly backwards, since a failing gate is when its cross-tabs matter most. Hit
+  live: enabling `enforce` deleted the full arm's baseline tables. The audit now also writes an
+  **undeclared sidecar** (`results/compartment_audit_snapshots/<arm>/`) that nothing in the DAG can
+  remove. Baseline regenerated via a `--configfile` overlay with `enforce: false`.
+- **`from __future__ import annotations` breaks under Snakemake `script:`** — Snakemake prepends its
+  preamble, so the future import is no longer first and raises SyntaxError. Unnecessary on 3.12.
+- **Ensembl's HTTPS mirror stalls mid-transfer** on the 64 MB GTF; the downloader now resumes by
+  byte range and treats HTTP 416 as "already complete".
+
+### Verification
+
+- `flake8` exit 0 on all 13 edited scripts.
+- `conda_env_smoke_test`: 14/14.
+- Enforcing audit **correctly fails** on the pre-fix artifacts (7 gates), and the sidecar survives.
+- `results/pinned_reference_verification.json` still `pass: true, 37/37`.
+
+### Deviation from plan — infercnvpy not used
+
+The plan preferred replacing the hand-rolled smoother with `infercnvpy`. It appeared absent from
+the environment, which is precisely what the venv-shadowing defect looked like; it is in fact
+installed (0.4.3). By the time that was clear the in-place rebuild already met the gate at
+0.934/0.894, and swapping in a library unproven at 1M cells — with an `X_cnv` matrix in the ~10 GB
+range — would risk memory on a 36 GB machine for no measured gain. Recorded, not quietly dropped.
+
+### Next
+
+**Phase 5 — the 6-10 h full-arm and 4-7 h capped-arm re-run — requires researcher approval.**
+Launch via `scripts/run_snakemake.sh`. Re-entry at `ds_scrna_annotate`; the 11 h 13 m scVI train is
+preserved because `X_scVI` is label-free.

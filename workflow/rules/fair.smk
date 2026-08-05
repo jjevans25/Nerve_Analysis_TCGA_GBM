@@ -20,6 +20,31 @@ rule fair_validate_metadata:
         "../scripts/fair_validate_metadata.py"
 
 
+rule conda_env_smoke_test:
+    """Guard: assert `--use-conda` actually enforces workflow/envs/scrna.yaml.
+
+    The claude_science venv shadowed conda activation, so every artifact in the
+    Census arms was produced against unpinned packages while the run reported the
+    declared env (markdowns/task_conda_env_enforcement.md). Reproducibility
+    claims are only as good as the environment behind them, so this runs as a
+    rule under the same mechanism as everything else.
+    """
+    output:
+        report     = os.path.join(config["dirs"]["results"], "conda_env_smoke_test.json"),
+        provenance = os.path.join(config["dirs"]["provenance"], "conda_env_smoke_test_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "conda_env_smoke_test.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = 2000,
+        threads = 1,
+    params:
+        expected_versions = config["env_enforcement"]["expected_versions"],
+    script:
+        "../scripts/conda_env_smoke_test.py"
+
+
 rule download_gene_positions:
     """Fetch Ensembl gene coordinates so CNV inference can order genes along the genome.
 

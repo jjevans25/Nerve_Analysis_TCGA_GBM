@@ -62,6 +62,7 @@ rule scrna_malignancy:
         reference_confidence_quantile = config["scrna"]["cnv_reference_confidence_quantile"],
         min_reference_cells = config["scrna"]["cnv_min_reference_cells"],
         min_genes_placed_fraction = config["scrna"]["cnv_min_genes_placed_fraction"],
+        cnv_exclusion_sd = config["scrna"]["cnv_exclusion_sd"],
         cnv_gain_contigs = config["scrna"]["cnv_gain_contigs"],
         cnv_loss_contigs = config["scrna"]["cnv_loss_contigs"],
     script:

@@ -316,6 +316,20 @@ threshold = float(ref_cnv.mean() + n_sd * ref_cnv.std())
 adata.obs["is_malignant"] = (cnv_scores > threshold).astype(bool)
 n_malignant = int(adata.obs["is_malignant"].sum())
 
+# A second, deliberately more sensitive call. `is_malignant` is balanced: it is
+# what BUILDS the tumor compartment, so its false positives become tumor cells.
+# A compartment that must be *clean* — the nerve compartment — has the opposite
+# need, and should exclude anything merely suspected. Consumers pick the flag
+# that matches their error cost instead of sharing one threshold that can only
+# be right for one of them.
+excl_sd = float(snakemake.params.cnv_exclusion_sd)
+excl_threshold = float(ref_cnv.mean() + excl_sd * ref_cnv.std())
+adata.obs["is_malignant_suspected"] = (cnv_scores > excl_threshold).astype(bool)
+n_suspected = int(adata.obs["is_malignant_suspected"].sum())
+log_transformation(log, "scrna_malignancy",
+    f"Sensitive exclusion flag at {excl_sd} SD (threshold={excl_threshold:.4f}): "
+    f"{n_suspected}/{adata.n_obs} suspected ({100 * n_suspected / adata.n_obs:.1f}%)")
+
 log_transformation(log, "scrna_malignancy",
     f"CNV threshold={threshold:.4f} (reference mean {ref_cnv.mean():.4f} + "
     f"{n_sd} x SD {ref_cnv.std():.4f}); "
@@ -378,6 +392,9 @@ prov = stamp_artifact(
         "cnv_clip":              clip,
         "cnv_threshold":         float(threshold),
         "cnv_threshold_sd":      n_sd,
+        "cnv_exclusion_sd":      excl_sd,
+        "cnv_exclusion_threshold": excl_threshold,
+        "n_malignant_suspected": n_suspected,
         "gene_order":            "Ensembl chromosome + start coordinate (per-contig windows)",
         "n_genes_placed":        int(n_placed),
         "n_genes_in_cnv_axis":   int(n_genes_ord),
