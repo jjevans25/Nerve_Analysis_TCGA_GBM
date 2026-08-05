@@ -64,6 +64,45 @@ scrna:
   # 50000 x 24048 x 4B = 4.8 GB/block => ~9.6 GB working set, sized for the
   # phantom 128GB budget. 10000 => ~1.0 GB/block, ~2 GB working set.
   cnv_chunk_size: 10000
+  # --- CNV malignancy calling (rebuilt 2026-08-05; defect D4) ---------------
+  # Window is applied WITHIN a chromosome; it never straddles a contig boundary.
+  cnv_window: 100
+  # Clip centred expression before smoothing so a few extreme genes cannot be
+  # read as a copy-number event (standard infercnv practice).
+  cnv_clip: 3.0
+  # Malignant when the cell's genome-wide profile spread exceeds the reference
+  # mean by this many reference SDs. Reference cells are non-malignant by
+  # construction, so this controls the false-positive rate on known normals.
+  cnv_threshold_sd: 2.0
+  # Reference ("normal") population. Was cell_type_predicted in {t_cell,
+  # endothelial} — read from the same annotation this rule should be independent
+  # of, and in the capped arm `endothelial` was never assigned at all, silently
+  # degrading the reference to T cells only. Immune cells are the cleanest
+  # non-malignant population available (audited at 99.5% pure).
+  cnv_reference_labels: ["microglia", "macrophage", "t_cell", "nk_cell", "dc", "neutrophil"]
+  # Diagnostic aneuploidy contrast. A genome-wide "spread" score conflates copy
+  # number with cell-type identity — measured here, normal neural cells scored
+  # HIGHER than malignant ones (0.063 vs 0.057) because an oligodendrocyte
+  # differs from an immune reference across whole chromosomes for reasons that
+  # have nothing to do with dosage. Contrasting a gain against a loss cancels
+  # that baseline, since both are measured inside the same cell.
+  #
+  # +7/-10 is a WHO 2021 diagnostic criterion for IDH-wildtype glioblastoma, and
+  # it also emerges unprompted from this cohort as the single most-up and
+  # most-down contig in Census-malignant cells (chr7 +0.043, chr10 -0.038).
+  # Measured effect: AUC 0.859 -> 0.958; at cnv_threshold_sd 2.0 the caller goes
+  # from precision 0.62 / recall 0.40 to precision 0.93 / recall 0.90.
+  #
+  # Disease-specific by construction. A cohort with no canonical signature sets
+  # both lists to [] and falls back to the genome-wide spread.
+  cnv_gain_contigs: ["7"]
+  cnv_loss_contigs: ["10"]
+  # Keep only the most confidently-called reference cells (drop the bottom
+  # quantile of cell_type_confidence). 0 disables.
+  cnv_reference_confidence_quantile: 0.25
+  cnv_min_reference_cells: 500
+  # Refuse to run if fewer than this fraction of genes carry real coordinates.
+  cnv_min_genes_placed_fraction: 0.80
 
 # -------------------------------------------------------------
 # Proteomics defaults
@@ -348,6 +387,30 @@ immune_cells:
     # tables (the interaction groups immune cells by subtype, not by leiden id).
     # e.g. drop a subtype that is a doublet/artifact call. Default: keep all.
     exclude_subtypes: []
+
+# -------------------------------------------------------------
+# Ensembl gene coordinates for CNV inference
+#
+# CNV callers detect malignancy from runs of co-elevated/co-depressed expression
+# across neighbouring loci, so genes must be in genomic order. Nothing else in
+# this project carries coordinates: Census .var has feature_id / feature_name /
+# feature_length only, and dataset_gene_symbol_map.py writes the literal string
+# "unknown" into its `chromosome` column. scrna_malignancy previously ordered by
+# the numeric suffix of the Ensembl accession — a counter, not a coordinate.
+#
+# After the first successful run, copy the sha256 emitted in
+# gene_positions_manifest.json into `sha256:` below and commit, so later runs
+# verify against a fixed digest (same convention as msigdb:).
+# -------------------------------------------------------------
+gene_positions:
+  release: 113                      # must match databases.ensembl_release
+  download_dir: "data/external/ensembl"
+  gtf_filename: "Homo_sapiens.GRCh38.113.gtf.gz"
+  url: "https://ftp.ensembl.org/pub/release-113/gtf/homo_sapiens/Homo_sapiens.GRCh38.113.gtf.gz"
+  positions_filename: "ensembl113_gene_positions.tsv"
+  sha256: "62f1709b40e083ce9d4cdc64a86b5ffec2c5d5371434bb7095c74dc89079c466"
+  request_timeout: 300
+  max_retries: 5
 
 # -------------------------------------------------------------
 # Whole-cohort annotation marker panels (scrna_annotate ONLY)

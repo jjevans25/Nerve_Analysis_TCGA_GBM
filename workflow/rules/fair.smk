@@ -20,6 +20,38 @@ rule fair_validate_metadata:
         "../scripts/fair_validate_metadata.py"
 
 
+rule download_gene_positions:
+    """Fetch Ensembl gene coordinates so CNV inference can order genes along the genome.
+
+    Cohort-independent (coordinates are a property of the assembly, not the
+    samples), so both Census arms and the reference cohort share one copy —
+    same pattern as the MSigDB download.
+    """
+    output:
+        gtf       = os.path.join(config["gene_positions"]["download_dir"],
+                                 config["gene_positions"]["gtf_filename"]),
+        positions = os.path.join(config["gene_positions"]["download_dir"],
+                                 config["gene_positions"]["positions_filename"]),
+        manifest  = os.path.join(config["gene_positions"]["download_dir"],
+                                 "gene_positions_manifest.json"),
+        provenance = os.path.join(config["dirs"]["provenance"], "gene_positions_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "download_gene_positions.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = 4000,
+        threads = 1,
+    params:
+        release         = config["gene_positions"]["release"],
+        url             = config["gene_positions"]["url"],
+        sha256          = config["gene_positions"]["sha256"],
+        request_timeout = config["gene_positions"]["request_timeout"],
+        max_retries     = config["gene_positions"]["max_retries"],
+    script:
+        "../scripts/download_gene_positions.py"
+
+
 rule fair_snakemake_report:
     """Generate a full Snakemake provenance report for the current pipeline run."""
     output:

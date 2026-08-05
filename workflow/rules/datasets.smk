@@ -238,6 +238,8 @@ rule ds_scrna_malignancy:
     """CNV-based malignancy labeling (reuses scrna_malignancy.py)."""
     input:
         h5ad = _dp("annotated.h5ad"),
+        gene_positions = os.path.join(config["gene_positions"]["download_dir"],
+                                      config["gene_positions"]["positions_filename"]),
     output:
         h5ad       = _dp("malignancy_labeled.h5ad"),
         cnv_plot   = _fg("cnv_heatmap.png"),
@@ -253,6 +255,15 @@ rule ds_scrna_malignancy:
         random_seed    = config["scrna"]["random_seed"],
         census_version = config["databases"]["cellxgene_census_version"],
         cnv_chunk_size = config["scrna"]["cnv_chunk_size"],
+        cnv_window     = config["scrna"]["cnv_window"],
+        cnv_clip       = config["scrna"]["cnv_clip"],
+        cnv_threshold_sd = config["scrna"]["cnv_threshold_sd"],
+        reference_labels = config["scrna"]["cnv_reference_labels"],
+        reference_confidence_quantile = config["scrna"]["cnv_reference_confidence_quantile"],
+        min_reference_cells = config["scrna"]["cnv_min_reference_cells"],
+        min_genes_placed_fraction = config["scrna"]["cnv_min_genes_placed_fraction"],
+        cnv_gain_contigs = config["scrna"]["cnv_gain_contigs"],
+        cnv_loss_contigs = config["scrna"]["cnv_loss_contigs"],
     script:
         "../scripts/scrna_malignancy.py"
 
