@@ -641,6 +641,44 @@ rule ds_nerve_batch_qc_v2:
         "../scripts/nerve_batch_qc_v2.py"
 
 
+rule ds_compartment_audit:
+    """Test Oracle: cross-tab every compartment mask against the Census author
+    annotation and gate on the result.
+
+    CLAUDE.md requires comparing outputs against a known reference before a phase
+    is marked complete. Reads obs only from artifacts that already exist, so it
+    costs minutes and needs no re-run. With `compartment_audit.enforce: false` it
+    records a baseline; with true it hard-fails on any breached gate.
+    """
+    input:
+        malig  = _dp("malignancy_labeled.h5ad"),
+        nerve  = _dp("nerve_cells.h5ad"),
+        immune = _dp("immune_cells_labeled.h5ad"),
+    output:
+        audit         = _tb("compartment_audit.csv"),
+        cluster_audit = _tb("nerve_compartment_cluster_audit.csv"),
+        confusion     = _tb("malignancy_confusion.csv"),
+        gates         = _tb("compartment_audit_gates.csv"),
+        provenance    = _pv("compartment_audit_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "{dataset}_compartment_audit.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = 1,
+    params:
+        dataset          = lambda wc: wc.dataset,
+        random_seed      = config["scrna"]["random_seed"],
+        enforce          = config["compartment_audit"]["enforce"],
+        census_class_map = config["compartment_audit"]["census_class_map"],
+        immune_classes   = config["compartment_audit"]["immune_classes"],
+        gates            = config["compartment_audit"]["gates"],
+        per_arm          = lambda wc: config["compartment_audit"].get("per_arm", {}).get(wc.dataset, {}),
+    script:
+        "../scripts/compartment_audit.py"
+
+
 # =============================================================================
 # Stage D — Cross-cohort concordance (the replication deliverable)
 # =============================================================================

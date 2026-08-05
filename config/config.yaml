@@ -335,6 +335,87 @@ immune_cells:
     exclude_subtypes: []
 
 # -------------------------------------------------------------
+# Compartment integrity audit (the Test Oracle)
+#
+# Cross-tabulates every compartment mask (nerve / tumor / immune) against the
+# CELLxGENE Census author annotation `obs['cell_type']` — harmonized to the CL
+# ontology, and the only external ground truth these cohorts carry. Runs on
+# existing artifacts; no re-run needed.
+#
+# `enforce: false` records the failing pre-fix baseline without breaking the
+# pipeline. Flipped to true in Phase 4 of
+# markdowns/plan_compartment_integrity_fix.md, after which any breached gate
+# hard-fails the rule and blocks every downstream interaction result.
+#
+# Oracle caveat: Census cell_type is an external author annotation, not a
+# re-derivation from these counts. It under-calls normal astrocytes (347 in a
+# 1M-cell cohort) because most GBM study authors label AC-like cells "malignant
+# cell". A corrected pipeline legitimately finding more astrocytes is not a
+# failure — see the "Known limits" section of the plan.
+# -------------------------------------------------------------
+compartment_audit:
+  enforce: false
+  # Census CL labels → coarse class. Any observed cell_type missing from this
+  # map is counted as 'unmapped' and raises a [FAIR-ALERT] in the log rather
+  # than being silently folded into a class.
+  census_class_map:
+    neural:
+      - "neuron"
+      - "oligodendrocyte"
+      - "oligodendrocyte precursor cell"
+      - "astrocyte"
+      - "radial glial cell"
+      - "ependymal cell"
+    malignant:
+      - "malignant cell"
+    myeloid:
+      - "macrophage"
+      - "microglial cell"
+      - "monocyte"
+      - "dendritic cell"
+      - "neutrophil"
+      - "mast cell"
+    lymphoid:
+      - "mature T cell"
+      - "natural killer cell"
+      - "B cell"
+      - "plasma cell"
+    vascular:
+      - "endothelial cell"
+      - "mural cell"
+  # Classes that legitimately belong in the immune compartment.
+  immune_classes: ["myeloid", "lymphoid"]
+  gates:
+    nerve_neural_fraction_min:               0.85
+    tumor_malignant_fraction_min:            0.85
+    malignancy_recall_min:                   0.80
+    malignancy_precision_min:                0.85
+    immune_purity_min:                       0.95   # regression guard (pre-fix: 0.995)
+    max_nerve_cluster_endothelial_fraction:  0.20   # pre-fix nerve_c24 = 0.929
+    # Guards the C3 failure mode: splitting the myeloid blob into per-lineage
+    # labels can drop most of the immune compartment while purity still passes,
+    # because purity is not a size check.
+    immune_size_fraction_of_baseline_min:    0.85
+  # Per-arm expected sizes, measured in Phase 1 (2026-08-05). The capped arm has
+  # no opc/ependymal labels today, so it needs its own range rather than the full
+  # arm's. NOT_SET gates are reported, never silently passed.
+  #
+  # nerve_n bands are derived from each arm's own Census neuroglial census
+  # (oligodendrocyte + OPC + neuron + radial glial + astrocyte), then widened to
+  # allow for the malignancy exclusion at one end and the known astrocyte
+  # under-call at the other. They are sanity bands — "did the compartment
+  # collapse, or is it still full of tumor" — not tight predictions.
+  per_arm:
+    gbm_cellxgene_56c4912d_full:
+      immune_baseline_n: 329608     # measured pre-fix; guards the C3 failure mode
+      nerve_n_min:       45000      # Census neuroglial total = 62,632
+      nerve_n_max:       75000      # pre-fix compartment was 377,343
+    gbm_cellxgene_56c4912d:
+      immune_baseline_n: 169617
+      nerve_n_min:       30000      # Census neuroglial total = 43,857
+      nerve_n_max:       52000      # pre-fix compartment was 270,520
+
+# -------------------------------------------------------------
 # scANVI re-train on the nerve subset (v2 model)
 # Anchors latent space on marker-derived cell-type labels to
 # disentangle patient identity from cell-type biology.

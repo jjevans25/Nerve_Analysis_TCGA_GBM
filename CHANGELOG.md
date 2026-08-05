@@ -1732,3 +1732,91 @@ Note on `--cores all` (14): `resources: mem_mb` is ignored by the scheduler unle
 per-donor backed read) and cost far more wall-clock than it protects. The heavy rules
 (`ds_scrna_integration`, `ds_scrna_malignancy`, `ds_nerve_scanvi_retrain`) are singletons and run
 alone regardless.
+
+---
+
+## [2026-08-05] Phase 0-1 — Compartment integrity fix: plan review + baseline audit (Test Oracle)
+
+**Phase:** Compartment integrity fix (`markdowns/plan_compartment_integrity_fix.md`), Phases 0-1 of 6.
+
+### Action — Phase 0: plan reviewed against the code
+
+Verified every structural claim in the plan against `workflow/rules/datasets.smk`, the scripts, and
+the on-disk artifacts. **All seven defects (D1-D7) are real and correctly located.** Four
+corrections (C1-C4) were written into the plan; they change *how* the fix is built, not *what* it
+fixes:
+
+- **C1** — `dataset_gene_symbol_map.py:35` writes `chromosome = "unknown"` for all 61,497 genes, so
+  D4's "the symbol map already carries a chromosome column" is not executable. Added a new
+  `ds_gene_positions` rule (Ensembl 113 GTF, SHA-pinned like `download_msigdb_gmt`) feeding
+  `infercnvpy`. **This is new work Phase 3 did not previously account for.**
+- **C2** — `nerve_cells.markers` is passed to `ds_scrna_qc` (`datasets.smk:165`) across 170 donors x
+  2 arms. Putting the new TME panels there would invalidate every QC artifact and therefore
+  `ds_scrna_integration` — the 11h13m scVI train the plan exists to preserve. New panels go in a
+  separate `annotation_markers:` block.
+- **C3** — `immune_cell_subset.py:55` matches a single `source_label` string exactly. Adding a
+  macrophage panel drops those cells out of the immune compartment entirely, and the "purity >=95%"
+  gate would still pass because purity is not a size check. `source_label` -> `source_labels` list,
+  plus a size gate.
+- **C4** — `nerve_scanvi.labels_key` and `nerve_cells.leiden_resolution` are global keys the
+  reference cohort also reads; both need per-arm scoping.
+
+### Action — Phase 1: `ds_compartment_audit` built and run on existing artifacts
+
+New `workflow/scripts/compartment_audit.py` + `ds_compartment_audit` rule + `compartment_audit:`
+config block. Reads **obs only** (never `.X`) from artifacts that already exist; both arms complete
+in ~13 s. Registered as a terminal target in `rule all`.
+
+Useful discovery: **`cell_type` survives in `nerve_cells.h5ad` and `immune_cells_labeled.h5ad`.**
+D6's overwrite only hits `nerve_cells_v2.h5ad` (the scANVI side-branch), so the audit needs no
+join back to the 1M-cell parent object.
+
+### Outcome — baseline reproduces the S1PR1 report exactly
+
+| metric | full arm | capped arm | gate |
+|---|---|---|---|
+| nerve neural fraction | **0.1108** | 0.1155 | >=0.85 FAIL |
+| nerve malignant / myeloid / vascular | 0.5888 / 0.2754 / 0.0187 | 0.6155 / 0.2469 / 0.0149 | — |
+| tumor compartment malignant fraction | **0.4790** | 0.4559 | >=0.85 FAIL |
+| malignancy recall | **0.1799** | 0.2482 | >=0.80 FAIL |
+| max nerve-cluster endothelial fraction | **0.9289** (c24) | 0.4526 (c16) | <=0.20 FAIL |
+| immune purity | 0.9946 | 0.9978 | >=0.95 PASS |
+
+Every figure in `markdowns/plan_compartment_integrity_fix.md` and
+`markdowns/s1pr1_localization_report.md` is reproduced to the stated precision (11.1% / 58.9% /
+27.5% / 47.9% / 18.0% / 99.5% / 92.9%). The tumor-compartment contamination breakdown also matches:
+25.5% macrophage, 10.6% microglia, 5.4% oligodendrocyte, 4.3% monocyte. 5 of 40 nerve clusters are
+neural-dominant; 23 are malignant-dominant and 9 myeloid-dominant.
+
+The finding is now **reproducible on disk** rather than existing only as prose — three CSVs plus a
+machine-readable gate table per arm, with provenance.
+
+Per-arm size gates measured and written into config (C4): immune baseline n = 329,608 / 169,617;
+nerve bands 45-75k (full, Census neuroglial total 62,632) and 30-52k (capped, total 43,857).
+
+### Tool failure worth recording
+
+Running the new rule **without `--use-conda`** fails with
+`/bin/bash: /Users/jarrettevans/Documents/Biomedical: No such file or directory`. Snakemake invokes
+`sys.executable` by absolute path and does not quote it, so the space in "Biomedical Data Science"
+splits the command. The pipeline works only because it is always run with `--use-conda` (which
+activates an env and calls `python` from PATH). **`--use-conda` is not optional on this machine.**
+
+Also re-confirmed the plan's warning empirically: a dry-run without `--rerun-triggers=mtime`
+schedules **698 jobs** (340 ingest + 340 QC + both scVI trains), triggered by pre-existing code and
+software-environment drift on `ds_ingest_dataset` / `ds_scrna_qc` / `ds_gene_symbol_map`. With
+`--rerun-triggers=mtime --allowed-rules ds_compartment_audit` it is exactly 2 jobs. Note `--quiet`
+has the same `nargs='+'` target-swallowing behaviour as `--allowed-rules` — pass targets first.
+
+### Verification
+
+- `flake8 workflow/scripts/compartment_audit.py` exit 0.
+- Provenance JSON written per arm; artifacts non-empty.
+- `results/pinned_reference_verification.json` still reads `pass: true, 37/37` — v1.3.0 untouched.
+
+### Open / next
+
+`compartment_audit.enforce` is **false** (baseline mode); flips to true in Phase 4. Phases 2-4
+(annotate fixes, CNV rebuild on infercnvpy, D5/D6/D7 + conda-env enforcement + numba pin) are
+approved to run through. **Phase 5 — the 6-10h full-arm and 4-7h capped-arm re-run — requires
+researcher approval before it starts.**
