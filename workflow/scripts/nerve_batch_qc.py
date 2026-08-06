@@ -70,30 +70,57 @@ log_transformation(
 # Per-cluster purity table (shared helper — identical logic also used by the
 # nerve_leiden_resolution_sweep rule to keep the comparison apples-to-apples)
 # ---------------------------------------------------------------------------
-# Purity is computed over the SAME groups the interaction rules mint, otherwise
-# annotate_cluster_qc has no row to join a group onto and hard-fails. Glial cells
-# keep their Leiden cluster; neurons are pooled into one "neuron" group, matching
-# the `nerve_neuron` LIANA label. Grouping them this way is also the honest
-# comparison: a glial cluster's interaction row represents only its glial cells,
-# so its purity should too.
-if "nerve_subcompartment" in adata.obs.columns:
-    adata.obs["_qc_group"] = np.where(
-        adata.obs["nerve_subcompartment"].astype(str) == "neuron",
-        "neuron",
-        adata.obs["nerve_leiden"].astype(str),
-    )
-else:
-    adata.obs["_qc_group"] = adata.obs["nerve_leiden"].astype(str)
-
+# This table is joined onto downstream tables keyed TWO different ways, so it has
+# to cover both or annotate_cluster_qc hard-fails on an unmatched id:
+#
+#   nerve_cluster_markers / nerve_enrichment  -> raw nerve_leiden (every cluster)
+#   nerve_tumor*_interactions                 -> nerve_c{N} for glia, plus the
+#                                                pooled `nerve_neuron` group
+#
+# An earlier attempt emitted ONLY the interaction keying (glial clusters + a
+# pooled neuron row). That silently dropped the entirely-neuronal clusters
+# (11, 14, 19 on the full arm), and the enrichment join then failed on 60 rows.
+#
+# So: one row per Leiden cluster, PLUS one pooled "neuron" row. The neuron cells
+# are deliberately counted in both — the two rows answer different questions
+# (how donor-mixed is this cluster? how donor-mixed is the neuron group LIANA
+# actually scores?) and are consumed by different tables.
 purity = compute_cluster_purity(
     adata,
-    cluster_col="_qc_group",
+    cluster_col="nerve_leiden",
     batch_col="sample_id",
     dominant_max=DOMINANT_FRACTION_MAX,
     min_contributing_fraction=MIN_CONTRIBUTING_FRACTION,
     min_contributing_samples=MIN_CONTRIBUTING_SAMPLES,
 )
 purity_df = purity.df
+
+if "nerve_subcompartment" in adata.obs.columns:
+    _neuron_mask = adata.obs["nerve_subcompartment"].astype(str).to_numpy() == "neuron"
+    if _neuron_mask.any():
+        # An obs-only AnnData, not a subset of `adata`: this file is opened
+        # backed, and assigning to a backed view's .obs forces the view to
+        # materialise (pulling .X off disk). compute_cluster_purity reads only
+        # obs[cluster_col] and obs[batch_col], so this is all it needs.
+        _neurons = ad.AnnData(
+            obs=adata.obs.loc[_neuron_mask, ["sample_id"]].assign(_neuron_group="neuron")
+        )
+        _neuron_purity = compute_cluster_purity(
+            _neurons,
+            cluster_col="_neuron_group",
+            batch_col="sample_id",
+            dominant_max=DOMINANT_FRACTION_MAX,
+            min_contributing_fraction=MIN_CONTRIBUTING_FRACTION,
+            min_contributing_samples=MIN_CONTRIBUTING_SAMPLES,
+        )
+        purity_df = pd.concat([purity_df, _neuron_purity.df], ignore_index=True)
+        log_transformation(
+            log,
+            "nerve_batch_qc",
+            f"Added a pooled 'neuron' purity row ({int(_neuron_mask.sum()):,} cells) so the "
+            "`nerve_neuron` interaction group has a row to join onto; per-cluster rows are "
+            "retained for the marker/enrichment tables, which key on raw nerve_leiden.",
+        )
 expected_uniform = purity.expected_uniform_entropy
 purity_df.to_csv(snakemake.output.purity, index=False)
 verify_artifact(snakemake.output.purity, min_size_bytes=64)
