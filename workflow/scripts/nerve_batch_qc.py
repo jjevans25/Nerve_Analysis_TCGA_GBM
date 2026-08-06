@@ -13,7 +13,6 @@ config.yaml under `nerve_cells.batch_qc`.
 
 import os
 import sys
-from pathlib import Path
 
 import anndata as ad
 import matplotlib
@@ -58,7 +57,7 @@ samples = sorted(adata.obs["sample_id"].astype(str).unique().tolist())
 n_samples = len(samples)
 clusters = sorted(
     adata.obs["nerve_leiden"].astype(str).unique().tolist(),
-    key=lambda c: int(c),
+    key=lambda c: (0, int(c), "") if c.isdigit() else (1, 0, c),
 )
 n_clusters = len(clusters)
 log_transformation(
@@ -71,9 +70,24 @@ log_transformation(
 # Per-cluster purity table (shared helper — identical logic also used by the
 # nerve_leiden_resolution_sweep rule to keep the comparison apples-to-apples)
 # ---------------------------------------------------------------------------
+# Purity is computed over the SAME groups the interaction rules mint, otherwise
+# annotate_cluster_qc has no row to join a group onto and hard-fails. Glial cells
+# keep their Leiden cluster; neurons are pooled into one "neuron" group, matching
+# the `nerve_neuron` LIANA label. Grouping them this way is also the honest
+# comparison: a glial cluster's interaction row represents only its glial cells,
+# so its purity should too.
+if "nerve_subcompartment" in adata.obs.columns:
+    adata.obs["_qc_group"] = np.where(
+        adata.obs["nerve_subcompartment"].astype(str) == "neuron",
+        "neuron",
+        adata.obs["nerve_leiden"].astype(str),
+    )
+else:
+    adata.obs["_qc_group"] = adata.obs["nerve_leiden"].astype(str)
+
 purity = compute_cluster_purity(
     adata,
-    cluster_col="nerve_leiden",
+    cluster_col="_qc_group",
     batch_col="sample_id",
     dominant_max=DOMINANT_FRACTION_MAX,
     min_contributing_fraction=MIN_CONTRIBUTING_FRACTION,
@@ -84,6 +98,7 @@ expected_uniform = purity.expected_uniform_entropy
 purity_df.to_csv(snakemake.output.purity, index=False)
 verify_artifact(snakemake.output.purity, min_size_bytes=64)
 
+n_groups = len(purity_df)   # Leiden clusters + the pooled neuron group
 pass_overall = purity_df["pass_overall"].to_numpy()
 pass_dominant = purity_df["pass_dominant"].to_numpy()
 pass_diversity = purity_df["pass_diversity"].to_numpy()
@@ -96,14 +111,17 @@ median_norm_entropy = float(np.median(purity_df["normalised_entropy"].to_numpy()
 log_transformation(
     log,
     "nerve_batch_qc",
-    f"Purity verdict: {n_pass}/{n_clusters} clusters PASS "
+    f"Purity verdict: {n_pass}/{n_groups} groups PASS "
     f"(dominant<{DOMINANT_FRACTION_MAX:g}, ≥{MIN_CONTRIBUTING_SAMPLES} samples contributing). "
     f"Median dominant fraction = {median_dom:.3f}; "
     f"median normalised entropy = {median_norm_entropy:.3f} of {expected_uniform:.3f} bits.",
-    status="SUCCESS" if n_pass == n_clusters else "WARNING",
+    status="SUCCESS" if n_pass == n_groups else "WARNING",
 )
 if n_fail_dominant or n_fail_diversity:
-    failed_clusters = purity_df.loc[~pass_overall, ["cluster", "dominant_sample", "dominant_sample_fraction", "n_contributing_samples"]]
+    failed_clusters = purity_df.loc[
+        ~pass_overall,
+        ["cluster", "dominant_sample", "dominant_sample_fraction", "n_contributing_samples"],
+    ]
     log_transformation(
         log,
         "nerve_batch_qc",

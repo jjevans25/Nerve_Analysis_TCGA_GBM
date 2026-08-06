@@ -21,7 +21,9 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, "workflow/scripts")
-from fair_utils import (
+from fair_utils import (  # noqa: E402
+    NERVE_GROUP_PREFIX,
+    nerve_group_key,
     artifact_id,
     file_sha256,
     log_transformation,
@@ -40,6 +42,7 @@ PURITY_COLUMNS = [
     "n_contributing_samples",
     "normalised_entropy",
 ]
+# Kept for reference; parsing now goes through fair_utils.nerve_group_key.
 NERVE_CLUSTER_PREFIX = "nerve_c"
 
 
@@ -72,11 +75,14 @@ def _annotate(
         )
     raw_key = src[join_column].astype(str)
     if strip_prefix:
-        key = raw_key.str.removeprefix(NERVE_CLUSTER_PREFIX)
+        # Via the shared helper, not a bare removeprefix: nerve groups are
+        # `nerve_c{N}` for glial clusters AND `nerve_neuron` for the pooled
+        # neuron group, which has a purity row of its own keyed "neuron".
+        key = raw_key.map(nerve_group_key)
         if key.equals(raw_key):
             raise RuntimeError(
                 f"[FAIR-ALERT] None of the values in '{join_column}' carry "
-                f"the expected '{NERVE_CLUSTER_PREFIX}' prefix in {source_path}"
+                f"the expected '{NERVE_GROUP_PREFIX}' prefix in {source_path}"
             )
     else:
         key = raw_key

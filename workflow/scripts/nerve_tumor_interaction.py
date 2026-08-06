@@ -42,6 +42,7 @@ import liana as li  # noqa: E402
 sys.path.insert(0, "workflow/scripts")
 from counts_utils import LOG1P_MAX_PLAUSIBLE, is_log1p_scale  # noqa: E402
 from fair_utils import (  # noqa: E402
+    nerve_group_sort_key,  # noqa: E402
     log_transformation,
     stamp_artifact,
     verify_artifact,
@@ -191,7 +192,7 @@ if not is_log1p_scale(combined.X):
 # --- Restrict groupby pairs to malignant↔nerve only --------------------------
 nerve_groups = sorted(
     combined.obs.loc[combined.obs["cell_label"] != "malignant", "cell_label"].unique(),
-    key=lambda s: int(s.replace("nerve_c", "")),
+    key=nerve_group_sort_key,
 )
 pairs_records = []
 for g in nerve_groups:

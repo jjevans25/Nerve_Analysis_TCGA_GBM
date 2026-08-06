@@ -117,6 +117,34 @@ class PurityResult:
     expected_uniform_entropy: float
 
 
+NERVE_GROUP_PREFIX = "nerve_"
+
+
+def nerve_group_key(label: str) -> str:
+    """Cluster key behind a nerve LIANA group label: 'nerve_c24' -> '24', 'nerve_neuron' -> 'neuron'.
+
+    The nerve compartment is no longer only per-Leiden-cluster groups. Neurons are
+    carried as one pooled group (`nerve_neuron`) because ~4.3k of them across 170
+    donors is a group, not a cluster set. Every consumer that used to assume the
+    `nerve_c{N}` shape must go through this instead of slicing the prefix off by
+    hand — that assumption crashed the three-way interaction rule on 2026-08-06.
+    """
+    s = str(label)
+    if not s.startswith(NERVE_GROUP_PREFIX):
+        return s
+    rest = s[len(NERVE_GROUP_PREFIX):]
+    # 'c24' -> '24', but leave a named group like 'neuron' alone.
+    if rest.startswith("c") and rest[1:].isdigit():
+        return rest[1:]
+    return rest
+
+
+def nerve_group_sort_key(label: str) -> tuple[int, int, str]:
+    """Order nerve groups: numbered clusters ascending, then named groups alphabetically."""
+    key = nerve_group_key(label)
+    return (0, int(key), "") if key.isdigit() else (1, 0, key)
+
+
 def compute_cluster_purity(
     adata,
     cluster_col: str,

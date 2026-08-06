@@ -44,6 +44,7 @@ import liana as li  # noqa: E402
 sys.path.insert(0, "workflow/scripts")
 from counts_utils import LOG1P_MAX_PLAUSIBLE, is_log1p_scale  # noqa: E402
 from fair_utils import (  # noqa: E402
+    nerve_group_sort_key,  # noqa: E402
     log_transformation,
     stamp_artifact,
     verify_artifact,
@@ -206,7 +207,7 @@ label_to_compartment = (
 tumor_groups = sorted(g for g, c in label_to_compartment.items() if c == "tumor")
 nerve_groups = sorted(
     (g for g, c in label_to_compartment.items() if c == "nerve"),
-    key=lambda s: int(s.replace("nerve_c", "")),
+    key=nerve_group_sort_key,
 )
 immune_groups = sorted(g for g, c in label_to_compartment.items() if c == "immune")
 
@@ -276,8 +277,10 @@ lr_full["direction"] = (
 
 
 def _nerve_cluster(row: pd.Series) -> str:
+    # "nerve_" not "nerve_c": the pooled neuron group is `nerve_neuron`, and
+    # matching on the old prefix silently blanked its nerve_cluster column.
     for side in (row["source"], row["target"]):
-        if str(side).startswith("nerve_c"):
+        if str(side).startswith("nerve_"):
             return str(side)
     return ""
 
