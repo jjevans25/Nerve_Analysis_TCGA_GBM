@@ -63,92 +63,128 @@ log = snakemake.log[0]  # type: ignore[name-defined]
 os.environ["PYTHONHASHSEED"] = str(snakemake.params.random_seed)  # type: ignore[name-defined]
 
 
-def _to_symbol_index(a: ad.AnnData) -> ad.AnnData:
-    """Reindex var by HGNC gene_symbol, dropping unmapped/duplicate symbols."""
-    if "gene_symbol" not in a.var.columns:
-        raise KeyError("gene_symbol missing from var — cannot run LIANA on Ensembl IDs")
-    a = a[:, a.var["gene_symbol"].notna()].copy()
-    a.var = a.var.copy()
-    a.var["_symbol"] = a.var["gene_symbol"].astype(str)
-    a = a[:, ~a.var["_symbol"].duplicated(keep="first")].copy()
-    a.var.index = a.var["_symbol"].values
-    a.var.index.name = "gene_symbol"
-    return a
-
-
 # --- Load and label the three compartments -----------------------------------
 log_transformation(
     log,
     "nerve_tumor_immune_interaction",
     f"Loading {snakemake.input.malig}, {snakemake.input.nerve}, {snakemake.input.immune}",  # type: ignore[name-defined]
 )
-malig_full = ad.read_h5ad(snakemake.input.malig)  # type: ignore[name-defined]
-nerve = ad.read_h5ad(snakemake.input.nerve)  # type: ignore[name-defined]
-immune = ad.read_h5ad(snakemake.input.immune)  # type: ignore[name-defined]
+# EXPRESSION comes from the shared parent; the compartment files supply only
+# LABELS. Two reasons, both load-bearing:
+#
+# 1. CORRECTNESS. The three files are on DIFFERENT SCALES.
+#    malignancy_labeled.h5ad carries raw counts, while nerve_cell_subset and
+#    immune_cell_subset each ran normalize_total + log1p before writing. The old
+#    code concatenated them and then normalized the WHOLE object, so tumor cells
+#    were transformed once and nerve/immune cells twice. Every cross-compartment
+#    ligand-receptor comparison was therefore between differently-transformed
+#    data — silently, since the combined X.max() is dominated by the raw tumor
+#    cells and so looks like counts to any scale check.
+#
+# 2. MEMORY. All three compartments are subsets of the same parent, so
+#    concatenating them duplicated the payload: parent + three subsets + the
+#    concat output. Once the immune compartment grew to 593k cells (T/NK/B cells
+#    joined it), the combined object reached 952k of the cohort's 1,006,344
+#    cells and the rule was SIGKILLed at 30+ GB. Reading the parent backed and
+#    materialising the labelled subset once costs ~16 GB instead.
+parent = ad.read_h5ad(snakemake.input.malig, backed="r")  # type: ignore[name-defined]
+nerve_obs = ad.read_h5ad(snakemake.input.nerve, backed="r").obs  # type: ignore[name-defined]
+immune_obs = ad.read_h5ad(snakemake.input.immune, backed="r").obs  # type: ignore[name-defined]
 
-malig = malig_full[malig_full.obs["is_malignant"].astype(bool)].copy()
-# Release the whole-cohort object as soon as the malignant subset is materialized.
-# malig_full is the largest input here (10.2 GB for the Census cohort) and only
-# ~20% of its cells survive the filter; holding it through concat + LIANA is what
-# drove this rule's (unsatisfiable) 64 GB request.
-del malig_full
-malig.obs["cell_label"] = "malignant"
-# Neurons are carried as ONE group, glia per cluster. Splitting ~3.4k neurons
+# --- mint the group label for each compartment ------------------------------
+# Neurons are carried as ONE group, glia per cluster. Splitting ~4.3k neurons
 # spread across 170 donors into per-cluster groups would give LIANA a handful of
 # cells per group and turn sampling noise into "interactions"; pooling glia
 # would throw away real cluster structure. The `nerve_` prefix is kept on both
 # so the compartment key stays comparable with the pinned v1.3.0 reference —
 # renaming it would break every concordance pair.
-if "nerve_subcompartment" in nerve.obs.columns:
-    _is_neuron = nerve.obs["nerve_subcompartment"].astype(str).eq("neuron").to_numpy()
-    nerve.obs["cell_label"] = np.where(
-        _is_neuron,
-        "nerve_neuron",
-        "nerve_c" + nerve.obs["nerve_leiden"].astype(str),
+if "nerve_subcompartment" in nerve_obs.columns:
+    nerve_labels = pd.Series(
+        np.where(
+            nerve_obs["nerve_subcompartment"].astype(str).eq("neuron").to_numpy(),
+            "nerve_neuron",
+            "nerve_c" + nerve_obs["nerve_leiden"].astype(str),
+        ),
+        index=nerve_obs.index,
     )
 else:
-    nerve.obs["cell_label"] = "nerve_c" + nerve.obs["nerve_leiden"].astype(str)
-immune.obs["cell_label"] = "immune_" + immune.obs["immune_subtype"].astype(str)
+    nerve_labels = "nerve_c" + nerve_obs["nerve_leiden"].astype(str)
+immune_labels = "immune_" + immune_obs["immune_subtype"].astype(str)
+
+tumor_idx = parent.obs_names[parent.obs["is_malignant"].astype(bool).to_numpy()]
+nerve_idx = nerve_labels.index
+immune_idx = immune_labels.index
+
+# The three masks must partition their cells: nerve and immune both exclude
+# is_malignant upstream, so any overlap means a mask changed meaning.
+for a_name, a_idx, b_name, b_idx in (
+    ("tumor", tumor_idx, "nerve", nerve_idx),
+    ("tumor", tumor_idx, "immune", immune_idx),
+    ("nerve", nerve_idx, "immune", immune_idx),
+):
+    overlap = a_idx.intersection(b_idx)
+    if len(overlap):
+        raise RuntimeError(
+            f"[FAIR-ALERT] {a_name} and {b_name} compartments share {len(overlap)} "
+            f"cells (e.g. {list(overlap[:5])}). Compartments must be disjoint or a "
+            "cell would appear on both sides of its own interaction."
+        )
+
+cell_label = pd.Series(pd.NA, index=parent.obs_names, dtype=object)
+compartment = pd.Series(pd.NA, index=parent.obs_names, dtype=object)
+cell_label.loc[tumor_idx] = "malignant"
+compartment.loc[tumor_idx] = "tumor"
+cell_label.loc[nerve_idx] = nerve_labels.reindex(nerve_idx).to_numpy()
+compartment.loc[nerve_idx] = "nerve"
+cell_label.loc[immune_idx] = immune_labels.reindex(immune_idx).to_numpy()
+compartment.loc[immune_idx] = "immune"
+
+keep_cells = cell_label.notna().to_numpy()
+
+# Gene selection is done on the backed view too, so the payload is materialised
+# exactly once. Reindex var by HGNC symbol (LIANA's consensus resource is
+# HGNC-keyed), dropping unmapped and duplicate symbols.
+if "gene_symbol" not in parent.var.columns:
+    raise KeyError("gene_symbol missing from var — cannot run LIANA on Ensembl IDs")
+_sym = parent.var["gene_symbol"]
+keep_genes = (_sym.notna() & ~_sym.astype(str).duplicated(keep="first")).to_numpy()
+
+n_tumor_cells = int(len(tumor_idx))
+n_nerve_cells = int(len(nerve_idx))
+n_immune_cells = int(len(immune_idx))
 
 log_transformation(
     log,
     "nerve_tumor_immune_interaction",
-    f"Compartment sizes — tumor: {malig.n_obs}, nerve: {nerve.n_obs} "
-    f"({nerve.obs['cell_label'].nunique()} clusters), immune: {immune.n_obs} "
-    f"({immune.obs['cell_label'].nunique()} subtypes)",
+    f"Sourcing expression from the parent ({parent.n_obs:,} cells): keeping "
+    f"{int(keep_cells.sum()):,} labelled cells x {int(keep_genes.sum()):,} "
+    f"symbol-mapped genes",
 )
 
-malig = _to_symbol_index(malig)
-nerve = _to_symbol_index(nerve)
-immune = _to_symbol_index(immune)
-
-# Concatenate on shared genes (inner join across all three).
-shared_genes = malig.var_names.intersection(nerve.var_names).intersection(
-    immune.var_names
-)
-log_transformation(
-    log,
-    "nerve_tumor_immune_interaction",
-    f"Shared HGNC-symbol gene set across all three compartments: {len(shared_genes)} genes",
-)
-combined = ad.concat(
-    [malig[:, shared_genes], nerve[:, shared_genes], immune[:, shared_genes]],
-    axis=0,
-    join="inner",
-    label="compartment",
-    keys=["tumor", "nerve", "immune"],
-    index_unique=None,
-)
-# The three compartments are fully represented in `combined` from here on; LIANA
-# never reads them again. Releasing them halves peak RSS across the permutation
-# run. Cell counts are captured first — the provenance block below reports them.
-n_tumor_cells, n_nerve_cells, n_immune_cells = malig.n_obs, nerve.n_obs, immune.n_obs
-del malig, nerve, immune
+combined = parent[keep_cells, keep_genes].to_memory()
+del parent
+combined.var = combined.var.copy()
+combined.var.index = combined.var["gene_symbol"].astype(str).values
+combined.var.index.name = "gene_symbol"
+combined.obs["cell_label"] = cell_label[keep_cells].to_numpy()
+combined.obs["compartment"] = compartment[keep_cells].to_numpy()
 combined.obs_names_make_unique()
+
+nerve_group_count = int(pd.Series(nerve_labels).nunique())
+
 log_transformation(
     log,
     "nerve_tumor_immune_interaction",
-    f"Combined AnnData: {combined.n_obs} cells × {combined.n_vars} genes",
+    f"Compartment sizes — tumor: {n_tumor_cells:,}, nerve: {n_nerve_cells:,} "
+    f"({nerve_group_count} groups), immune: {n_immune_cells:,} "
+    f"({int(immune_labels.nunique())} subtypes)",
+)
+log_transformation(
+    log,
+    "nerve_tumor_immune_interaction",
+    f"Combined AnnData: {combined.n_obs:,} cells x {combined.n_vars:,} genes "
+    "(materialised once from the parent, so all three compartments sit on one "
+    "consistent raw-count scale)",
 )
 
 # --- Normalization: LIANA requires log1p input -------------------------------
