@@ -418,6 +418,7 @@ rule ds_nerve_tumor_interaction:
         # which wants counts), but LIANA assumes log1p. Default True; a cohort
         # whose .X is already log1p sets `normalize_counts: false` in its entry.
         normalize_counts = lambda wc: _entry(wc.dataset).get("normalize_counts", True),
+        max_cells_per_group = config["liana"]["max_cells_per_group"],
     script:
         "../scripts/nerve_tumor_interaction.py"
 
@@ -503,6 +504,7 @@ rule ds_nerve_tumor_immune_interaction:
         random_seed = config["scrna"]["random_seed"],
         # See ds_nerve_tumor_interaction — same raw-UMI vs log1p asymmetry.
         normalize_counts = lambda wc: _entry(wc.dataset).get("normalize_counts", True),
+        max_cells_per_group = config["liana"]["max_cells_per_group"],
     script:
         "../scripts/nerve_tumor_immune_interaction.py"
 

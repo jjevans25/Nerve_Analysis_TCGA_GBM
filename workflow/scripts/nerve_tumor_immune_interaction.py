@@ -44,6 +44,7 @@ import liana as li  # noqa: E402
 sys.path.insert(0, "workflow/scripts")
 from counts_utils import LOG1P_MAX_PLAUSIBLE, is_log1p_scale  # noqa: E402
 from fair_utils import (  # noqa: E402
+    cap_cells_per_group,
     nerve_group_sort_key,  # noqa: E402
     log_transformation,
     stamp_artifact,
@@ -140,6 +141,29 @@ cell_label.loc[immune_idx] = immune_labels.reindex(immune_idx).to_numpy()
 compartment.loc[immune_idx] = "immune"
 
 keep_cells = cell_label.notna().to_numpy()
+
+# Cap each group before materialisation, so the dense `scaled` layer LIANA builds
+# stays bounded. See fair_utils.cap_cells_per_group for why this is both
+# necessary (the uncapped layer is ~92 GB and thrashes swap) and statistically
+# sound (group means over 15k cells are precise, and capping balances a very
+# unbalanced design).
+max_per_group = int(snakemake.params.max_cells_per_group)  # type: ignore[name-defined]
+if max_per_group > 0:
+    _labels_kept = cell_label[keep_cells]
+    _before = _labels_kept.astype(str).value_counts()
+    _cap_mask = cap_cells_per_group(
+        _labels_kept, max_per_group, int(snakemake.params.random_seed)  # type: ignore[name-defined]
+    )
+    _capped = _before[_before > max_per_group]
+    keep_cells[np.flatnonzero(keep_cells)[~_cap_mask]] = False
+    log_transformation(
+        log,
+        "nerve_tumor_immune_interaction",
+        f"Capped groups at {max_per_group:,} cells: {len(_capped)} of "
+        f"{len(_before)} groups were larger and were subsampled "
+        f"({_capped.to_dict() if len(_capped) else 'none'}); "
+        f"{int(keep_cells.sum()):,} cells retained of {int(_before.sum()):,}",
+    )
 
 # Gene selection is done on the backed view too, so the payload is materialised
 # exactly once. Reindex var by HGNC symbol (LIANA's consensus resource is

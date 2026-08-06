@@ -575,6 +575,30 @@ annotation_markers:
     dc:          ["FLT3", "CLEC9A", "LAMP3"]
 
 # -------------------------------------------------------------
+# LIANA ligand-receptor inference
+#
+# max_cells_per_group caps how many cells of each interaction group enter LIANA.
+# Required, not cosmetic: `rank_aggregate` builds a zero-centred `scaled` layer,
+# and zero-centring densifies. At the post-fix cohort size (952,087 cells x
+# 24,135 genes) that dense layer is ~92 GB; on this 36 GB machine the run fell
+# into swap thrashing and earned ~1 second of CPU per 20 seconds of wall clock,
+# i.e. it would never have finished.
+#
+# Statistically cheap: LIANA scores a pair from each group's MEAN expression and
+# expression proportion, with a permutation null from shuffled labels. A mean
+# over 15,000 cells is already precise. It also BALANCES a very unbalanced design
+# — immune subtypes carry 100k+ cells against nerve clusters of ~1k, and a
+# permutation null over groups that lopsided is dominated by the largest.
+#
+# Sampling is per group, without replacement, seeded from scrna.random_seed, so
+# it is reproducible. Groups at or below the cap are kept whole — which means
+# every nerve cluster and the pooled neuron group are untouched. Set to 0 to
+# disable (and expect the memory profile above).
+# -------------------------------------------------------------
+liana:
+  max_cells_per_group: 15000
+
+# -------------------------------------------------------------
 # Compartment integrity audit (the Test Oracle)
 #
 # Cross-tabulates every compartment mask (nerve / tumor / immune) against the

@@ -250,6 +250,7 @@ if not BASELINE_PINNED:
             random_seed = config["scrna"]["random_seed"],
             # Reference .X is Seurat SCT log1p already — do not re-normalize.
             normalize_counts = False,
+        max_cells_per_group = config["liana"]["max_cells_per_group"],
         script:
             "../scripts/nerve_tumor_interaction.py"
 

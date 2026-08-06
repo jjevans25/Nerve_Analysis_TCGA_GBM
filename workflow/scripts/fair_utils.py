@@ -117,6 +117,49 @@ class PurityResult:
     expected_uniform_entropy: float
 
 
+def cap_cells_per_group(
+    labels,
+    max_per_group: int,
+    seed: int,
+):
+    """Cap each interaction group to `max_per_group` cells; returns a boolean mask.
+
+    Biology question this protects: LIANA scores a ligand-receptor pair from each
+    group's MEAN expression and expression proportion, with a permutation null
+    built by shuffling group labels. Neither quantity needs every cell — a group
+    mean over 15,000 cells already has a negligible standard error.
+
+    Why it is necessary here: `rank_aggregate` builds a zero-centred `scaled`
+    layer, and zero-centring densifies. At 952,087 cells x 24,135 genes that is
+    ~92 GB, which on a 36 GB machine drove the process into swap thrashing —
+    measured at ~1 second of CPU per 20 seconds of wall clock, i.e. never
+    finishing. Capping bounds that layer directly.
+
+    Why it also improves the statistics: the compartments are wildly unbalanced
+    (immune subtypes of 100k+ cells against nerve clusters of ~1k). A permutation
+    null over such groups is dominated by the largest ones. Capping balances the
+    design as a side effect.
+
+    Sampling is per group, without replacement, from a seeded generator, so the
+    selection is reproducible. Groups at or below the cap are kept whole.
+    """
+    import numpy as _np
+    import pandas as _pd
+
+    # Work positionally, not on the index: obs_names can repeat after a subset,
+    # and a label-based lookup would then silently select the wrong cells.
+    codes, _ = _pd.factorize(_pd.Series(labels).astype(str).to_numpy())
+    rng = _np.random.default_rng(seed)
+    keep = _np.zeros(codes.shape[0], dtype=bool)
+    order = _np.argsort(codes, kind="stable")
+    bounds = _np.flatnonzero(_np.diff(codes[order])) + 1
+    for group_pos in _np.split(order, bounds):
+        if group_pos.size > max_per_group:
+            group_pos = rng.choice(group_pos, size=max_per_group, replace=False)
+        keep[group_pos] = True
+    return keep
+
+
 NERVE_GROUP_PREFIX = "nerve_"
 
 
