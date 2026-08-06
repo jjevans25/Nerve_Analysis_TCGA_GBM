@@ -300,6 +300,8 @@ rule nerve_celltype_labels:
         threads = config["resources"]["default_threads"],
     params:
         markers             = config["nerve_cells"]["markers"],
+        cell_types          = config["nerve_cells"]["cell_types"],
+        neuron_labels       = config["nerve_cells"].get("neuron_labels", []),
         unknown_percentile  = config["nerve_scanvi"]["unknown_percentile"],
         random_seed         = config["scrna"]["random_seed"],
     script:
