@@ -250,7 +250,12 @@ if not BASELINE_PINNED:
             random_seed = config["scrna"]["random_seed"],
             # Reference .X is Seurat SCT log1p already — do not re-normalize.
             normalize_counts = False,
-        max_cells_per_group = config["liana"]["max_cells_per_group"],
+            # NOTE the 12-space indent: this rule is nested under
+            # `if not BASELINE_PINNED:`, unlike its twin in datasets.smk. At 8
+            # spaces this key falls out of `params:` and Snakemake rejects it as
+            # a rule keyword, which breaks parsing for the WHOLE workflow even
+            # though this rule is pinned out and never runs.
+            max_cells_per_group = config["liana"]["max_cells_per_group"],
         script:
             "../scripts/nerve_tumor_interaction.py"
 

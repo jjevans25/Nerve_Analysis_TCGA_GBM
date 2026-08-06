@@ -1950,3 +1950,100 @@ range — would risk memory on a 36 GB machine for no measured gain. Recorded, n
 **Phase 5 — the 6-10 h full-arm and 4-7 h capped-arm re-run — requires researcher approval.**
 Launch via `scripts/run_snakemake.sh`. Re-entry at `ds_scrna_annotate`; the 11 h 13 m scVI train is
 preserved because `X_scVI` is label-free.
+
+---
+
+## [2026-08-06] Phase 5 — full-arm re-run: all 10 gates pass; two corrections to the record
+
+**Phase:** Compartment integrity fix, Phase 5. Full arm essentially complete; capped arm pending.
+
+### Result — the fix works
+
+`ds_compartment_audit` ran ENFORCING against the rebuilt full arm and passed **10/10 gates**:
+
+| gate | before | after | required |
+|---|---|---|---|
+| nerve compartment neural | 11.1% | **95.39%** | >=80% |
+| tumor compartment malignant | 47.9% | **92.96%** | >=85% |
+| malignancy precision | 0.479 | **0.9296** | >=0.85 |
+| malignancy recall | 0.180 | **0.8940** | >=0.80 |
+| immune purity | 99.5% | **99.63%** | >=95% |
+| max nerve-cluster endothelial | 92.9% | **0.0000** | <=20% |
+| nerve compartment n | 377,343 | **37,945** | 25k-50k |
+| neuron group n | 0 | **4,275** | >=1,500 |
+
+`nerve_c24` — the 92.9%-endothelial cluster that made S1PR1 look nerve-side and started this whole
+investigation — is gone as a failure mode.
+
+scANVI retrained from scratch on the corrected 37,945-cell subset: classifier accuracy 0.9828.
+Read with care: the compartment now has TWO anchoring labels (neuron, oligodendrocyte) where it had
+five, so the task is easier and this is NOT comparable to the previous 0.8446.
+
+### CORRECTION 1 — LIANA was never failing; I killed a healthy run
+
+An earlier commit message (8ca071e) claims `rank_aggregate` was thrashing swap and "would never
+have finished", and introduced a per-group cell cap on that basis. **That diagnosis was wrong.**
+
+Both LIANA rules had ALREADY COMPLETED, uncapped, before I intervened:
+
+    nerve_tumor_immune_interactions.csv   44,139 rows   13:52   provenance written
+    nerve_tumor_interactions.csv          11,280 rows   13:55   provenance written
+
+The provenance JSON is written last, so its presence is proof of completion. The three-way ran on
+all 952,087 labelled cells x 24,135 genes in ~10 minutes.
+
+What I actually measured (swap 12.5/13.3 GB, ~1s CPU per 20s wall) was `nerve_cell_heterogeneity`
+— GSEA, which legitimately ran 1h50m at 11.5 GB and completed normally at 15:53. My process filter
+matched a LIANA process that was already exiting, and I attributed another rule's memory pressure
+to it. `liana.max_cells_per_group` is therefore set to **0 (disabled)**; the mechanism is retained
+and documented for a cohort that genuinely does not fit, but nothing here needed it.
+
+The other fixes from that episode stand on their own evidence and are unaffected: parent-sourcing
+cured a real silent scale defect and cut peak RSS from 30+ GB to ~9 GB.
+
+### CORRECTION 2 — D8, a silent scale defect (pre-existing, affected the original run too)
+
+The interaction rules concatenated compartments on DIFFERENT scales and then normalized the result
+as one object:
+
+    malignancy_labeled.h5ad    raw counts
+    nerve_cells.h5ad           already log1p  (normalize_total + log1p in *_cell_subset)
+    immune_cells_labeled.h5ad  already log1p
+
+So malignant cells were transformed ONCE and nerve/immune cells TWICE. Every cross-compartment
+ligand-receptor comparison — in this run and in the original — was between differently-transformed
+data. It stayed hidden because the combined X.max() is dominated by the raw malignant cells, so
+every scale check saw "counts".
+
+Fixed by taking EXPRESSION from the shared parent (all three compartments are subsets of it) and
+using the compartment files only for LABELS, with assertions that the three are pairwise disjoint.
+Verified: combined matrix now X.max() 58,860 -> 9.110 on one consistent scale, versus 8,291 -> 8.780
+before.
+
+### Defects found while getting here (all fixed)
+
+- Four consumers still assumed the `nerve_c{N}` label shape and broke on the pooled `nerve_neuron`
+  group. One of them (`_nerve_cluster`) would have SILENTLY blanked every neuron row rather than
+  raising. Now routed through shared `fair_utils.nerve_group_key` / `nerve_group_sort_key`.
+- `nerve_batch_qc` now computes purity over the same groups the interaction rules mint, so the
+  neuron group has a row to join onto (23 -> 21 rows; three clusters were entirely neuronal).
+- scANVI anchoring labels were hardcoded to the v1.x compartment and demanded >=1% OPC from a
+  compartment that deliberately excludes OPC. Now derived from `nerve_cells.cell_types`.
+- Undeclared crash-safe checkpoints survived a legitimate input change and were loaded against the
+  wrong roster. Now fingerprinted (n_obs, n_vars, obs/var hashes, keys, label set, seed) and
+  discarded on mismatch. Verified firing in production.
+- `max_cells_per_group` was indented at 8 spaces inside a rule nested under `if not
+  BASELINE_PINNED:` (12-space params), making it a rule keyword and breaking parsing for the WHOLE
+  workflow — a 1-second failure that masqueraded as a run failure.
+
+### Operational
+
+- macOS has no `setsid(1)`, and a harness-tracked background task gets reaped mid-run. Long runs
+  now launch via `scratchpad/daemonize.py` (double-fork + `os.setsid`), which orphans them to init
+  so nothing upstream can kill them.
+- `--quiet` has the same `nargs='+'` target-swallowing trap as `--allowed-rules`.
+
+### Next
+
+Full arm: 5 light jobs remain (cluster annotations, batch_qc_v2, annotate_cluster_qc, concordance,
+notebook). Capped arm: 18 jobs from `ds_scrna_annotate`, not yet started.

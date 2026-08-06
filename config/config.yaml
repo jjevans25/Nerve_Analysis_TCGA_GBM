@@ -578,25 +578,30 @@ annotation_markers:
 # LIANA ligand-receptor inference
 #
 # max_cells_per_group caps how many cells of each interaction group enter LIANA.
-# Required, not cosmetic: `rank_aggregate` builds a zero-centred `scaled` layer,
-# and zero-centring densifies. At the post-fix cohort size (952,087 cells x
-# 24,135 genes) that dense layer is ~92 GB; on this 36 GB machine the run fell
-# into swap thrashing and earned ~1 second of CPU per 20 seconds of wall clock,
-# i.e. it would never have finished.
+# DISABLED (0) — uncapped is the default, and is what the shipped results use.
 #
-# Statistically cheap: LIANA scores a pair from each group's MEAN expression and
-# expression proportion, with a permutation null from shuffled labels. A mean
-# over 15,000 cells is already precise. It also BALANCES a very unbalanced design
-# — immune subtypes carry 100k+ cells against nerve clusters of ~1k, and a
-# permutation null over groups that lopsided is dominated by the largest.
+# Measured 2026-08-06: the three-way rule completed UNCAPPED on all 952,087
+# labelled cells (24,135 genes) in ~10 minutes, emitting 44,139 LR rows; the
+# two-way completed on 358,823 cells in ~3 minutes. An earlier report that this
+# step was thrashing swap and could not finish was a MISDIAGNOSIS — the memory
+# pressure belonged to nerve_cell_heterogeneity (GSEA, 1h50m at 11.5 GB) running
+# concurrently, and both LIANA rules had already succeeded. Capping would
+# therefore discard real cells for no benefit.
 #
-# Sampling is per group, without replacement, seeded from scrna.random_seed, so
-# it is reproducible. Groups at or below the cap are kept whole — which means
-# every nerve cluster and the pooled neuron group are untouched. Set to 0 to
-# disable (and expect the memory profile above).
+# The mechanism is retained for a future cohort that genuinely does not fit.
+# `rank_aggregate` builds a zero-centred `scaled` layer and zero-centring
+# densifies, so cells x genes x 4 bytes is a hard floor on that layer; if a
+# cohort ever exceeds available RAM, set this to e.g. 15000.
+#
+# When enabled: sampling is per group, without replacement, seeded from
+# scrna.random_seed, so it is reproducible; groups at or below the cap are kept
+# whole, which means every nerve cluster and the pooled neuron group stay intact
+# and only the tumor group and large immune subtypes are subsampled. Capping
+# also balances a design where immune subtypes carry 100k+ cells against nerve
+# clusters of ~1k. See fair_utils.cap_cells_per_group.
 # -------------------------------------------------------------
 liana:
-  max_cells_per_group: 15000
+  max_cells_per_group: 0
 
 # -------------------------------------------------------------
 # Compartment integrity audit (the Test Oracle)
