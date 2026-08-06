@@ -2047,3 +2047,47 @@ before.
 
 Full arm: 5 light jobs remain (cluster annotations, batch_qc_v2, annotate_cluster_qc, concordance,
 notebook). Capped arm: 18 jobs from `ds_scrna_annotate`, not yet started.
+
+### [2026-08-06 16:25] Full arm COMPLETE — rc=0, all verification met
+
+`gbm_cellxgene_56c4912d_full` finished all 14 jobs. Goal-backward verification:
+
+1. **ZERO nerve-side S1PR1 rows** in `nerve_tumor_immune_top_pairs_with_qc.csv` (zero S1PR1 rows at
+   all). The finding that started this investigation — SPP1->S1PR1 called immune->nerve and
+   tumor->nerve — was an artifact of `nerve_c24` being 92.9% endothelial. That cluster's
+   contamination is now 0.0000 and the rows are gone.
+2. **10/10 compartment-integrity gates PASS** (audit runs enforcing, so this is self-checking):
+   nerve 95.39% neural, tumor 92.96% malignant, malignancy precision 0.9296 / recall 0.8940,
+   immune 99.63% pure, max nerve-cluster endothelial 0.0000, nerve n=37,945, neuron group n=4,275.
+3. `results/pinned_reference_verification.json` still **pass: true, 37/37** — the v1.3.0 reference
+   was never touched.
+4. scANVI-v2 retrained on the corrected subset; `nerve_cells_v2.h5ad` present; `cell_type`
+   preserved throughout (defect D6 closed).
+
+**Concordance against the pinned v1.3.0 reference moved, as predicted:**
+
+    reference significant pairs   3,368
+    dataset significant pairs     2,283
+    shared                        1,724
+    Jaccard overlap               0.439
+    Spearman rho (shared)         0.6182
+
+This is NOT like-for-like and must not be read as a replication failure. The reference's own nerve
+compartment was built by the same uncorrected logic this work removed, it carries no author
+annotation, and it was scored against differently-normalized data (defect D8). Its status is
+*unknown*, not *cleared*. Demote it from headline until the reference is itself re-derived.
+
+**Interaction tables:** 44,139 rows, all nerve-involving; 2,609 rows carry the pooled
+`nerve_neuron` group; 15,504 rows carry `batch_qc_pass=False` (dominated by the neuron group's
+donor-dominance failure, recorded not exempted).
+
+Capped arm `gbm_cellxgene_56c4912d` started automatically at 16:25:13 (18 jobs from
+`ds_scrna_annotate`).
+
+Defects fixed during this final stretch, both the same species — a consumer that parsed the nerve
+group label by hand instead of via the shared helper:
+- `nerve_batch_qc` emitted only the interaction keying, dropping the entirely-neuronal clusters
+  (11, 14, 19) that the marker/enrichment tables key on. Purity now emits per-cluster rows AND a
+  pooled neuron row (24 rows).
+- `annotate_cluster_qc` derives the nerve key in TWO places; only one had been routed through
+  `nerve_group_key`. The three-way path still used a bare `removeprefix("nerve_c")`.
