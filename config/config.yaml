@@ -289,16 +289,39 @@ nerve_cells:
   # present in every artifact — they are excluded from THIS COMPARTMENT only.
   # Their absence from the interaction tables is a masking decision, not a
   # biological finding, and must be reported as such.
+  #
+  # SECOND EXCLUSION (researcher decision, 2026-08-06): generic `neuron` and
+  # `ependymal` also removed, on FULL-ARM evidence rather than the subsample.
+  # Measured against Census on all 1,006,344 cells, the non-malignant cells
+  # carrying each label were:
+  #
+  #     inhibitory_neuron  99.5% truly neural
+  #     oligodendrocyte    95.8%
+  #     excitatory_neuron  83.9%
+  #     neuron (generic)   40.6%   <-- excluded
+  #     ependymal          31.6%   <-- excluded
+  #
+  # The subsample had predicted a different culprit; on the full arm the two
+  # LEAST SPECIFIC panels carry nearly all the contamination. Generic `neuron`
+  # (SYN1/SNAP25/STMN2/RBFOX3/MAP2/SYT1) is pan-neuronal and is won by malignant
+  # cells running neurodevelopmental programmes — a well-documented GBM state.
+  # `ependymal` has no Census counterpart at all, so it cannot be checked, and
+  # 68% of what it selects is Census-malignant.
+  #
+  # Result: 74.1% -> 95.4% neural at n=37,945, which lands almost exactly on the
+  # Census truth for this arm (oligodendrocyte 34,160 + neuron 3,401 = 37,561).
+  #
+  # KNOWN COST: 8,290 Census-neural cells that only the loose panels caught are
+  # lost, and "neuron" in the interaction tables now means SUBTYPE-CONFIRMED
+  # excitatory/inhibitory neurons only. Both panels remain scored and present in
+  # every artifact — again a masking decision, not a biological finding.
   cell_types:
-    - "neuron"
     - "excitatory_neuron"
     - "inhibitory_neuron"
     - "oligodendrocyte"
-    - "ependymal"
-  # Carried as their own LIANA group rather than per-cluster: ~3.4k neurons
+  # Carried as their own LIANA group rather than per-cluster: ~4.3k neurons
   # across 170 donors is a group, not a cluster set.
   neuron_labels:
-    - "neuron"
     - "excitatory_neuron"
     - "inhibitory_neuron"
   # Which malignancy flag excludes a cell from this compartment. See
@@ -639,18 +662,19 @@ compartment_audit:
   per_arm:
     gbm_cellxgene_56c4912d_full:
       immune_baseline_n: 329608     # measured pre-fix; guards the C3 failure mode
-      # Bands re-derived 2026-08-05 for the NARROWED compartment (astrocyte and
-      # opc removed). Census oligodendrocyte + neuron = 37,561; the 60k-subsample
-      # measurement projects ~51,100 for this arm. Sanity band, not a prediction:
-      # it catches "the compartment collapsed" and "it is still full of tumor".
-      nerve_n_min:       30000
-      nerve_n_max:       65000      # pre-fix compartment was 377,343
+      # Bands re-derived 2026-08-06 after the SECOND narrowing (generic neuron
+      # and ependymal also removed). Census oligodendrocyte + neuron = 37,561;
+      # measured post-fix on the full arm = 37,945. Sanity band, not a
+      # prediction: it catches "the compartment collapsed" and "it is still full
+      # of tumor".
+      nerve_n_min:       25000
+      nerve_n_max:       50000      # pre-fix compartment was 377,343
       neuron_n_min:      1500       # Census has 3,401 neurons; guards total loss
     gbm_cellxgene_56c4912d:
       immune_baseline_n: 169617
-      # Census oligodendrocyte + neuron = 27,860; subsample projects ~31,200.
-      nerve_n_min:       18000
-      nerve_n_max:       45000      # pre-fix compartment was 270,520
+      # Census oligodendrocyte + neuron = 27,860 for this arm.
+      nerve_n_min:       15000
+      nerve_n_max:       40000      # pre-fix compartment was 270,520
       neuron_n_min:      1200       # Census has 2,992 neurons
 
 # -------------------------------------------------------------

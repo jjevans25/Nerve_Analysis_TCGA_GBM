@@ -12,7 +12,10 @@ global v1.0.0 ``results/models/scvi_model`` is not touched.
 """
 
 import gc
+import hashlib
+import json
 import os
+import shutil
 import sys
 import warnings
 from pathlib import Path
@@ -83,6 +86,76 @@ log_transformation(log, "nerve_scanvi_retrain",
                    f"Label distribution:\n{label_counts.to_string()}")
 
 # ----------------------------------------------------------------------------
+# Checkpoint identity guard
+# ----------------------------------------------------------------------------
+# These checkpoints live at UNDECLARED paths so Snakemake cannot delete them when
+# a job fails — that is what makes them crash-safe. The same property makes them
+# dangerous: they also survive a legitimate change to the input, and nothing here
+# used to check. On 2026-08-05 a baseline trained on the pre-fix 377,343-cell
+# nerve subset was loaded against the corrected 60,034-cell subset and the rule
+# died ~29 min into a 10 h run.
+#
+# So: fingerprint the training problem, store it beside the checkpoint, and reuse
+# only on an exact match. Crash-safe *and* wrong-safe.
+
+
+def _fingerprint() -> dict:
+    """Identity of the training problem — anything here changing invalidates a checkpoint."""
+    roster = hashlib.sha256("\n".join(map(str, adata.obs_names)).encode()).hexdigest()
+    genes = hashlib.sha256("\n".join(map(str, adata.var_names)).encode()).hexdigest()
+    labels = adata.obs[str(snakemake.params.labels_key)].astype(str)
+    return {
+        "n_obs":       int(adata.n_obs),
+        "n_vars":      int(adata.n_vars),
+        "obs_sha256":  roster,
+        "var_sha256":  genes,
+        "batch_key":   str(snakemake.params.batch_key),
+        "labels_key":  str(snakemake.params.labels_key),
+        "label_set":   sorted(labels.unique().tolist()),
+        "n_latent":    int(snakemake.params.n_latent),
+        "n_layers":    int(snakemake.params.n_layers),
+        "seed":        SEED,
+    }
+
+
+FINGERPRINT = _fingerprint()
+_FP_NAME = "input_fingerprint.json"
+
+
+def _reusable(ckpt_dir: Path, what: str) -> bool:
+    """Is this checkpoint from the same training problem we are solving now?"""
+    if not ckpt_dir.exists():
+        return False
+    fp_path = ckpt_dir / _FP_NAME
+    if not fp_path.exists():
+        log_transformation(log, "nerve_scanvi_retrain",
+                           f"[FAIR-ALERT] {what} checkpoint at {ckpt_dir} predates fingerprinting "
+                           "— cannot prove it matches this input. Retraining from scratch.",
+                           status="WARNING")
+        return False
+    with open(fp_path) as fh:
+        stored = json.load(fh)
+    if stored == FINGERPRINT:
+        return True
+    diffs = [k for k in FINGERPRINT if stored.get(k) != FINGERPRINT[k]]
+    log_transformation(log, "nerve_scanvi_retrain",
+                       f"[FAIR-ALERT] {what} checkpoint at {ckpt_dir} was trained on a DIFFERENT "
+                       f"input — mismatched fields: {diffs} "
+                       f"(stored n_obs={stored.get('n_obs')}, current n_obs={FINGERPRINT['n_obs']}). "
+                       "Discarding it and retraining from scratch.",
+                       status="WARNING")
+    shutil.rmtree(ckpt_dir)
+    return False
+
+
+def _stamp(ckpt_dir: Path) -> None:
+    """Record which training problem this checkpoint belongs to."""
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    with open(ckpt_dir / _FP_NAME, "w") as fh:
+        json.dump(FINGERPRINT, fh, indent=2)
+
+
+# ----------------------------------------------------------------------------
 # Stage 1: baseline scVI
 # ----------------------------------------------------------------------------
 scvi.model.SCVI.setup_anndata(
@@ -99,7 +172,7 @@ scvi.model.SCVI.setup_anndata(
 # the 2026-08-02 14:44 failure while this checkpoint survived.
 baseline_dir = Path(snakemake.output.model_dir).parent / "nerve_scvi_baseline"
 
-if baseline_dir.exists():
+if _reusable(baseline_dir, "baseline scVI"):
     scvi_model = scvi.model.SCVI.load(str(baseline_dir), adata=adata)
     log_transformation(log, "nerve_scanvi_retrain",
                        f"Reusing baseline scVI checkpoint at {baseline_dir} "
@@ -119,6 +192,7 @@ else:
         early_stopping=True,
     )
     scvi_model.save(str(baseline_dir), overwrite=True)
+    _stamp(baseline_dir)
     log_transformation(log, "nerve_scanvi_retrain",
                        f"Baseline scVI checkpointed at {baseline_dir}")
 
@@ -129,7 +203,7 @@ scvi_history = {k: list(v.iloc[:, 0]) for k, v in scvi_model.history.items()}
 # Stage 2: scANVI fine-tune with cell_type labels
 # ----------------------------------------------------------------------------
 scanvi_sidecar_in = Path(snakemake.output.model_dir).parent / "nerve_scanvi_stage2"
-if scanvi_sidecar_in.exists():
+if _reusable(scanvi_sidecar_in, "stage-2 scANVI"):
     scanvi_model = scvi.model.SCANVI.load(str(scanvi_sidecar_in), adata=adata)
     log_transformation(log, "nerve_scanvi_retrain",
                        f"Reusing stage-2 scANVI checkpoint at {scanvi_sidecar_in} "
@@ -171,6 +245,7 @@ adata.obs["scanvi_predicted_celltype"] = scanvi_model.predict()
 scanvi_dir = Path(snakemake.output.model_dir)
 scanvi_sidecar = scanvi_dir.parent / "nerve_scanvi_stage2"
 scanvi_model.save(str(scanvi_sidecar), overwrite=True)
+_stamp(scanvi_sidecar)
 scanvi_model.save(str(scanvi_dir), overwrite=True)
 log_transformation(log, "nerve_scanvi_retrain",
                    f"scANVI model saved at {scanvi_dir} (+ crash-safe sidecar at "
