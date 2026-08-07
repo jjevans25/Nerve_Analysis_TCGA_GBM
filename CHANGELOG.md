@@ -2298,3 +2298,79 @@ provenance. Notebook 05 re-exported after its edit, exit 0.
 
 **FAIR Notes:** No artifact changed; no pipeline re-execution. The pinned v1.3.0 tables were read
 only.
+
+---
+
+### [2026-08-07] | Phase: Post-fix lead-axes panel (notebook 05) | Status: COMPLETE
+
+**Action:** Researcher generated `results/tables/nerve_immune_lead_axes_postfix.csv` (183 rows x 15
+cols) — the §2.1 re-derivation — and asked for a notebook 05 panel pointing at it. It lands in the
+slot where Panel E was removed on 2026-08-07.
+
+**Provenance established before writing anything.** This shortlist is Census-derived across **both**
+arms: all 183 axes are present in both Census interaction tables and **0** of their magnitudes match
+the pinned v1.3.0 reference. That is the exact inverse of the withdrawn 2026-07-15 shortlist
+(34/40 matching the reference, 0 matching Census), and it is what makes this one usable where its
+predecessor was not.
+
+**Structural facts that drove the design:**
+
+- **The primary key is `(axis, nerve_side)`, not `axis`** — 144 distinct axes over 183 rows, 39 of
+  them ranked separately on both nerve sides (`APP|CD74` is rank 1 on each), with ranks restarting
+  per side. A panel keyed on `axis` would have silently collapsed those pairs. Guarded by a
+  `[FAIR-ALERT]` raise on duplicate keys.
+- **`n_rows` is a FULL-ARM count with no capped counterpart.** Measured under the reconstructed
+  filter it agrees with the full arm on 118/183 axes but with the capped arm on only **47/183**.
+  Comparing it while the capped arm is active would have rendered ~3/4 of the table as
+  "disagreement" that was really just the wrong arm. It is now shown for reference and compared
+  only on the full arm. **This was caught by running both arms, not by reading the file.**
+- **The file's two magnitude columns were not built the same way.** Under the reconstructed rule
+  (QC-passing, `magnitude_rank <= 0.05`, restricted to each axis's own interfaces),
+  `capped_best_mag` reproduces **exactly, 128/128**, while `best_mag` reaches only **128/167**.
+  Worth resolving at the source.
+- **55 axes have a null `capped_best_mag` while still being present in the capped table** — they
+  cleared the bar in the full arm and not the capped one. Surfaced as a `cross_arm` column rather
+  than as missing data; this is the §2.5(c) cross-arm signal, and it is better evidence than the
+  v1.3.0 concordance in Panel F.
+
+**Panel design** (researcher-directed): curated values rendered beside live recomputed ones with
+disagreement flagged; arm-aware via an explicit `dataset` -> column map (never a
+`endswith("_full")` heuristic, which would mislabel a future arm); the Panel E stub replaced,
+keeping a compressed note on why the old shortlist was withdrawn. Local widgets (tier, nerve side,
+disagreements-only) kept separate from the Panel C/D filter block so the two cannot interfere.
+
+**Two columns deliberately not rendered.** `withdrawn` is empty in all 183 rows, and `min_pval` is
+`0.0` in all 183 (the permutation floor at `n_perms=1000`). A column that is entirely null or
+entirely constant carries no information and invites a reader to infer meaning from it.
+
+**Artifacts:** `notebooks/05_census_nerve_immune_explorer.py`,
+`results/tables/nerve_immune_lead_axes_postfix.csv` (NOT tracked — see below),
+`notebooks/__marimo__/session/05_census_nerve_immune_explorer.py.json`.
+
+**Verification:** `flake8` clean. Headless `marimo export html` on both arms, exit 0, no error
+cells. Rendered counters match the offline audit exactly — FULL: 183/183 shown, magnitude 128/167,
+`n_rows` 118/183, 0 capped-only; CAPPED: magnitude 128/128, `n_rows` comparison correctly suppressed,
+55 full-only. Both arms report 55 pooled-neuron axes and CXCR4 3 / LRP1 9 / S1PR1 0. Export sidecar
+now hashes 12 inputs. The disagreements-only filter branch was exercised separately (the checkbox
+defaults off, so the export never reached it) and is index-safe under a tier subset.
+
+**Open Issues:**
+- **`withdrawn` is empty in all 183 rows** although `tier_v2` marks 14 axes
+  `1b_approved_withdrawn_only` and `agents_flagged` carries `[WITHDRAWN]` tags inline. Looks like a
+  bug in the generating script. Not fixed here — that means regenerating the CSV.
+- **The generating script is not in this repository.** Until it is, the panel's live recomputation
+  is the only reproducible statement of what these axes are, and the curated/live gap cannot be
+  closed. This is the same condition §2.1 flagged about the previous shortlist.
+- Notebook 03 still has not had the post-compartment-fix pass (carried from the previous entry).
+
+**FAIR Notes:** [FAIR-ALERT] No artifact changed and no pipeline re-execution, but the new input is
+a FAIR gap on three counts at once: **no producing Snakemake rule**, **no generating script in the
+repository**, and **`results/` is gitignored** (0 results files are tracked — this is the project's
+standing convention, not an oversight, because results are normally derived artifacts). It was
+therefore NOT force-added; doing so would override a deliberate .gitignore for a file that policy
+says should be regenerable. The consequence is that this input can be neither rebuilt nor restored
+from git, so a clean checkout cannot render Panel E. The notebook's missing-artifact callout
+special-cases it rather than sending the reader after a Snakemake rule that does not exist, and
+Panel E carries the same alert. **A rule under `workflow/rules/` that emits this table would close
+the reproducibility gap, the versioning gap and the curated/live gap together** — recommended as the
+next step, and it is also what CLAUDE.md's "never run one-off scripts for analysis steps" requires.

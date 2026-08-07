@@ -108,28 +108,45 @@ def _load_config(Path, mo, os, yaml):
         "concordance": ds_tables / "cohort_concordance_summary.json",
         "shared_pairs": ds_tables / "cohort_concordance_shared_pairs.csv",
         "lr_provenance": ds_prov / "nerve_tumor_immune_interaction_provenance.json",
+        # Root-level, NOT ds_tables: this shortlist carries both Census arms in one
+        # table (rank_full/best_mag and rank_capped/capped_best_mag), so it belongs
+        # to neither arm's namespace. Panel E reads it.
+        "lead_axes_postfix": tables_dir / "nerve_immune_lead_axes_postfix.csv",
     }
 
-    _missing = [p for p in paths.values() if not p.exists()]
+    # `lead_axes_postfix` is the one input NO Snakemake rule produces — it was
+    # generated outside this repository, and `results/` is gitignored, so it is
+    # neither reproducible nor version-controlled. Telling a reader to run Snakemake
+    # for it would send them after a rule that does not exist.
+    _unbuildable = {"lead_axes_postfix"}
+    _missing = {k: p for k, p in paths.items() if not p.exists()}
     if _missing:
-        mo.stop(
-            True,
-            mo.callout(
-                mo.md(
-                    f"Required artifacts not found for cohort `{dataset}`:\n\n"
-                    + "\n".join(f"- `{p}`" for p in _missing)
-                    # Targets go FIRST: --allowed-rules/--forcerun/--quiet all take
-                    # nargs='+' and swallow anything placed after them. And always
-                    # via run_snakemake.sh — a bare `snakemake` reverts to the venv's
-                    # packages and the workflow/envs pins go unenforced.
-                    + "\n\nBuild with:\n\n```\nscripts/run_snakemake.sh \\\n"
-                    f"  results/tables/{dataset}/nerve_cluster_annotations.csv \\\n"
-                    f"  results/tables/{dataset}/cohort_concordance_summary.json \\\n"
-                    "  --use-conda --cores all --rerun-triggers mtime\n```"
-                ),
-                kind="danger",
-            ),
+        _pipeline = [p for k, p in _missing.items() if k not in _unbuildable]
+        _manual = [p for k, p in _missing.items() if k in _unbuildable]
+        _msg = (
+            f"Required artifacts not found for cohort `{dataset}`:\n\n"
+            + "\n".join(f"- `{p}`" for p in _missing.values())
         )
+        if _pipeline:
+            # Targets go FIRST: --allowed-rules/--forcerun/--quiet all take
+            # nargs='+' and swallow anything placed after them. And always via
+            # run_snakemake.sh — a bare `snakemake` reverts to the venv's packages
+            # and the workflow/envs pins go unenforced.
+            _msg += (
+                "\n\nBuild the pipeline artifacts with:\n\n```\nscripts/run_snakemake.sh \\\n"
+                f"  results/tables/{dataset}/nerve_cluster_annotations.csv \\\n"
+                f"  results/tables/{dataset}/cohort_concordance_summary.json \\\n"
+                "  --use-conda --cores all --rerun-triggers mtime\n```"
+            )
+        if _manual:
+            _msg += (
+                "\n\n**[FAIR-ALERT]** `nerve_immune_lead_axes_postfix.csv` has **no "
+                "producing rule and no generating script in this repository**, and "
+                "`results/` is gitignored — it cannot be rebuilt or restored from git. "
+                "Obtain it from the researcher, and see Panel E on why committing its "
+                "generator matters."
+            )
+        mo.stop(True, mo.callout(mo.md(_msg), kind="danger"))
     return config, dataset, ds_tables, paths
 
 
@@ -179,6 +196,7 @@ def _load_tables(json, nerve_group_key, paths, pd):
     immune_purity_df = pd.read_csv(paths["immune_purity"])
     annotation_df = pd.read_csv(paths["annotation_summary"])
     shared_pairs_df = pd.read_csv(paths["shared_pairs"])
+    lead_axes_df = pd.read_csv(paths["lead_axes_postfix"])
     with open(paths["concordance"]) as _f:
         concordance = json.load(_f)
     with open(paths["lr_provenance"]) as _f:
@@ -273,6 +291,7 @@ def _load_tables(json, nerve_group_key, paths, pd):
         immune_cluster_purity_df,
         immune_purity_df,
         interactions_df,
+        lead_axes_df,
         lr_prov,
         nerve_ann_df,
         nerve_purity_df,
@@ -701,40 +720,241 @@ def _celltype_interface_matrix(filtered_df, mo, plt, sns):
 
 
 @app.cell
-def _replication_removed(mo):
-    """Panel E is deliberately absent — this stub records why, so it is not re-added."""
-    mo.vstack([
-        mo.md("""
-        ---
-        ## Panel E — removed
-        """),
+def _lead_axes_header(mo):
+    mo.md("""
+    ---
+    ## Panel E — Post-fix lead axes, curated against live
+    The §2.1 re-derivation. Each axis carries the curated numbers from
+    `nerve_immune_lead_axes_postfix.csv` **and** the same quantities recomputed from
+    this cohort's live LR table, so a disagreement is visible rather than assumed away.
+    """)
+    return
+
+
+@app.cell
+def _lead_axes_compute(dataset, interactions_df, lead_axes_df, mo, np, pd):
+    """Recompute each curated axis against the live table for the ACTIVE arm."""
+    # Explicit map, never a `dataset.endswith("_full")` test — a suffix heuristic
+    # would silently mislabel any future arm as "capped".
+    # (active_rank, active_mag, other_rank, other_arm_label)
+    _ARM_COLUMNS = {
+        "gbm_cellxgene_56c4912d_full": ("rank_full", "best_mag", "rank_capped", "capped"),
+        "gbm_cellxgene_56c4912d": ("rank_capped", "capped_best_mag", "rank_full", "full"),
+    }
+    mo.stop(
+        dataset not in _ARM_COLUMNS,
         mo.callout(
             mo.md(
-                "**The curated-lead replication panel was removed on 2026-08-07, not lost.**\n\n"
-                "It looked each of the 40 hand-curated axes in "
-                "`results/tables/nerve_crosstalk_lead_targets.csv` up in this cohort's LR "
-                "table. That shortlist is dated 2026-07-15 and was derived from the **pinned "
-                "v1.3.0 reference cohort** — 34 of its 40 `best_mag` values reproduce against "
-                "the reference table to 1e-6 and none against this one. The reference's nerve "
-                "compartment was built by the logic the 2026-08-05/06 fix removed and carries "
-                "no author annotation, so **it has never been audited: its contamination is "
-                "unknown, not measured.** Scoring corrected tables against a shortlist drawn "
-                "from an unaudited compartment is not a replication test, and there is no "
-                "honest way to caption it as one.\n\n"
-                "Two things worth knowing before it is rebuilt:\n\n"
-                "- **S1PR1, CXCR4 and LRP1 were never on that shortlist.** They appear only "
-                "in the raw LIANA tables, so whichever document named them as leads was "
-                "produced outside this repository. That selection logic is not reproducible "
-                "here and must be restated explicitly as part of any re-derivation.\n"
-                "- The corrected tables contain **zero** S1PR1 rows at all — the axis did "
-                "not move compartments, it failed to reach significance anywhere once the "
-                "compartments were clean.\n\n"
-                "Re-derive the shortlist from the current "
-                "`nerve_tumor_immune_interactions_with_qc.csv` with the selection logic "
-                "stated (§2.1 of `markdowns/post_compartment_fix_next_steps.md`), then "
-                "restore this panel against it."
+                f"**This shortlist does not cover `{dataset}`.** "
+                f"`nerve_immune_lead_axes_postfix.csv` carries ranks for "
+                f"{', '.join(f'`{k}`' for k in _ARM_COLUMNS)} only. Regenerate it to "
+                f"include this cohort before reading a lead axis here."
             ),
-            kind="warn",
+            kind="danger",
+        ),
+    )
+    # No leading underscore on names that leave the cell: marimo treats `_name` as
+    # cell-local and will not expose it to downstream cells.
+    _rank_col, _mag_col, _other_rank_col, other_arm = _ARM_COLUMNS[dataset]
+
+    # The key is (axis, nerve_side), NOT axis: 144 distinct axes over 183 rows, 39 of
+    # them ranked separately on both nerve sides (APP|CD74 is rank 1 on each), and the
+    # ranks restart per side. Keying on axis alone silently collapses those pairs.
+    _dupes = int(lead_axes_df.duplicated(["axis", "nerve_side"]).sum())
+    if _dupes:
+        raise RuntimeError(
+            f"[FAIR-ALERT] {_dupes} duplicated (axis, nerve_side) rows in "
+            f"nerve_immune_lead_axes_postfix.csv — the panel's key assumption is broken."
+        )
+
+    # `n_rows` is a FULL-ARM count and the file has no capped counterpart. Measured:
+    # it agrees with the full arm on 118/183 axes under the filter below, but with the
+    # capped arm on only 47/183. Comparing it while the capped arm is active would
+    # render ~3/4 of the table as "disagreement" that is really just the wrong arm.
+    n_rows_is_active_arm = dataset == "gbm_cellxgene_56c4912d_full"
+
+    # Live recomputation. The generating script is not in the repo, so this states the
+    # selection rule explicitly (§2.1) rather than trusting the file's own numbers:
+    # QC-passing rows, magnitude_rank <= 0.05, restricted to the axis's own interfaces.
+    # Under it `capped_best_mag` reproduces exactly (128/128) while `best_mag` reaches
+    # 128/167 — the file's two magnitude columns were not built the same way.
+    live_mag_max = 0.05
+    _lig = interactions_df["ligand_complex"].astype(str).to_numpy()
+    _rec = interactions_df["receptor_complex"].astype(str).to_numpy()
+    _cp = interactions_df["compartment_pair"].astype(str).to_numpy()
+    _mag = interactions_df["magnitude_rank"].to_numpy()
+    _qc = interactions_df["batch_qc_pass"].astype(bool).to_numpy()
+
+    _rows = []
+    for _r in lead_axes_df.itertuples(index=False):
+        _a, _, _b = str(_r.axis).partition("|")
+        _a, _b = _a.strip(), _b.strip()
+        # Either orientation: the file records an unordered axis, and measured across
+        # the 183 rows 109 are ligand-first and 70 receptor-first.
+        _m = ((_lig == _a) & (_rec == _b)) | ((_lig == _b) & (_rec == _a))
+        _m &= _qc & (_mag <= live_mag_max)
+        _m &= np.isin(_cp, [s.strip() for s in str(_r.interfaces).split(",")])
+        _rows.append({
+            "axis": _r.axis,
+            "nerve_side": _r.nerve_side,
+            "tier_v2": _r.tier_v2,
+            "rank_active": getattr(_r, _rank_col),
+            f"rank_{other_arm}": getattr(_r, _other_rank_col),
+            "curated_best_mag": getattr(_r, _mag_col),
+            "live_best_mag": float(_mag[_m].min()) if _m.any() else np.nan,
+            "curated_n_rows_full": int(_r.n_rows),
+            "live_n_rows": int(_m.sum()),
+            "interfaces": _r.interfaces,
+            "immune": _r.immune,
+            "compartment_side": _r.compartment_side,
+            "agents_flagged": _r.agents_flagged,
+            "glioma_trials": _r.glioma_trials,
+        })
+    lead_live_df = pd.DataFrame(_rows)
+
+    # An axis scored in the inactive arm but not this one is a cross-arm signal, not
+    # missing data: 55 axes cleared the bar in the full arm and not the capped one.
+    lead_live_df["cross_arm"] = np.where(
+        lead_live_df["curated_best_mag"].isna(), f"{other_arm}-arm only", "both arms"
+    )
+    # Only a like-for-like comparison on the arm `n_rows` was computed for.
+    lead_live_df["n_rows_agrees"] = (
+        (lead_live_df["curated_n_rows_full"] == lead_live_df["live_n_rows"])
+        if n_rows_is_active_arm else pd.NA
+    )
+    lead_live_df["mag_agrees"] = np.isclose(
+        lead_live_df["curated_best_mag"].astype(float),
+        lead_live_df["live_best_mag"].astype(float),
+        rtol=1e-6, equal_nan=False,
+    )
+    lead_live_df = lead_live_df.sort_values(
+        ["rank_active", "nerve_side"]).reset_index(drop=True)
+    return lead_live_df, live_mag_max, n_rows_is_active_arm, other_arm
+
+
+@app.cell
+def _lead_axes_filters(lead_live_df, mo):
+    """Widgets local to Panel E — deliberately separate from the Panel C/D block."""
+    _tiers = sorted(lead_live_df["tier_v2"].astype(str).unique())
+    _sides = sorted(lead_live_df["nerve_side"].astype(str).unique())
+    tier_select = mo.ui.multiselect(options=_tiers, value=_tiers, label="Druggability tier")
+    side_select = mo.ui.multiselect(options=_sides, value=_sides, label="Nerve side")
+    disagree_only = mo.ui.checkbox(
+        value=False, label="Only axes where curated ≠ live")
+    return disagree_only, side_select, tier_select
+
+
+@app.cell
+def _lead_axes_view(
+    dataset, disagree_only, lead_axes_df, lead_live_df, live_mag_max, mo,
+    n_rows_is_active_arm, other_arm, side_select, tier_select,
+):
+    """Render the shortlist with its provenance and its disagreements stated."""
+    _df = lead_live_df[
+        lead_live_df["tier_v2"].astype(str).isin(tier_select.value or [])
+        & lead_live_df["nerve_side"].astype(str).isin(side_select.value or [])
+    ]
+    if disagree_only.value:
+        # n_rows_agrees is NA off the full arm, so magnitude is the only comparison
+        # available there. fillna(True) keeps NA out of the "disagreeing" set.
+        _bad = ~lead_live_df["mag_agrees"]
+        if n_rows_is_active_arm:
+            _bad = _bad | ~lead_live_df["n_rows_agrees"].fillna(True).astype(bool)
+        _df = _df[_bad.reindex(_df.index, fill_value=False)]
+
+    _n = len(lead_live_df)
+    _n_rows_ok = (
+        int(lead_live_df["n_rows_agrees"].fillna(False).astype(bool).sum())
+        if n_rows_is_active_arm else None
+    )
+    _mag_comparable = int(
+        (lead_live_df["curated_best_mag"].notna()
+         & lead_live_df["live_best_mag"].notna()).sum()
+    )
+    _mag_ok = int(lead_live_df["mag_agrees"].sum())
+    _n_other_only = int((lead_live_df["cross_arm"] != "both arms").sum())
+    _n_neuron = int(lead_live_df["compartment_side"].astype(str)
+                    .str.contains("donor-caveated").sum())
+    _n_cxcr4 = int(lead_axes_df["axis"].str.contains("CXCR4", na=False).sum())
+    _n_lrp1 = int(lead_axes_df["axis"].str.contains("LRP1", na=False).sum())
+    _n_s1pr1 = int(lead_axes_df["axis"].str.contains("S1PR1", na=False).sum())
+
+    _cols = [
+        "rank_active", f"rank_{other_arm}", "cross_arm", "axis", "nerve_side",
+        "tier_v2", "curated_best_mag", "live_best_mag", "mag_agrees",
+        "curated_n_rows_full", "live_n_rows",
+    ]
+    if n_rows_is_active_arm:
+        _cols.append("n_rows_agrees")
+    _cols += ["interfaces", "immune", "agents_flagged", "glioma_trials"]
+
+    _n_rows_line = (
+        f" and `n_rows` for **{_n_rows_ok}/{_n}**" if n_rows_is_active_arm
+        else ""
+    )
+    _n_rows_note = (
+        "" if n_rows_is_active_arm else
+        "\n\n**`curated_n_rows_full` is a full-arm count and the file has no capped "
+        "counterpart**, so it is shown for reference and *not* compared here — it "
+        "agrees with the full arm on 118/183 axes but with this one on 47/183, which "
+        "would render as disagreement that is really just the wrong arm."
+    )
+
+    mo.vstack([
+        mo.hstack([tier_select, side_select, disagree_only], gap=2),
+        mo.md(f"### Lead axes for `{dataset}` — showing **{len(_df):,}** of {_n}"),
+        mo.ui.table(_df[[c for c in _cols if c in _df.columns]],
+                    selection=None, page_size=20),
+        mo.callout(
+            mo.md(
+                f"**This shortlist is usable where its predecessor was not.** All "
+                f"{_n} axes are present in **both** Census arms and **none** of their "
+                f"magnitudes match the pinned v1.3.0 reference — the exact inverse of the "
+                f"2026-07-15 `nerve_crosstalk_lead_targets.csv`, which was withdrawn from "
+                f"this notebook on 2026-08-07 because it was reference-derived (34 of its "
+                f"40 magnitudes reproduced against that unaudited cohort, 0 against this "
+                f"one).\n\n"
+                f"**Curated numbers are shown next to live ones because they do not fully "
+                f"reproduce.** The generating script is not in this repository. The rule "
+                f"stated here — QC-passing rows, `magnitude_rank ≤ {live_mag_max}`, "
+                f"restricted to each axis's own interfaces — recovers the active arm's "
+                f"magnitude for **{_mag_ok}/{_mag_comparable}** comparable axes"
+                f"{_n_rows_line}. Treat a `False` in `mag_agrees` as *the selection logic "
+                f"differed*, not as a finding. Committing the generating script would "
+                f"close this gap permanently.\n\n"
+                f"*The file's two magnitude columns were not built the same way:* "
+                f"`capped_best_mag` reproduces **exactly** under this rule (128/128) "
+                f"while `best_mag` reaches 128/167. Worth resolving at the source."
+                f"{_n_rows_note}\n\n"
+                f"**[FAIR-ALERT] This shortlist has no producing Snakemake rule and its "
+                f"generating script is not in this repository**, and `results/` is "
+                f"gitignored — so unlike every other input on this page it can be neither "
+                f"rebuilt nor restored from git. That is the same condition §2.1 flagged "
+                f"about its predecessor. A rule under `workflow/rules/` that emits it "
+                f"would fix the reproducibility, the versioning and the curated/live gap "
+                f"in one move.\n\n"
+                f"**{_n_other_only} axes are `{other_arm}-arm only`** — scored in the "
+                f"other arm but not this one. That is the cross-arm reproducibility "
+                f"signal §2.5(c) asks for, and it is stronger evidence than agreement "
+                f"with the pinned reference in Panel F.\n\n"
+                f"**{_n_neuron} axes sit on the pooled neuron group**, marked "
+                f"`neuron (pooled; donor-caveated)`. One donor supplies roughly half of "
+                f"all ~4.3k neurons, so those axes are substantially one patient's "
+                f"biology — see Panel B and §2.2.\n\n"
+                f"**On the three axes that started this investigation:** CXCR4 appears on "
+                f"**{_n_cxcr4}** axes here and LRP1 on **{_n_lrp1}**, but S1PR1 on "
+                f"**{_n_s1pr1}**. The corrected tables contain zero S1PR1 rows at all — it "
+                f"did not move compartments, it failed to reach significance anywhere once "
+                f"the compartments were clean.\n\n"
+                f"*Two columns of the source file are deliberately not rendered.* "
+                f"`withdrawn` is empty in all {_n} rows even though `tier_v2` marks 14 "
+                f"axes `1b_approved_withdrawn_only` and `agents_flagged` carries "
+                f"`[WITHDRAWN]` tags inline — it looks like a bug in the generating "
+                f"script. `min_pval` is `0.0` in every row (the permutation floor at "
+                f"`n_perms=1000`), so it cannot discriminate. A column that is entirely "
+                f"null or entirely constant invites a reader to infer meaning from it."
+            ),
+            kind="info",
         ),
     ])
     return
@@ -881,9 +1101,12 @@ def _footer(dataset, mo, nerve_purity_df):
     **Limits carried by this cohort, all surfaced above.**
     1. No clinical metadata — `gdc_clinical.tsv` here is a generated stub, so the
        clinical-association panel from notebook 04 has no counterpart.
-    2. No curated lead axes. The pre-fix shortlist was withdrawn with Panel E and
-       has not been re-derived — §2.1 of
-       `markdowns/post_compartment_fix_next_steps.md`.
+    2. The curated lead axes in Panel E come from
+       `nerve_immune_lead_axes_postfix.csv`, which is Census-derived across both arms
+       (the withdrawn 2026-07-15 shortlist was not). Its own `best_mag`/`n_rows` only
+       partly reproduce in-notebook because its generating script is not in this
+       repository — Panel E shows curated and live values side by side rather than
+       resolving the difference.
     3. `astrocyte`, `opc`, generic `neuron` and `ependymal` are masked out of the
        nerve compartment by decision (Panel A). Their absence from the interaction
        tables is **not** evidence that they do not participate in crosstalk.
