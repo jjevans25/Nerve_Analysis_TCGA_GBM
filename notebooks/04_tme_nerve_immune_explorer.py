@@ -26,6 +26,7 @@ app = marimo.App(
 def _imports():
     import hashlib
     import json
+    import sys
     from datetime import datetime
     from pathlib import Path
 
@@ -37,7 +38,19 @@ def _imports():
     import seaborn as sns
     import yaml
 
-    return Path, datetime, duckdb, hashlib, json, mo, np, pd, plt, sns, yaml
+    # Nerve LIANA group ids are parsed by fair_utils, not by hand. On THIS cohort
+    # every group is `nerve_c{N}` and a bare prefix slice happens to be equivalent
+    # (verified 2026-08-07: 0 unmatched rows). It is used anyway so the notebook
+    # cannot silently lose a group if it is ever pointed at a rebuilt cohort, where
+    # the pooled `nerve_neuron` group exists and a prefix slice drops it — that is
+    # exactly what happened in notebook 05.
+    sys.path.insert(0, str(Path(__file__).parent.parent / "workflow" / "scripts"))
+    from fair_utils import nerve_group_key
+
+    return (
+        Path, datetime, duckdb, hashlib, json, mo, nerve_group_key, np, pd, plt,
+        sns, yaml,
+    )
 
 
 @app.cell
@@ -119,11 +132,28 @@ def _header(mo):
     - **Which nerve *cell types* -- not Leiden ids -- interface with which immune subtypes?**
     - **How stale or patient-driven is the evidence behind any given pair?**
 
-    > **The replication cohort is deliberately excluded.** The CELLxGENE Census cohort's
-    > LIANA tables were computed on raw UMI counts rather than log1p-normalised data
-    > (its run logged `X.max() = 53027.0`; the reference logged `7.762`). Every one of
-    > its 71,189 rows has an empty `specificity_rank` and 13,492 have `lr_logfc = inf`.
-    > See `markdowns/blocker_census_liana_raw_counts.md`.
+    > **This cohort has never been audited.** Read this before any panel below.
+    > Its nerve compartment was built by the same logic the 2026-08-05/06
+    > compartment-integrity fix removed, and unlike both CELLxGENE Census arms it
+    > carries **no author annotation**, so there is no external oracle to check it
+    > against. Where that logic *could* be measured — on the Census arms — the nerve
+    > compartment came out 59% malignant and 11% neural. Here the contamination is
+    > **unknown, not measured, and not cleared.** Nothing on this page is wrong on its
+    > own terms; the question is what its compartments contain, and that is open.
+    >
+    > It also cannot be re-derived: `data/processed/nerve_cells.h5ad` was deleted by a
+    > failed job on 2026-07-21 and the retrained latent re-clusters, so the frozen
+    > cl15 split no longer maps. Current policy is to keep v1.3.0 pinned and stop
+    > using it as a comparator, rebuilding a v1.4.0 baseline through the corrected
+    > pipeline when a publication-facing reference is actually needed (§2.5 of
+    > `markdowns/post_compartment_fix_next_steps.md`).
+
+    > **The replication cohort is no longer excluded — it has its own notebook.**
+    > `notebooks/05_census_nerve_immune_explorer.py` covers the CELLxGENE Census
+    > cohort, whose LIANA tables were repaired on 2026-07-26 (the raw-UMI-counts
+    > defect described in `markdowns/blocker_census_liana_raw_counts.md`, now
+    > **RESOLVED**) and rebuilt again by the compartment fix. Both Census arms pass
+    > 10/10 compartment gates. **They are the audited cohorts; this one is not.**
     """)
     return
 
@@ -167,7 +197,7 @@ def _glossary(mo):
 
 
 @app.cell
-def _load_tables(json, paths, pd):
+def _load_tables(json, nerve_group_key, paths, pd):
     """Read every input CSV and join biological identity onto the LR rows."""
     _read = dict(low_memory=False)
     interactions_df = pd.read_csv(paths["interactions"], **_read)
@@ -214,12 +244,20 @@ def _load_tables(json, paths, pd):
             if c in out.columns:
                 out[c] = out[c].map(_bool_map)
         out["batch_qc_pass"] = out["batch_qc_pass"].fillna(True).astype(bool)
-        out["cluster_key"] = (
-            out["nerve_cluster"].str.replace("nerve_c", "", regex=False).str.strip()
-        )
+        out["cluster_key"] = out["nerve_cluster"].map(nerve_group_key).str.strip()
         # Left join: 25 clusters survive into the _with_qc table vs 27 annotated
-        # (21 and 27 are dropped as artifacts) -- unmatched rows are expected.
+        # (21 and 27 are dropped as artifacts). The join is one-directional --
+        # annotated-but-absent is expected; present-but-unannotated is not, and
+        # would mean a group id shape this notebook does not understand.
         out = out.merge(nerve_ann_df[_ann_cols], on="cluster_key", how="left")
+        _orphans = sorted(set(
+            out.loc[(out["nerve_cluster"] != "") & out["label"].isna(), "cluster_key"]
+        ))
+        if _orphans:
+            raise RuntimeError(
+                f"[FAIR-ALERT] nerve groups with no annotation row: {_orphans}. "
+                f"Expected none on the pinned v1.3.0 tables."
+            )
         out["nerve_cell_type"] = out["nerve_cell_type"].fillna("")
         out["nerve_label"] = out["label"].fillna("")
         out["nerve_interpretation"] = out["interpretation"].fillna("")
@@ -318,10 +356,20 @@ def _compartment_census(annotation_df, interactions_df, lr_prov, mo, pd, plt):
     _has_tumor = "malignant" in _groups
     _immune_groups = {g.removeprefix("immune_") for g in _groups if g.startswith("immune_")}
 
-    # Map each annotated cell type to the compartment it feeds, if any.
-    # nerve_cell_subset.py matches config nerve_cells.cell_types by substring after
-    # lower-casing and replacing "_" with " "; immune_cell_subset.py takes exactly
-    # cell_type_predicted == "microglia".
+    # HISTORICAL DEFINITIONS — DO NOT "FIX" THESE TO READ config.yaml.
+    #
+    # This is the deliberate opposite of notebook 05, which reads the compartment
+    # definitions from config at run time. These tables are the PINNED v1.3.0
+    # artifacts; config has since moved past them, so config no longer describes
+    # this cohort. Today's `nerve_cells.cell_types` (excitatory_neuron /
+    # inhibitory_neuron / oligodendrocyte) selects 18,405 labelled cells here,
+    # against the 106,603 actually modelled in the pinned LR run. Reading config
+    # would understate the nerve compartment ~6x and silently misreport the panel.
+    #
+    # What these literals record is the definition IN FORCE WHEN v1.3.0 WAS FROZEN:
+    # nerve_cell_subset.py matched config nerve_cells.cell_types by substring after
+    # lower-casing and replacing "_" with " "; immune_cell_subset.py took exactly
+    # cell_type_predicted == "microglia" (a single string, not today's list of 8).
     _nerve_feeders = {
         "neuron", "excitatory_neuron", "inhibitory_neuron",
         "astrocyte", "oligodendrocyte", "ependymal",
@@ -405,20 +453,37 @@ def _compartment_census(annotation_df, interactions_df, lr_prov, mo, pd, plt):
                         f"- **{r.cell_type_predicted}** — {r.n_cells:,} cells"
                         for r in _unmodelled.itertuples()
                     )
-                    + "\n\nTwo of these are worth a decision:\n\n"
+                    + f"\n\n**The {int(_p['n_nerve_cells']):,} cells actually modelled as "
+                    f"nerve are fewer than the "
+                    f"{int(census_df.loc[census_df['compartment'] == 'nerve', 'n_cells'].sum()):,} "
+                    "carrying a nerve label**, because `nerve_cell_subset` also drops "
+                    "CNV-malignant cells. A label count is an upper bound on a "
+                    "compartment, never its size.\n\n"
+                    "Three notes, all of which have since changed upstream — **these "
+                    "literals describe the pinned v1.3.0 artifacts, not today's "
+                    "pipeline**:\n\n"
                     "- **`endothelial` (vasculature)** is a canonical TME compartment and "
                     "is annotated here, but no rule ever subsets it. Perivascular niche "
                     "signalling is therefore entirely absent from every result in this "
-                    "project.\n"
-                    "- **`opc`** looks like a naming miss, not a choice. "
-                    "`config.yaml nerve_cells.cell_types` lists "
-                    "`\"oligodendrocyte precursor cell\"`, but `scrna_annotate.py` emits "
-                    "the label `opc`. `nerve_cell_subset.py` matches by substring, and "
-                    "neither string contains the other — so OPCs are silently dropped "
-                    "from the nerve compartment.\n"
+                    "project. Worth knowing why that matters: on the Census arms, "
+                    "endothelial cells leaking *into* the nerve compartment turned out to "
+                    "be the entire source of the original S1PR1 \"nerve\" signal (one "
+                    "cluster, 92.9% endothelial). Absent here is not the same as absent "
+                    "there.\n"
+                    "- **`opc`** was a naming miss at freeze time, not a choice: "
+                    "`config.yaml` listed `\"oligodendrocyte precursor cell\"` while "
+                    "`scrna_annotate.py` emitted `opc`, and the substring match connected "
+                    "neither. **That is defect D5 and it is now fixed** — matching is exact "
+                    "and any unmatched entry hard-fails the rule. In the current pipeline "
+                    "OPCs are excluded from the nerve compartment by an explicit researcher "
+                    "decision (the `opc` label measured only 18.9% truly neural), not by "
+                    "accident. Here they were dropped silently.\n"
                     "- **`t_cell`** here is the *marker-argmax* label on the full cohort; "
                     "it is separate from the T cells inside the immune subset, which are "
-                    "sub-clustered out of the `microglia` blob."
+                    "sub-clustered out of the `microglia` blob. In the current pipeline "
+                    "`t_cell` is its own immune source label, so the immune compartment "
+                    "roughly doubled and **every immune result on this page is a myeloid "
+                    "result**."
                 ),
                 kind="warn",
             ),
@@ -776,12 +841,40 @@ def _celltype_interface_matrix(filtered_df, mo, plt, sns):
 
 @app.cell
 def _lead_targets_header(mo):
-    mo.md("""
-    ---
-    ## Panel E - Curated lead targets, traced back to evidence
-    `nerve_crosstalk_lead_targets.csv` is a hand-curated shortlist. Select an axis to
-    see every interaction row supporting it.
-    """)
+    mo.vstack([
+        mo.md("""
+        ---
+        ## Panel E - Curated lead targets, traced back to evidence
+        `nerve_crosstalk_lead_targets.csv` is a hand-curated shortlist. Select an axis to
+        see every interaction row supporting it.
+        """),
+        mo.callout(
+            mo.md(
+                "**This panel is internally consistent but rests on an unaudited "
+                "compartment.** The shortlist was derived from *this* cohort — 34 of its "
+                "40 `best_mag` values reproduce against the reference interaction table "
+                "to 1e-6, and none against either Census arm — so tracing an axis back to "
+                "its supporting rows here is a like-for-like trace, not a cross-cohort "
+                "claim. What it cannot tell you is whether the nerve groups those rows "
+                "come from contain the cells they are named after. See the banner at the "
+                "top of this notebook.\n\n"
+                "The same panel was **removed** from notebook 05 rather than caveated, "
+                "because there it scored *corrected* tables against this shortlist, which "
+                "would read as a replication test and is not one.\n\n"
+                "**`n_rows` will not match the supporting-row count below.** The shortlist "
+                "is dated 2026-07-15 and the `_with_qc` table was regenerated 2026-07-21 "
+                "with different QC filtering — the counts differ by a median of 186 rows "
+                "across the 40 axes. The curated number is shown alongside the live one "
+                "deliberately; treat a large gap as staleness, not as a finding.\n\n"
+                "Re-derivation is §2.1 of "
+                "`markdowns/post_compartment_fix_next_steps.md`. Note that **S1PR1, CXCR4 "
+                "and LRP1 were never on this shortlist** — they appear only in the raw "
+                "LIANA tables, so whichever document named them as leads was produced "
+                "outside this repository."
+            ),
+            kind="warn",
+        ),
+    ])
     return
 
 
@@ -1089,17 +1182,27 @@ def _footer(mo):
     mo.md("""
     ---
     **Scope.** Reference cohort (17-sample TCGA-GBM, v1.3.0) only. The CELLxGENE
-    Census replication cohort is excluded — see
-    `markdowns/blocker_census_liana_raw_counts.md`.
+    Census replication cohort has its own notebook,
+    `notebooks/05_census_nerve_immune_explorer.py` — it is no longer excluded, and
+    it is the audited one.
 
     **Known limits, all surfaced in the panels above.**
-    1. The vasculature (`endothelial`) is annotated but never modelled — no
-       perivascular signalling appears anywhere in this project.
-    2. `opc` is dropped from the nerve compartment by a config/label naming mismatch.
-    3. The immune compartment was re-run after the LR scores were computed; subtype
+    1. **This cohort's compartments have never been audited** and were built by the
+       logic the 2026-08-05/06 fix removed. Unknown, not cleared. It also cannot be
+       re-derived. This limit dominates the four below.
+    2. The vasculature (`endothelial`) is annotated but never modelled — no
+       perivascular signalling appears anywhere in this project. On the audited
+       cohorts, endothelial leakage into the nerve compartment was the whole of the
+       original S1PR1 signal.
+    3. `opc` is dropped from the nerve compartment here by a config/label naming
+       mismatch (defect D5, since fixed; OPCs are now excluded by explicit decision
+       instead). Its absence is not evidence about OPC biology either way.
+    4. The immune compartment was re-run after the LR scores were computed; subtype
        cell counts in Panel B do not match the sample sizes behind the LR scores.
-    4. Nerve per-patient composition is only available as a purity summary.
-    5. No clinical association survives FDR, and the clinical metadata is thin.
+       Separately, this compartment was myeloid-only — read every "immune" result
+       here as "myeloid".
+    5. Nerve per-patient composition is only available as a purity summary.
+    6. No clinical association survives FDR, and the clinical metadata is thin.
 
     **FAIR.** Inputs are produced by `nerve_tumor_immune_interaction`,
     `annotate_cluster_qc`, `nerve_cluster_annotations`, `immune_cluster_annotations`,

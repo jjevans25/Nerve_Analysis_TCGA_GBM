@@ -2224,3 +2224,77 @@ previously discarded. Purity callout renders 9 of 26 groups failing (capped) and
 **FAIR Notes:** No artifact changed — this run modified no table and required no pipeline
 re-execution. The notebook's export sidecar now hashes 11 inputs rather than 12, the dropped one
 being the withdrawn pre-fix shortlist.
+
+---
+
+### [2026-08-07] | Phase: Post-compartment-fix notebook audit (04) | Status: COMPLETE
+
+**Action:** Same pass over `notebooks/04_tme_nerve_immune_explorer.py` as the entry above did for
+05. This notebook reads the **pinned v1.3.0 reference** tables at `results/tables/` (root), which
+the compartment fix did **not** rebuild — so the audit question is different: not "does it read the
+new data" but "does it say what its own data is worth".
+
+**Outcome:** Two of notebook 05's four defects do not apply; the two that remain are the ones that
+matter most here.
+
+*Does not apply, verified rather than assumed:*
+
+1. **No `nerve_neuron` join failure.** The reference cohort's groups are uniformly `nerve_c{N}`;
+   the notebook's prefix slice is exactly equivalent to `fair_utils.nerve_group_key` on this table
+   and leaves **0** rows unmatched. Switched to the helper anyway, plus the same `[FAIR-ALERT]`
+   orphan guard, so the notebook cannot silently lose a group if it is ever pointed at a rebuilt
+   cohort.
+2. **Panel A's hardcoded compartment map is correct here — and must stay hardcoded.** This is the
+   deliberate *opposite* of the fix applied to notebook 05. Config has moved past these pinned
+   artifacts: today's `nerve_cells.cell_types` selects **18,405** labelled cells against the
+   **106,603** actually modelled in the pinned LR run, so reading config at run time would
+   understate the nerve compartment ~6x. The literals are now commented as the definition in force
+   at freeze time, with an explicit DO-NOT-"FIX" note.
+
+*Applies, and was the real gap:*
+
+3. **Nothing on the page said this cohort is unaudited.** Its nerve compartment was built by the
+   logic the fix removed, and unlike both Census arms it carries **no author annotation**, so there
+   is no oracle to check it against. Where that logic could be measured it came out 59% malignant /
+   11% neural; here the contamination is **unknown, not measured, and not cleared**. Added as a
+   top-of-notebook banner and as footer limit 1, which now dominates the others.
+4. **Stale prose.** The header and footer still excluded the Census cohort on the grounds of the
+   raw-counts LIANA defect — RESOLVED 2026-07-26, and that cohort has had its own notebook since.
+   Panel A still described the OPC drop as an open naming miss (defect D5, fixed; OPCs are now
+   excluded by explicit decision) and described `t_cell` as sitting outside the immune subset
+   without noting that this makes every immune result on the page a **myeloid** result.
+
+**Shortlist provenance settled, and a correction to yesterday's work.** Notebook 05's Panel E stub
+asserted the curated shortlist was "derived from tables in which the nerve compartment was 59%
+malignant and 27% myeloid". That figure is the Census full arm's, and the shortlist is not from
+there: **34 of its 40 `best_mag` values reproduce against the reference interaction table to 1e-6,
+and 0 against either Census arm.** It is reference-derived. Corrected the wording in 05 to the
+defensible claim — the shortlist comes from a cohort that has never been audited, so its basis is
+unknown rather than measured-bad. Also found the shortlist's `n_rows` no longer matches the live
+reference table (median gap 186 rows across 40 axes), because it is dated 2026-07-15 and the
+`_with_qc` table was regenerated 2026-07-21; Panel E of 04 now says so.
+
+**Panel E kept in 04, removed in 05 — deliberately asymmetric.** In 04 it traces an axis back to
+the rows that support it within one consistent cohort, which is a like-for-like trace. In 05 it
+scored *corrected* tables against the same shortlist, which reads as a replication test and is not
+one.
+
+**Artifacts:** `notebooks/04_tme_nerve_immune_explorer.py`,
+`notebooks/05_census_nerve_immune_explorer.py` (Panel E wording correction),
+both `notebooks/__marimo__/session/*.json`.
+
+**Verification:** `flake8` clean on both. Headless `marimo export html` on 04, exit 0, no error
+cells; rendered Panel A shows 106,603 modelled nerve against 136,587 labelled and a 2,786-cell
+coverage gap, all three matching hand computation against `annotation_summary.csv` and the pinned
+provenance. Notebook 05 re-exported after its edit, exit 0.
+
+**Open Issues:**
+- `duckdb` is imported by notebook 04 and never used. Left alone — removing it churns the cell
+  return signature for no functional gain.
+- `markdowns/blocker_census_annotation_scoring.md` still reads `Status: OPEN` though defect D1 is
+  fixed (carried over from the previous entry).
+- Notebook 03 (`03_nerve_tumor_immune_explorer.py`) has not had this pass. It is the pure LR view
+  over the same pinned reference tables, so it very likely carries defect 3 above.
+
+**FAIR Notes:** No artifact changed; no pipeline re-execution. The pinned v1.3.0 tables were read
+only.
