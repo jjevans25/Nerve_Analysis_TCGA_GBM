@@ -15,6 +15,14 @@ target list, 169 donors instead of 17), so the panels are not the same.
 REQUIRES the 2026-07-26 normalization fix. Before it, this cohort's LIANA tables
 were computed on raw UMI counts and every row had an empty specificity_rank.
 See markdowns/blocker_census_liana_raw_counts.md.
+
+GOVERNING DEPENDENCY: the 2026-08-05/06 compartment-integrity fix. Every table
+read here was rebuilt from ds_scrna_annotate down and both Census arms now pass
+10/10 compartment gates (nerve 94.8-95.4% neural, was ~11%; tumor 93% malignant,
+was ~48%; immune purity 99.6%). Nothing computed before 2026-08-05 is
+trustworthy, and the compartment definitions this notebook reports are read from
+config at runtime rather than hardcoded, because they changed three times during
+that work. See markdowns/post_compartment_fix_next_steps.md.
 """
 
 import marimo
@@ -31,6 +39,7 @@ def _imports():
     import hashlib
     import json
     import os
+    import sys
     from datetime import datetime
     from pathlib import Path
 
@@ -41,7 +50,19 @@ def _imports():
     import seaborn as sns
     import yaml
 
-    return Path, datetime, hashlib, json, mo, np, os, pd, plt, sns, yaml
+    # Nerve LIANA group ids are NOT uniformly `nerve_c{N}`: neurons are carried as
+    # one pooled group, `nerve_neuron`. Slicing the prefix off by hand leaves that
+    # id intact, it then matches no annotation row, and the group vanishes from
+    # every rollup in silence. fair_utils owns the parsing for exactly this reason
+    # (see its docstring, and the same guard in annotate_cluster_qc.py) — import it
+    # rather than reimplementing. fair_utils pulls in only stdlib + numpy + pandas.
+    sys.path.insert(0, str(Path(__file__).parent.parent / "workflow" / "scripts"))
+    from fair_utils import nerve_group_key, nerve_group_sort_key
+
+    return (
+        Path, datetime, hashlib, json, mo, nerve_group_key, nerve_group_sort_key,
+        np, os, pd, plt, sns, yaml,
+    )
 
 
 @app.cell
@@ -87,8 +108,6 @@ def _load_config(Path, mo, os, yaml):
         "concordance": ds_tables / "cohort_concordance_summary.json",
         "shared_pairs": ds_tables / "cohort_concordance_shared_pairs.csv",
         "lr_provenance": ds_prov / "nerve_tumor_immune_interaction_provenance.json",
-        # Reference-cohort input: the curated shortlist has no per-cohort twin.
-        "reference_lead_targets": tables_dir / "nerve_crosstalk_lead_targets.csv",
     }
 
     _missing = [p for p in paths.values() if not p.exists()]
@@ -99,15 +118,19 @@ def _load_config(Path, mo, os, yaml):
                 mo.md(
                     f"Required artifacts not found for cohort `{dataset}`:\n\n"
                     + "\n".join(f"- `{p}`" for p in _missing)
-                    + "\n\nBuild with:\n\n```\nsnakemake --use-conda --cores all "
-                    "--rerun-triggers mtime -- \\\n"
+                    # Targets go FIRST: --allowed-rules/--forcerun/--quiet all take
+                    # nargs='+' and swallow anything placed after them. And always
+                    # via run_snakemake.sh — a bare `snakemake` reverts to the venv's
+                    # packages and the workflow/envs pins go unenforced.
+                    + "\n\nBuild with:\n\n```\nscripts/run_snakemake.sh \\\n"
                     f"  results/tables/{dataset}/nerve_cluster_annotations.csv \\\n"
-                    f"  results/tables/{dataset}/cohort_concordance_summary.json\n```"
+                    f"  results/tables/{dataset}/cohort_concordance_summary.json \\\n"
+                    "  --use-conda --cores all --rerun-triggers mtime\n```"
                 ),
                 kind="danger",
             ),
         )
-    return dataset, ds_tables, paths
+    return config, dataset, ds_tables, paths
 
 
 @app.cell
@@ -123,18 +146,28 @@ def _header(dataset, mo):
     evidence: this one has **no usable clinical metadata** (its `gdc_clinical.tsv`
     is a generated stub) and **no curated target list** of its own.
 
-    > **This notebook depends on the 2026-07-26 normalization fix.** Before it, the
-    > LIANA tables here were computed on raw UMI counts — `X.max() = 53027` where
-    > log1p data peaks near 9 — and every one of the 71,189 rows had an empty
-    > `specificity_rank`, with 13,492 infinite log-fold-changes. Those tables were
-    > void. The fix normalizes to counts-per-10k + log1p before the LIANA call and
-    > adds a hard guard that refuses to run on an unnormalized matrix.
+    > **Every table below was rebuilt by the 2026-08-05/06 compartment-integrity
+    > fix.** Before it, the "nerve" compartment of this cohort was 59% malignant
+    > and 27% myeloid, and the `immune` compartment was 96% myeloid because
+    > `t_cell` was never in `immune_cells.source_labels`. Both arms now pass 10/10
+    > compartment gates. Two consequences to carry while reading:
+    > **(i)** any earlier statement of the form *"immune cells signal to X"* meant
+    > *"myeloid cells signal to X"* and has to be re-tested; **(ii)** nothing
+    > computed before 2026-08-05 — including the curated 40-axis shortlist — is
+    > usable. See `markdowns/post_compartment_fix_next_steps.md`.
+
+    > **This notebook also depends on the earlier 2026-07-26 normalization fix.**
+    > Before it, the LIANA tables here were computed on raw UMI counts —
+    > `X.max() = 53027` where log1p data peaks near 9 — and every one of the 71,189
+    > rows had an empty `specificity_rank`, with 13,492 infinite log-fold-changes.
+    > Those tables were void. The fix normalizes to counts-per-10k + log1p before
+    > the LIANA call and adds a hard guard that refuses an unnormalized matrix.
     """)
     return
 
 
 @app.cell
-def _load_tables(json, paths, pd):
+def _load_tables(json, nerve_group_key, paths, pd):
     """Read every input and join cluster identity onto the LR rows."""
     _read = dict(low_memory=False)
     interactions_df = pd.read_csv(paths["interactions"], **_read)
@@ -146,7 +179,6 @@ def _load_tables(json, paths, pd):
     immune_purity_df = pd.read_csv(paths["immune_purity"])
     annotation_df = pd.read_csv(paths["annotation_summary"])
     shared_pairs_df = pd.read_csv(paths["shared_pairs"])
-    lead_targets_df = pd.read_csv(paths["reference_lead_targets"])
     with open(paths["concordance"]) as _f:
         concordance = json.load(_f)
     with open(paths["lr_provenance"]) as _f:
@@ -163,6 +195,28 @@ def _load_tables(json, paths, pd):
     )
     nerve_ann_df["cluster_key"] = nerve_ann_df["cluster"].astype(str)
 
+    # The pooled neuron group has no annotation row and never will: neurons are
+    # carried as ONE LIANA group (`nerve_neuron`, purity key `neuron`) rather than
+    # per Leiden cluster, because ~4.3k neurons across 170 donors is a group, not a
+    # cluster set — see config nerve_cells.neuron_labels. nerve_cluster_annotations
+    # only ever iterates Leiden clusters, so synthesize the row here rather than
+    # letting an unlabelled group drop silently out of every rollup below.
+    if "neuron" not in set(nerve_ann_df["cluster_key"]):
+        nerve_ann_df = pd.concat([nerve_ann_df, pd.DataFrame([{
+            "cluster": "neuron",
+            "cluster_key": "neuron",
+            "label": "neuron | pooled excitatory + inhibitory",
+            "nerve_cell_type": "neuron",
+            "nerve_score_type": "neuron",
+            "nerve_type_agrees": True,
+            "top_markers": "",
+            "interpretation": (
+                "Pooled subtype-confirmed neurons (excitatory + inhibitory), carried "
+                "as a single LIANA group outside the Leiden clustering. Donor-dominated "
+                "— see Panel B before reading any neuron-side axis."
+            ),
+        }])], ignore_index=True)
+
     _bool_map = {True: True, "True": True, False: False, "False": False}
     _ann_cols = [
         "cluster_key", "nerve_cell_type", "nerve_score_type", "nerve_type_agrees",
@@ -177,10 +231,26 @@ def _load_tables(json, paths, pd):
             if c in out.columns:
                 out[c] = out[c].map(_bool_map)
         out["batch_qc_pass"] = out["batch_qc_pass"].fillna(True).astype(bool)
-        out["cluster_key"] = (
-            out["nerve_cluster"].str.replace("nerve_c", "", regex=False).str.strip()
-        )
+        # Via the shared helper, not str.replace("nerve_c", ""): that leaves the
+        # pooled `nerve_neuron` id intact, it matches no annotation row, and 2,679
+        # neuron rows lose their cell type without raising. Same helper the pipeline
+        # uses in annotate_cluster_qc.py.
+        out["cluster_key"] = out["nerve_cluster"].map(nerve_group_key).str.strip()
         out = out.merge(nerve_ann_df[_ann_cols], on="cluster_key", how="left")
+
+        # Notebook-side twin of the [FAIR-ALERT] guard in annotate_cluster_qc.py:
+        # a nerve group with no label means the group set moved again. Fail loudly
+        # rather than render an empty cell type.
+        _orphans = sorted(set(
+            out.loc[(out["nerve_cluster"] != "") & out["label"].isna(), "cluster_key"]
+        ))
+        if _orphans:
+            raise RuntimeError(
+                f"[FAIR-ALERT] nerve groups with no annotation row: {_orphans}. "
+                f"The nerve group set has changed; update nerve_cluster_annotations "
+                f"or the pooled-group synthesis above before trusting any panel."
+            )
+
         out["nerve_cell_type"] = out["nerve_cell_type"].fillna("")
         out["nerve_label"] = out["label"].fillna("")
         out["nerve_interpretation"] = out["interpretation"].fillna("")
@@ -203,7 +273,6 @@ def _load_tables(json, paths, pd):
         immune_cluster_purity_df,
         immune_purity_df,
         interactions_df,
-        lead_targets_df,
         lr_prov,
         nerve_ann_df,
         nerve_purity_df,
@@ -213,7 +282,7 @@ def _load_tables(json, paths, pd):
 
 
 @app.cell
-def _integrity_banner(interactions_df, lr_prov, mo):
+def _integrity_banner(dataset, interactions_df, lr_prov, mo):
     """Confirm at read time that the normalization fix is present in this table."""
     _p = lr_prov["parameters"]
     _spec_missing = int(interactions_df["specificity_rank"].isna().sum())
@@ -236,7 +305,12 @@ def _integrity_banner(interactions_df, lr_prov, mo):
             mo.md(
                 f"**Normalization verified.** All {_n:,} rows carry a "
                 f"`specificity_rank` and none has an infinite `lr_logfc` — the "
-                f"signature of the raw-counts defect is absent."
+                f"signature of the raw-counts defect is absent.\n\n"
+                f"*This checks the normalization only.* Compartment integrity — "
+                f"whether the cells in each group are what the group is named after "
+                f"— is a separate question, evidenced by "
+                f"`results/tables/{dataset}/compartment_audit_gates.csv` "
+                f"(10/10 PASS on both Census arms, audit in enforcing mode)."
             ),
             kind="success",
         )
@@ -266,7 +340,7 @@ def _census_header(mo):
 
 
 @app.cell
-def _compartment_census(annotation_df, interactions_df, lr_prov, mo, pd, plt):
+def _compartment_census(annotation_df, config, interactions_df, lr_prov, mo, pd, plt):
     """Cohort annotation census vs the compartments the LR analysis actually saw."""
     _p = lr_prov["parameters"]
     _groups = set(interactions_df["source"].astype(str)) | set(
@@ -274,36 +348,44 @@ def _compartment_census(annotation_df, interactions_df, lr_prov, mo, pd, plt):
     )
     _immune_groups = {g.removeprefix("immune_") for g in _groups if g.startswith("immune_")}
 
-    _nerve_feeders = {
-        "neuron", "excitatory_neuron", "inhibitory_neuron",
-        "astrocyte", "oligodendrocyte", "ependymal", "opc",
-    }
+    # READ FROM CONFIG, never hardcode. Both compartment definitions moved on
+    # 2026-08-05/06 and a literal here silently misreports the cohort: the nerve
+    # panel lost astrocyte / opc / generic neuron / ependymal, and the immune panel
+    # went from the single string "microglia" to eight labels. A hardcoded copy of
+    # the old definitions overstated nerve 5x and understated immune 3x.
+    _nerve_labels = set(config["nerve_cells"]["cell_types"])
+    _immune_cfg = config["immune_cells"]
+    _immune_labels = set(
+        _immune_cfg.get("source_labels") or [_immune_cfg["source_label"]]
+    )
 
     def _compartment(ct: str) -> str:
-        if ct in _nerve_feeders:
+        if ct in _nerve_labels:
             return "nerve"
-        if ct == "microglia":
+        if ct in _immune_labels:
             return "immune"
-        return "not modelled"
+        return "neither"
 
     _c = annotation_df.copy()
     _c["compartment"] = _c["cell_type_predicted"].map(_compartment)
-    _c["modelled"] = _c["compartment"] != "not modelled"
+    _c["feeds_a_compartment"] = _c["compartment"] != "neither"
     _c["pct_of_cohort"] = (100 * _c["n_cells"] / _c["n_cells"].sum()).round(2)
     census_df = _c[["cell_type_predicted", "n_cells", "pct_of_cohort",
-                    "compartment", "modelled"]].sort_values(
+                    "compartment", "feeds_a_compartment"]].sort_values(
         "n_cells", ascending=False).reset_index(drop=True)
 
     _total = int(census_df["n_cells"].sum())
-    _unmod = census_df.loc[~census_df["modelled"]]
+    _unmod = census_df.loc[~census_df["feeds_a_compartment"]]
     _n_unmod = int(_unmod["n_cells"].sum())
+    _n_nerve_lbl = int(census_df.loc[census_df["compartment"] == "nerve", "n_cells"].sum())
+    _n_imm_lbl = int(census_df.loc[census_df["compartment"] == "immune", "n_cells"].sum())
 
     _fig, _ax = plt.subplots(figsize=(8, 3.4))
-    _colors = {"nerve": "#4C72B0", "immune": "#DD8452", "not modelled": "#BBBBBB"}
+    _colors = {"nerve": "#4C72B0", "immune": "#DD8452", "neither": "#BBBBBB"}
     _ax.barh(census_df["cell_type_predicted"][::-1], census_df["n_cells"][::-1],
              color=[_colors[c] for c in census_df["compartment"][::-1]])
     _ax.set_xlabel("cells (marker-argmax annotation)")
-    _ax.set_title("Census cohort annotation census — grey = never enters the LR analysis")
+    _ax.set_title("Annotation census — grey = label feeds neither nerve nor immune")
     _fig.tight_layout()
 
     _compartment_tbl = pd.DataFrame({
@@ -328,25 +410,39 @@ def _compartment_census(annotation_df, interactions_df, lr_prov, mo, pd, plt):
         ], widths=[3, 2], gap=2),
         mo.callout(
             mo.md(
-                f"**{_n_unmod:,} of {_total:,} annotated cells "
-                f"({100 * _n_unmod / _total:.1f}%) never enter any interaction result** — "
-                f"a much larger gap than the reference cohort's 1.5%.\n\n"
-                + "\n".join(f"- **{r.cell_type_predicted}** — {r.n_cells:,} cells"
-                            for r in _unmod.itertuples())
-                + "\n\nTwo things differ sharply from the reference cohort and are worth "
-                "knowing before reading any result below:\n\n"
-                "- **The excluded `t_cell` population is large.** `immune_cell_subset` takes "
-                "only cells labelled `microglia`, then sub-clusters T cells back out of that "
-                "blob. So the T cells in the LR analysis are the ones found *inside* the "
-                "myeloid blob, while a separately-annotated T-cell population of this size "
-                "sits outside it entirely. Treat `immune_t_cell` results as a subset of the "
-                "cohort's T cells, not all of them.\n"
-                "- **This cohort's annotation resolves only 5 cell types** against the "
-                "reference's 10 — no `endothelial`, `opc`, `ependymal` or `tumor_gbm` "
-                "category exists here at all. That is itself a suspected artifact of "
-                "marker scoring on raw counts (`mean_confidence` 5.96–15.29 here vs "
-                "0.11–0.73 in the reference); it is a **separate, unfixed defect** from the "
-                "LIANA one — see `markdowns/blocker_census_annotation_scoring.md`."
+                "**Compartment membership is read from `config.yaml` at run time**, not "
+                "hardcoded here — nerve = "
+                + ", ".join(f"`{lbl}`" for lbl in sorted(_nerve_labels))
+                + f"; immune = {len(_immune_labels)} labels "
+                + ", ".join(f"`{lbl}`" for lbl in sorted(_immune_labels))
+                + ".\n\n"
+                f"By label: **{_n_nerve_lbl:,}** cells feed nerve, **{_n_imm_lbl:,}** feed "
+                f"immune, **{_n_unmod:,} of {_total:,} ({100 * _n_unmod / _total:.1f}%)** feed "
+                f"neither.\n\n"
+                "**These label counts are upper bounds, not compartment sizes.** The "
+                "compartments additionally drop CNV-malignant cells, which is why nerve "
+                f"lands at {int(_p['n_nerve_cells']):,} against {_n_nerve_lbl:,} labelled. "
+                "And the **tumor compartment is CNV-derived, so it cuts across every label "
+                "in this chart** — a grey bar is not evidence that those cells are absent "
+                "from the analysis, only that their *label* feeds neither of the two "
+                "label-defined compartments.\n\n"
+                "Two things to carry before reading any result below:\n\n"
+                "- **Four neural labels are excluded from the nerve compartment by "
+                "decision, not by biology.** Measured against the CELLxGENE author "
+                "annotation on the full arm, the non-malignant cells carrying each label "
+                "are `inhibitory_neuron` 99.5% / `oligodendrocyte` 95.8% / "
+                "`excitatory_neuron` 83.9% truly neural, against generic `neuron` 40.6%, "
+                "`ependymal` 31.6%, `opc` 18.9%, `astrocyte` 10.0%. The last four are "
+                "masked out. They remain annotated in every artifact — **their absence "
+                "from the interaction tables is a masking decision and must be reported "
+                "as such.** OPCs in particular (relevant to the neuron–glioma interface) "
+                "are the largest scientific cost; see §2.4 and §3.2 of "
+                "`markdowns/post_compartment_fix_next_steps.md`.\n"
+                "- **The immune compartment is no longer myeloid-only.** It was a single "
+                "`microglia` label until 2026-08-05, making it 96.4% myeloid / 3.1% "
+                "lymphoid; it now takes eight labels and roughly doubled in size. Any "
+                'earlier statement of the form *"immune cells signal to X"* was a '
+                "**myeloid** finding and has to be re-tested, not merely rescaled."
             ),
             kind="warn",
         ),
@@ -364,10 +460,15 @@ def _purity_header(mo):
 
 
 @app.cell
-def _patient_purity(immune_cluster_purity_df, mo, nerve_purity_df, np, plt):
+def _patient_purity(
+    immune_cluster_purity_df, mo, nerve_group_sort_key, nerve_purity_df, np, plt,
+):
     """Per-cluster patient-dominance for both compartments."""
-    def _panel(ax, df, title):
-        d = df.sort_values("cluster").copy()
+    def _panel(ax, df, title, *, sort_key=None):
+        # The nerve purity table mixes numeric Leiden ids with the named `neuron`
+        # group, so a plain sort is lexical (0, 1, 10, ..., 9, neuron).
+        d = (df.sort_values("cluster", key=lambda s: s.map(sort_key))
+             if sort_key else df.sort_values("cluster")).copy()
         x = np.arange(len(d))
         colors = ["#C44E52" if not bool(p) else "#4C72B0" for p in d["pass_overall"]]
         ax.bar(x, d["dominant_sample_fraction"], color=colors)
@@ -382,22 +483,40 @@ def _patient_purity(immune_cluster_purity_df, mo, nerve_purity_df, np, plt):
 
     _fig, _axes = plt.subplots(2, 1, figsize=(11, 7))
     _panel(_axes[0], nerve_purity_df,
-           "Nerve clusters — patient dominance (red = fails batch QC)")
+           "Nerve groups — patient dominance (red = fails batch QC)",
+           sort_key=nerve_group_sort_key)
     _panel(_axes[1], immune_cluster_purity_df,
            "Immune Leiden clusters — patient dominance")
     _fig.tight_layout()
 
     _n_fail = int((~nerve_purity_df["pass_overall"].astype(bool)).sum())
+    _neu = nerve_purity_df.loc[nerve_purity_df["cluster"].astype(str) == "neuron"]
+    _neu_txt = ""
+    if not _neu.empty:
+        _r = _neu.iloc[0]
+        _neu_txt = (
+            f"\n\n**The pooled `neuron` group is donor-dominated.** "
+            f"{int(_r['n_cells']):,} cells, dominant-sample fraction "
+            f"**{float(_r['dominant_sample_fraction']):.4f}** across only "
+            f"**{int(_r['n_contributing_samples'])}** donors — on the full arm it is "
+            f"0.5032 across 7, i.e. one donor supplies roughly half of all neurons. "
+            f"**Any neuron-side ligand–receptor axis is substantially one patient's "
+            f"biology.** Report it with that stated, or restrict to axes that survive a "
+            f"leave-that-donor-out check. The cohort holds ~3.4k neurons at ~20 per "
+            f"donor, a ceiling no pipeline correction can lift — §2.2 and §3.6 of "
+            f"`markdowns/post_compartment_fix_next_steps.md`."
+        )
     mo.vstack([
         mo.center(_fig),
         mo.callout(
             mo.md(
-                f"**{_n_fail} of {len(nerve_purity_df)} nerve clusters fail batch QC** "
+                f"**{_n_fail} of {len(nerve_purity_df)} nerve groups fail batch QC** "
                 f"(dominant-sample fraction ≥ 0.5 or too few contributing donors). "
-                f"Their rows are marked `*` and can be dropped in Panel C.\n\n"
-                "*Why this is a bar chart and not the `cluster × patient` heatmap used in "
-                "notebook 04: this cohort has 169 donors, so that matrix is 27 × 169 and "
-                "unreadable. The purity summary carries the same verdict in a legible form.*"
+                f"Their rows are marked `*` and can be dropped in Panel C."
+                + _neu_txt
+                + "\n\n*Why this is a bar chart and not the `cluster × patient` heatmap "
+                "used in notebook 04: this cohort has 169 donors, so that matrix is "
+                "unreadable. The purity summary carries the same verdict legibly.*"
             ),
             kind="info",
         ),
@@ -582,70 +701,47 @@ def _celltype_interface_matrix(filtered_df, mo, plt, sns):
 
 
 @app.cell
-def _replication_header(mo):
-    mo.md("""
-    ---
-    ## Panel E — Do the reference cohort's curated leads replicate here?
-    The 40 hand-curated axes in `nerve_crosstalk_lead_targets.csv` were derived from
-    the 17-sample reference cohort. This panel looks each one up in *this* cohort's
-    LR table — the single most useful cross-cohort question available.
-    """)
-    return
-
-
-@app.cell
-def _replication_table(interactions_df, lead_targets_df, mo, pd):
-    """Look up every curated reference axis in the Census LR table."""
-    _lig = interactions_df["ligand_complex"].astype(str)
-    _rec = interactions_df["receptor_complex"].astype(str)
-
-    _rows = []
-    for _r in lead_targets_df.itertuples():
-        _a, _b = str(_r.mol_a), str(_r.mol_b)
-        _hits = interactions_df[((_lig == _a) & (_rec == _b)) | ((_lig == _b) & (_rec == _a))]
-        _sig = _hits[_hits["magnitude_rank"] <= 0.05]
-        _rows.append({
-            "axis": _r.axis,
-            "target_class": _r.target_class,
-            "ref_best_mag": _r.best_mag,
-            "census_rows": len(_hits),
-            "census_sig_rows": len(_sig),
-            "census_best_mag": _hits["magnitude_rank"].min() if len(_hits) else None,
-            "census_best_lrscore": _hits["lrscore"].max() if len(_hits) else None,
-            "census_interfaces": ",".join(sorted(_hits["compartment_pair"].astype(str).unique())),
-            "replicates": "yes" if len(_sig) else ("present" if len(_hits) else "absent"),
-        })
-    replication_df = pd.DataFrame(_rows)
-
-    _n_yes = int((replication_df["replicates"] == "yes").sum())
-    _n_present = int((replication_df["replicates"] == "present").sum())
-    _n_absent = int((replication_df["replicates"] == "absent").sum())
-
+def _replication_removed(mo):
+    """Panel E is deliberately absent — this stub records why, so it is not re-added."""
     mo.vstack([
+        mo.md("""
+        ---
+        ## Panel E — removed
+        """),
         mo.callout(
             mo.md(
-                f"**{_n_yes} of {len(replication_df)} curated axes replicate** at "
-                f"`magnitude_rank ≤ 0.05` in this cohort · {_n_present} present but not "
-                f"significant · {_n_absent} absent entirely.\n\n"
-                "`absent` usually means the ligand or receptor did not survive this "
-                "cohort's gene filtering or `expr_prop` threshold, not that the biology "
-                "is contradicted. Check `census_rows = 0` against the gene lists before "
-                "concluding non-replication."
+                "**The curated-lead replication panel was removed on 2026-08-07, not lost.**\n\n"
+                "It looked each of the 40 hand-curated axes in "
+                "`results/tables/nerve_crosstalk_lead_targets.csv` up in this cohort's LR "
+                "table. That shortlist is dated 2026-07-15 and was derived from tables in "
+                'which the "nerve" compartment was **59% malignant and 27% myeloid**. Every '
+                "`replicates: yes` it produced was a comparison against a compartment that "
+                "no longer exists, and there is no honest way to caption that.\n\n"
+                "Two things worth knowing before it is rebuilt:\n\n"
+                "- **S1PR1, CXCR4 and LRP1 were never on that shortlist.** They appear only "
+                "in the raw LIANA tables, so whichever document named them as leads was "
+                "produced outside this repository. That selection logic is not reproducible "
+                "here and must be restated explicitly as part of any re-derivation.\n"
+                "- The corrected tables contain **zero** S1PR1 rows at all — the axis did "
+                "not move compartments, it failed to reach significance anywhere once the "
+                "compartments were clean.\n\n"
+                "Re-derive the shortlist from the current "
+                "`nerve_tumor_immune_interactions_with_qc.csv` with the selection logic "
+                "stated (§2.1 of `markdowns/post_compartment_fix_next_steps.md`), then "
+                "restore this panel against it."
             ),
-            kind="info",
+            kind="warn",
         ),
-        mo.ui.table(replication_df.sort_values(
-            ["replicates", "census_best_mag"]).reset_index(drop=True),
-            selection=None, page_size=20),
     ])
-    return (replication_df,)
+    return
 
 
 @app.cell
 def _concordance_header(mo):
     mo.md("""
     ---
-    ## Panel F — Whole-table concordance with the reference cohort
+    ## Panel F — Whole-table overlap with the pinned v1.3.0 reference
+    *A diagnostic, not a replication result — read the callout before the numbers.*
     """)
     return
 
@@ -671,6 +767,8 @@ def _concordance_panel(concordance, mo, np, plt, shared_pairs_df):
         mo.hstack([
             mo.center(_fig),
             mo.md(f"""
+*Diagnostic only — see callout below.*
+
 **Jaccard overlap** {_c['jaccard_overlap']:.4f}
 &nbsp;
 
@@ -685,14 +783,33 @@ def _concordance_panel(concordance, mo, np, plt, shared_pairs_df):
         ], widths=[3, 2], gap=2),
         mo.callout(
             mo.md(
-                "**These numbers superseded a void set.** Computed before the "
-                "normalization fix they were Jaccard **0.4248** / ρ **0.5357**, comparing "
-                "log1p-scored reference magnitudes against raw-count-scored Census ones. "
-                "Both rose once the scales matched. Points near the diagonal are pairs "
-                "the two cohorts rank alike; the axes are ranks, so **lower-left is "
-                "stronger in both**."
+                "**Do not report these as a replication result.** The v1.3.0 reference is "
+                "no longer a valid comparator, for three independent reasons:\n\n"
+                "- **Its nerve compartment was built by the exact logic this work "
+                "removed** — the astrocyte/opc/generic-neuron/ependymal panels that "
+                "measured 10–41% neural — and it carries no author annotation, so unlike "
+                "both Census arms it has never been audited against an external oracle.\n"
+                "- **It was scored against differently-normalized data.** Defect D8: "
+                "compartments were concatenated on different scales and then normalized as "
+                "one, so tumor was transformed once and nerve/immune twice. Every "
+                "cross-compartment magnitude computed before the fix compared unlike "
+                "quantities.\n"
+                "- **It is structurally unreproducible.** "
+                "`data/processed/nerve_cells.h5ad` was deleted by a failed job on "
+                "2026-07-21 and the retrained latent re-clusters, so the frozen cl15 split "
+                "no longer maps.\n\n"
+                "The diagnostic detail that settles the direction: **the two corrected "
+                "arms agree with each other markedly better than either agrees with this "
+                "reference.** That pattern points at the reference as the outlier, not at "
+                "a failure to replicate. Current policy is §2.5 option (a) — keep v1.3.0 "
+                "pinned, stop using it for concordance, and report cross-arm agreement "
+                "instead; rebuild a v1.4.0 baseline through the corrected pipeline when a "
+                "publication-facing reference is actually needed.\n\n"
+                "*Mechanics, if you read the plot anyway: the axes are ranks, so "
+                "lower-left is stronger in both, and points near the diagonal are pairs "
+                "the two tables rank alike.*"
             ),
-            kind="info",
+            kind="warn",
         ),
     ])
     return
@@ -749,22 +866,27 @@ def _export(
 
 
 @app.cell
-def _footer(dataset, mo):
+def _footer(dataset, mo, nerve_purity_df):
+    _n_fail = int((~nerve_purity_df["pass_overall"].astype(bool)).sum())
     mo.md(f"""
     ---
     **Cohort.** `{dataset}` — CELLxGENE Census GBM 10x, 169 donors. The reference
-    cohort lives in `notebooks/04_tme_nerve_immune_explorer.py`; run both and compare.
+    cohort lives in `notebooks/04_tme_nerve_immune_explorer.py`. Note that reference
+    was *not* rebuilt by the compartment fix; see Panel F before comparing them.
 
     **Limits carried by this cohort, all surfaced above.**
     1. No clinical metadata — `gdc_clinical.tsv` here is a generated stub, so the
        clinical-association panel from notebook 04 has no counterpart.
-    2. The curated lead axes in Panel E come from the *reference* cohort; there is no
-       per-cohort curation.
-    3. Annotation resolves only 5 cell types (no endothelial / opc / ependymal), and
-       a large separately-annotated T-cell population sits outside the immune
-       compartment. Suspected raw-counts marker-scoring defect — unfixed, see
-       `markdowns/blocker_census_annotation_scoring.md`.
-    4. 11 of 35 nerve clusters fail batch QC in this cohort.
+    2. No curated lead axes. The pre-fix shortlist was withdrawn with Panel E and
+       has not been re-derived — §2.1 of
+       `markdowns/post_compartment_fix_next_steps.md`.
+    3. `astrocyte`, `opc`, generic `neuron` and `ependymal` are masked out of the
+       nerve compartment by decision (Panel A). Their absence from the interaction
+       tables is **not** evidence that they do not participate in crosstalk.
+    4. {_n_fail} of {len(nerve_purity_df)} nerve groups fail batch QC, and the pooled
+       `neuron` group is donor-dominated on both arms (Panel B).
+    5. Concordance against the pinned v1.3.0 reference is a diagnostic only, never a
+       replication result (Panel F).
 
     **FAIR.** Inputs from `ds_nerve_tumor_immune_interaction`, `ds_annotate_cluster_qc`,
     `ds_nerve_cluster_annotations` and `ds_cohort_concordance`. Exports carry a

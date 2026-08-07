@@ -2147,3 +2147,80 @@ Guards still green after the full re-run:
    the interaction tables is a masking decision, not a biological finding.
 5. **The v1.3.0 reference should be re-derived** on the corrected pipeline before concordance is
    used as evidence either way.
+
+---
+
+### [2026-08-07] | Phase: Post-compartment-fix notebook audit | Status: COMPLETE
+
+**Action:** Researcher asked whether `notebooks/05_census_nerve_immune_explorer.py` references the
+newly generated data after the 2026-08-06 re-run. Audited it against the artifacts on disk.
+
+**Outcome:** Mechanically yes, semantically no. Every path the notebook resolves points at a table
+rebuilt on 2026-08-06, but the logic reading those tables was written against the pre-fix
+compartments. Four defects, one of them silent:
+
+1. **`nerve_neuron` join failure (correctness).** `_prepare` derived its join key with
+   `str.replace("nerve_c", "")`. Neurons are carried as one pooled LIANA group, `nerve_neuron`,
+   which contains no `nerve_c` substring, so the id passed through unchanged and matched no
+   annotation row. **2,679 of 48,581 nerve-side rows** lost their cell type, dropped out of the
+   Panel D interface matrix entirely, and rendered as a bare id in Panel C — no error raised. This
+   is the exact failure `fair_utils.nerve_group_key` exists to prevent and that
+   `annotate_cluster_qc.py` already guards against; the notebook was the one consumer that never
+   adopted the helper. Worse than its row count: the pooled neuron group is precisely the
+   donor-dominated population that needs to be *visible and caveated*, not invisible.
+2. **Panel A's compartment mapping was a hardcoded copy of the old definitions.** It still listed
+   astrocyte/opc/generic-neuron/ependymal as nerve and `microglia` alone as immune. Measured
+   against the live `annotation_summary.csv` for the capped arm, it reported nerve **194,080** and
+   immune **125,671** where config gives **36,712** and **343,280** — nerve overstated 5x, immune
+   understated 3x — and named seven labels as excluded that are now inside the immune compartment.
+3. **Three false narrative claims.** "resolves only 5 cell types … no opc/ependymal/tumor_gbm"
+   (there are now 18 labels including all three); "`mean_confidence` 5.96-15.29" (live range
+   0.95-28.11); and a pointer to `blocker_census_annotation_scoring.md` as an *unfixed* defect —
+   that is defect D1 and `scrna_annotate.py:102-135` now normalizes to log1p before `score_genes`
+   and reverts after. Footer's "11 of 35 nerve clusters fail batch QC" is now 9 of 26.
+4. **Panel F framed the v1.3.0 concordance as an agreement result** ("both rose once the scales
+   matched"), which is exactly the reading the 2026-08-06 entry above forbids.
+
+**Fixes applied** (researcher-directed scope: correctness + stale prose; remove Panel E; §2.5
+option (a) for concordance):
+
+- Import `nerve_group_key` / `nerve_group_sort_key` from `fair_utils` instead of parsing ids by
+  hand; synthesize the pooled-neuron annotation row the Leiden-only annotation rule cannot emit;
+  add a `[FAIR-ALERT]` guard that raises if any nerve group lands without a label, mirroring the
+  pipeline-side check.
+- Panel A now reads `nerve_cells.cell_types` and `immune_cells.source_labels` from config at run
+  time. Its callout states the §2.4 masking decision with the measured per-label purity, and that
+  the tumor compartment is CNV-derived so it cuts across every label in the chart.
+- Panel B sorts nerve groups numerically-then-named and surfaces the neuron group's donor
+  dominance inline.
+- **Panel E removed** — it scored the current tables against a 2026-07-15 shortlist derived when
+  "nerve" was 59% malignant. Replaced with a stub recording why, so it is not silently re-added.
+- Panel F demoted to a diagnostic with the three reasons the reference is not a valid comparator.
+
+**Artifacts:** `notebooks/05_census_nerve_immune_explorer.py`,
+`notebooks/__marimo__/session/05_census_nerve_immune_explorer.py.json`,
+`.claude/plans/plan_notebook05_post_compartment_fix.md`,
+`markdowns/post_compartment_fix_next_steps.md` (researcher's review doc, now tracked — the notebook
+cites it in six places).
+
+**Verification:** `flake8` clean. Headless `marimo export html` run on **both** arms, exit 0, no
+error cells. Join completeness confirmed — the only unmatched nerve key on either arm is `neuron`,
+the group the notebook now synthesizes. Panel A renders 36,712 nerve / 343,280 immune on the capped
+arm. Panel D regains 90 (capped) / 97 (full) neuron rows at the default thresholds that it
+previously discarded. Purity callout renders 9 of 26 groups failing (capped) and 9 of 24 (full).
+
+**Tool Versions:** marimo 0.23.1 (matches the `workflow/envs/notebooks.yaml` pin), pandas 2.x.
+
+**Open Issues:**
+- `markdowns/blocker_census_annotation_scoring.md` still reads `Status: OPEN` although its defect
+  (D1) is fixed. One-line docs correction, not done here.
+- Deferred by researcher decision, all still open: a compartment-audit panel reading
+  `compartment_audit_gates.csv` / `malignancy_confusion.csv` / `nerve_compartment_cluster_audit.csv`
+  (no notebook reads them today); the §3.1 direct S1PR1/CXCR4/LRP1 x `cell_type` cross-tab; §2.1
+  shortlist re-derivation; a cross-arm concordance artifact (§2.5 option (c)).
+- `notebooks/04_tme_nerve_immune_explorer.py` was NOT audited. Its cohort was not rebuilt, so it
+  does not carry defects 1-2, but its concordance framing is worth the same pass.
+
+**FAIR Notes:** No artifact changed — this run modified no table and required no pipeline
+re-execution. The notebook's export sidecar now hashes 11 inputs rather than 12, the dropped one
+being the withdrawn pre-fix shortlist.
