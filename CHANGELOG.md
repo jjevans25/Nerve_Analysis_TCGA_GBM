@@ -2091,3 +2091,59 @@ group label by hand instead of via the shared helper:
   pooled neuron row (24 rows).
 - `annotate_cluster_qc` derives the nerve key in TWO places; only one had been routed through
   `nerve_group_key`. The three-way path still used a bare `removeprefix("nerve_c")`.
+
+### [2026-08-06 18:10] PHASE 5 COMPLETE — both arms, rc=0
+
+`gbm_cellxgene_56c4912d` finished 18/18 at 18:10:07. Both Census arms are now rebuilt on the
+corrected pipeline and both pass every gate.
+
+| | FULL (1.0M) | CAPPED (615k) |
+|---|---|---|
+| compartment gates | **10/10 PASS** | **10/10 PASS** |
+| nerve neural fraction | 95.39% (was 11.1%) | 94.76% (was 11.6%) |
+| tumor malignant fraction | 92.96% (was 47.9%) | 93.47% (was 45.6%) |
+| malignancy precision / recall | 0.930 / 0.894 | 0.935 / 0.875 |
+| immune purity | 99.63% | 99.63% |
+| max nerve-cluster endothelial | 0.0000 (was 0.929) | 0.0000 (was 0.453) |
+| nerve compartment n | 37,945 | 28,936 |
+| Census neuroglial truth | 37,561 | 27,860 |
+| neuron group n | 4,275 | 4,240 |
+| **nerve-side S1PR1 rows** | **0** | **0** |
+
+The two arms were corrected independently and each landed within ~1-4% of its OWN Census
+neuroglial count. Two cohorts of different sequencing depth converging on their own ground truth
+is the strongest available evidence that the fix is real rather than tuned to one dataset. The
+depth comparison — the reason both arms exist — is preserved.
+
+Concordance against the pinned v1.3.0 reference:
+
+    FULL    jaccard 0.4390   spearman 0.6182   shared 1,724
+    CAPPED  jaccard 0.4739   spearman 0.6620   shared 1,914
+
+Both moved down from the pre-fix figures. **This is not a replication failure and must not be
+reported as one.** The reference's own nerve compartment was built by the uncorrected logic this
+work removed, it carries no author annotation, and it was scored against differently-normalized
+data (defect D8). Its status is *unknown*, not *cleared*. Notably the two corrected arms agree with
+each other far better than either agrees with the reference — consistent with the reference being
+the outlier.
+
+Guards still green after the full re-run:
+  pinned v1.3.0 reference   pass 37/37 unchanged
+  conda env enforcement     pass 14/14
+
+### Open items for the researcher
+
+1. **Re-derive the 40-axis shortlist** (`results/tables/nerve_crosstalk_lead_targets.csv`). It
+   predates the fix. Note S1PR1, CXCR4 and LRP1 were never on it — they appeared only in raw LIANA
+   tables, and whatever shortlist named them was produced outside this repo.
+2. **The neuron group fails batch purity** (dominant_sample_fraction 0.5032; one donor supplies
+   half of all ~4,275 neurons across 7 contributing samples). Recorded, NOT exempted. Any
+   neuron-side axis is substantially one patient's biology.
+3. **The immune compartment doubled** (1.80x full, 2.00x capped) because T/NK/B cells are in it for
+   the first time. Every pre-fix "immune" result was myeloid-only, so immune-side findings change
+   in character, not just magnitude.
+4. **OPC, astrocyte, generic neuron and ependymal are excluded from the nerve compartment** by
+   researcher decision. They remain annotated and present in every artifact — their absence from
+   the interaction tables is a masking decision, not a biological finding.
+5. **The v1.3.0 reference should be re-derived** on the corrected pipeline before concordance is
+   used as evidence either way.
