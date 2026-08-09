@@ -421,12 +421,18 @@ def _compartment_census(annotation_df, config, interactions_df, lr_prov, mo, pd,
 
     mo.vstack([
         mo.center(_fig),
-        mo.hstack([
-            mo.vstack([mo.md("**Annotation census**"),
-                       mo.ui.table(census_df, selection=None)]),
-            mo.vstack([mo.md("**Compartments the LR analysis saw**"),
-                       mo.ui.table(_compartment_tbl, selection=None)]),
-        ], widths=[3, 2], gap=2),
+        # Full width and stacked — NOT mo.hstack(widths=[3, 2]). marimo puts
+        # `min-width: 0` on the column wrapper it generates but not on the vstack
+        # nested inside it, so a vstack holding a mo.ui.table cannot shrink below
+        # the table's min-content width (toolbar + type badges + summary charts).
+        # With the row at `flex-wrap: nowrap` both columns overflow their tracks and
+        # render on top of each other. `page_size` is pinned to the row count because
+        # the census carries 18-19 labels and the default 10 hides a third of them
+        # behind a pager that the bar chart above already renders in full.
+        mo.md("**Annotation census**"),
+        mo.ui.table(census_df, selection=None, page_size=len(census_df)),
+        mo.md("**Compartments the LR analysis saw**"),
+        mo.ui.table(_compartment_tbl, selection=None, page_size=len(_compartment_tbl)),
         mo.callout(
             mo.md(
                 "**Compartment membership is read from `config.yaml` at run time**, not "

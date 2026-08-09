@@ -432,16 +432,17 @@ def _compartment_census(annotation_df, interactions_df, lr_prov, mo, pd, plt):
     mo.vstack(
         [
             mo.center(_fig),
-            mo.hstack(
-                [
-                    mo.vstack([mo.md("**Annotation census**"),
-                               mo.ui.table(census_df, selection=None, page_size=12)]),
-                    mo.vstack([mo.md("**Compartments the LR analysis actually saw**"),
-                               mo.ui.table(_compartment_tbl, selection=None)]),
-                ],
-                widths=[3, 2],
-                gap=2,
-            ),
+            # Full width and stacked — NOT mo.hstack(widths=[3, 2]). marimo puts
+            # `min-width: 0` on the column wrapper it generates but not on the vstack
+            # nested inside it, so a vstack holding a mo.ui.table cannot shrink below
+            # the table's min-content width (toolbar + type badges + summary charts).
+            # With the row at `flex-wrap: nowrap` both columns overflow their tracks
+            # and render on top of each other. Same fix as notebook 05's Panel A.
+            mo.md("**Annotation census**"),
+            mo.ui.table(census_df, selection=None, page_size=len(census_df)),
+            mo.md("**Compartments the LR analysis actually saw**"),
+            mo.ui.table(_compartment_tbl, selection=None,
+                        page_size=len(_compartment_tbl)),
             mo.callout(
                 mo.md(
                     f"**Coverage gap: {_n_unmodelled:,} of {_total:,} annotated cells "
