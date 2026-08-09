@@ -407,17 +407,23 @@ def _compartment_census(annotation_df, config, interactions_df, lr_prov, mo, pd,
     _ax.set_title("Annotation census — grey = label feeds neither nerve nor immune")
     _fig.tight_layout()
 
+    # Three compartments, three columns — no "— total modelled" summary row. A total
+    # has no group count, so that row left `groups_in_LR_table` blank, and a blank
+    # cell in a table of counts reads as "zero groups" or "not measured" rather than
+    # "not applicable". Same reasoning as Panel E's refusal to render an all-null
+    # column. Keeping it out also holds `groups_in_LR_table` to a true integer dtype
+    # instead of object, so it sorts numerically. The total moves to the label below.
     _compartment_tbl = pd.DataFrame({
-        "compartment": ["tumor (CNV-malignant)", "nerve", "immune", "— total modelled"],
+        "compartment": ["tumor (CNV-malignant)", "nerve", "immune"],
         "cells_in_LR_run": [
             int(_p["n_tumor_cells"]), int(_p["n_nerve_cells"]),
             int(_p["n_immune_cells"]),
-            int(_p["n_tumor_cells"]) + int(_p["n_nerve_cells"]) + int(_p["n_immune_cells"]),
         ],
         "groups_in_LR_table": [
-            1, int(_p["n_nerve_clusters"]), len(_immune_groups), "",
+            1, int(_p["n_nerve_clusters"]), len(_immune_groups),
         ],
     })
+    _n_modelled = int(_compartment_tbl["cells_in_LR_run"].sum())
 
     mo.vstack([
         mo.center(_fig),
@@ -431,7 +437,8 @@ def _compartment_census(annotation_df, config, interactions_df, lr_prov, mo, pd,
         # behind a pager that the bar chart above already renders in full.
         mo.md("**Annotation census**"),
         mo.ui.table(census_df, selection=None, page_size=len(census_df)),
-        mo.md("**Compartments the LR analysis saw**"),
+        mo.md(f"**Compartments the LR analysis saw** — {_n_modelled:,} cells "
+              f"modelled in total"),
         mo.ui.table(_compartment_tbl, selection=None, page_size=len(_compartment_tbl)),
         mo.callout(
             mo.md(

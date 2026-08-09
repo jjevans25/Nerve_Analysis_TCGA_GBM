@@ -411,20 +411,24 @@ def _compartment_census(annotation_df, interactions_df, lr_prov, mo, pd, plt):
     _ax.set_title("Cohort annotation census — grey = never enters the LR analysis")
     _fig.tight_layout()
 
+    # Three compartments, three columns — no "— total modelled" summary row. A total
+    # has no group count, so that row left `groups_in_LR_table` blank, and a blank
+    # cell in a table of counts reads as "zero groups" or "not measured" rather than
+    # "not applicable". Keeping it out also holds `groups_in_LR_table` to a true
+    # integer dtype instead of object, so it sorts numerically. `_modelled_cells`
+    # moves to the label below. Same treatment as notebook 05's Panel A.
     _compartment_tbl = pd.DataFrame(
         {
-            "compartment": ["tumor (CNV-malignant)", "nerve", "immune", "— total modelled"],
+            "compartment": ["tumor (CNV-malignant)", "nerve", "immune"],
             "cells_in_LR_run": [
                 int(_p["n_tumor_cells"]),
                 int(_p["n_nerve_cells"]),
                 int(_p["n_immune_cells"]),
-                _modelled_cells,
             ],
             "groups_in_LR_table": [
                 1 if _has_tumor else 0,
                 int(_p["n_nerve_clusters"]),
                 len(_immune_groups),
-                "",
             ],
         }
     )
@@ -440,7 +444,8 @@ def _compartment_census(annotation_df, interactions_df, lr_prov, mo, pd, plt):
             # and render on top of each other. Same fix as notebook 05's Panel A.
             mo.md("**Annotation census**"),
             mo.ui.table(census_df, selection=None, page_size=len(census_df)),
-            mo.md("**Compartments the LR analysis actually saw**"),
+            mo.md(f"**Compartments the LR analysis actually saw** — "
+                  f"{_modelled_cells:,} cells modelled in total"),
             mo.ui.table(_compartment_tbl, selection=None,
                         page_size=len(_compartment_tbl)),
             mo.callout(
