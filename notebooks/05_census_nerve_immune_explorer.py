@@ -709,21 +709,36 @@ def _celltype_interface_matrix(filtered_df, mo, plt, sns):
         ),
     )
 
-    _dirs = sorted(_df["direction"].astype(str).unique())
-    _fig, _axes = plt.subplots(1, len(_dirs), figsize=(1 + 4.2 * len(_dirs), 3.4),
-                               squeeze=False)
-    for _i, _d in enumerate(_dirs):
-        _counts = (
+    # Build the matrices first so the figure can be sized from them: each panel's
+    # height tracks its own row count, so y tick labels never collide, and the
+    # panels stack vertically so no colorbar sits against a neighbour's labels.
+    _mats = [
+        (
+            _d,
             _df[_df["direction"].astype(str) == _d]
             .groupby(["nerve_cell_type", "immune_subtype"], observed=True)
-            .size().unstack("immune_subtype", fill_value=0)
+            .size().unstack("immune_subtype", fill_value=0),
         )
-        _ax = _axes[0][_i]
+        for _d in sorted(_df["direction"].astype(str).unique())
+    ]
+    _heights = [max(2.0, 1.2 + 0.42 * _m.shape[0]) for _, _m in _mats]
+    _width = max(6.5, 1.8 + 0.62 * max(_m.shape[1] for _, _m in _mats))
+    _fig, _axes = plt.subplots(
+        len(_mats), 1,
+        figsize=(_width, sum(_heights)),
+        squeeze=False,
+        gridspec_kw={"height_ratios": _heights},
+    )
+    for _i, (_d, _counts) in enumerate(_mats):
+        _ax = _axes[_i][0]
         sns.heatmap(_counts, annot=True, fmt="d", cmap="mako_r", ax=_ax,
                     cbar_kws={"label": "# LR pairs"})
         _ax.set_title(_d)
-        _ax.set_xlabel("immune subtype")
-        _ax.set_ylabel("nerve cell type" if _i == 0 else "")
+        _ax.set_ylabel("nerve cell type")
+        # Only the bottom panel gets the axis label; tick labels stay on every
+        # panel because the immune subtypes present can differ per direction.
+        _ax.set_xlabel("immune subtype" if _i == len(_mats) - 1 else "")
+        _ax.tick_params(axis="y", rotation=0)
     _fig.tight_layout()
 
     _amb = sorted(_df.loc[_df["nerve_type_agrees"] == False, "nerve_label"].unique())  # noqa: E712
