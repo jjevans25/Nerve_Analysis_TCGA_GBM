@@ -425,6 +425,19 @@ def _compartment_census(annotation_df, config, interactions_df, lr_prov, mo, pd,
     })
     _n_modelled = int(_compartment_tbl["cells_in_LR_run"].sum())
 
+    # Rendered as markdown, NOT mo.ui.table. A mo.ui.table stretches to the full page
+    # width while its columns size to their content, so three short columns leave a
+    # wide empty band on the right that reads as a fourth, blank column; marimo's CSS
+    # shrink-wraps a markdown table to its content instead. With three fixed rows the
+    # search / explore / export toolbar earns nothing either. Built by hand rather
+    # than DataFrame.to_markdown, which needs `tabulate` — installed here but declared
+    # in no environment file, so importing it would add an unpinned dependency.
+    _tbl_md = "\n".join(
+        ["| compartment | cells_in_LR_run | groups_in_LR_table |", "|:---|---:|---:|"]
+        + [f"| {_r.compartment} | {_r.cells_in_LR_run:,} | {_r.groups_in_LR_table:,} |"
+           for _r in _compartment_tbl.itertuples(index=False)]
+    )
+
     mo.vstack([
         mo.center(_fig),
         # Full width and stacked — NOT mo.hstack(widths=[3, 2]). marimo puts
@@ -438,8 +451,7 @@ def _compartment_census(annotation_df, config, interactions_df, lr_prov, mo, pd,
         mo.md("**Annotation census**"),
         mo.ui.table(census_df, selection=None, page_size=len(census_df)),
         mo.md(f"**Compartments the LR analysis saw** — {_n_modelled:,} cells "
-              f"modelled in total"),
-        mo.ui.table(_compartment_tbl, selection=None, page_size=len(_compartment_tbl)),
+              f"modelled in total\n\n{_tbl_md}"),
         mo.callout(
             mo.md(
                 "**Compartment membership is read from `config.yaml` at run time**, not "
