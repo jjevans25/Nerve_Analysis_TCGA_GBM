@@ -194,6 +194,10 @@ clinical metadata via DuckDB.
 ```bash
 claude_science/bin/python3 -m marimo edit notebooks/01_explore_gbm_data.py
 ```
+```bash
+claude_science/bin/python3 -m marimo run notebooks/05_census_nerve_immune_explorer.py
+```
+
 
 | Notebook | Scope |
 |---|---|

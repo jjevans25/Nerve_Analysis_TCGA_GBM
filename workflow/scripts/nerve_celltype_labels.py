@@ -6,13 +6,16 @@ canonical markers (GFAP, MBP, OLIG2, PDGFRA, SYN1/SNAP25, …) — *not* from
 the v1.0.0 X_scVI clusters — so using them to refine the embedding is not
 circular.
 
-Labels (4 categories + Unknown):
-    neuron           = union of generic + excitatory + inhibitory markers
-    opc              = PDGFRA / CSPG4 / SOX10 / OLIG1
-    oligodendrocyte  = MBP / MOG / PLP1 / OLIG2
-    astrocyte        = GFAP / S100B / AQP4 / VIM
+Labels are DERIVED from `nerve_cells.cell_types` — the compartment definition is
+the single source of truth, so this can never again anchor on a label the subset
+no longer contains. Neuron subtypes collapse into one "neuron" group, mirroring
+the pooled `nerve_neuron` LIANA group. Plus:
+
     Unknown          = cells whose max marker score falls below the
                        configured percentile (default 20th)
+
+With the 2026-08-06 compartment (excitatory_neuron / inhibitory_neuron /
+oligodendrocyte) that yields two anchoring labels: neuron and oligodendrocyte.
 
 scANVI handles "Unknown" as the unlabelled category: it still enters the
 variational objective but is not used for the classification loss.
@@ -20,7 +23,6 @@ variational objective but is not used for the classification loss.
 
 import os
 import sys
-from pathlib import Path
 
 import anndata as ad
 import numpy as np
@@ -43,19 +45,45 @@ np.random.seed(int(snakemake.params.random_seed))
 markers_cfg: dict = dict(snakemake.params.markers)
 unknown_percentile = float(snakemake.params.unknown_percentile)
 
-LABEL_GROUPS: dict[str, list[str]] = {
-    "neuron": sorted(set(
-        markers_cfg.get("neuron", [])
-        + markers_cfg.get("excitatory_neuron", [])
-        + markers_cfg.get("inhibitory_neuron", [])
-    )),
-    "opc": list(markers_cfg.get("opc", [])),
-    "oligodendrocyte": list(markers_cfg.get("oligodendrocyte", [])),
-    "astrocyte": list(markers_cfg.get("astrocyte", [])),
-    # Motile-ciliated ventricular cells; markers cluster on DNAH/CFAP and
-    # diverge from astrocyte despite the historical mislabel (cl19 in v1.0.0).
-    "ependymal": list(markers_cfg.get("ependymal", [])),
-}
+# Anchoring labels are DERIVED from the compartment definition, not hardcoded.
+#
+# They used to be a fixed set (neuron / opc / oligodendrocyte / astrocyte /
+# ependymal) matching the compartment as it stood in v1.x. Once astrocyte, opc,
+# generic neuron and ependymal were removed from nerve_cells.cell_types, those
+# labels no longer described anything in the subset: on 2026-08-06 the rule
+# hard-failed because 'opc' held 0.316% of cells — the guard firing on a
+# perfectly correct state, because the config had moved and this list had not.
+#
+# Anchoring scANVI on labels the compartment does not contain is meaningless, so
+# the compartment is now the single source of truth. Neuron subtypes collapse
+# into one "neuron" group, mirroring the pooled `nerve_neuron` LIANA group.
+_neuron_labels = {str(x) for x in (snakemake.params.neuron_labels or [])}
+_cell_types = [str(x) for x in snakemake.params.cell_types]
+
+_neuron_markers = sorted({
+    m for lbl in _cell_types if lbl in _neuron_labels
+    for m in markers_cfg.get(lbl, [])
+})
+LABEL_GROUPS: dict[str, list[str]] = {}
+if _neuron_markers:
+    LABEL_GROUPS["neuron"] = _neuron_markers
+for lbl in _cell_types:
+    if lbl in _neuron_labels:
+        continue
+    panel = list(markers_cfg.get(lbl, []))
+    if panel:
+        LABEL_GROUPS[lbl] = panel
+
+if len(LABEL_GROUPS) < 2:
+    raise RuntimeError(
+        f"[FAIR-ALERT] scANVI needs at least two anchoring labels; the configured "
+        f"compartment {_cell_types} yields {list(LABEL_GROUPS)}. Either widen "
+        "nerve_cells.cell_types or drop the scANVI-v2 branch for this arm."
+    )
+
+log_transformation(log, "nerve_celltype_labels",
+                   f"Anchoring labels derived from nerve_cells.cell_types: "
+                   f"{dict((k, len(v)) for k, v in LABEL_GROUPS.items())}")
 
 log_transformation(log, "nerve_celltype_labels",
                    f"Loading counts h5ad: {snakemake.input.counts_h5ad}")
@@ -123,14 +151,24 @@ final = tentative.copy()
 final[unknown_mask] = "Unknown"
 
 adata.obs["cell_type_score_max"] = max_score
-adata.obs["cell_type"] = pd.Categorical(
+# Defect D6: this wrote to `cell_type`, which on a CELLxGENE cohort is the
+# authors' CL-ontology annotation — the ONLY external ground truth these arms
+# carry, and the oracle the whole compartment audit is built on. Overwriting it
+# with pipeline-derived strings destroyed it in every downstream artifact and
+# forced the S1PR1 investigation to re-join against the parent object. Marker
+# labels now live in their own column and `cell_type` is never touched.
+adata.obs["cell_type_marker_label"] = pd.Categorical(
     final, categories=list(LABEL_GROUPS.keys()) + ["Unknown"]
 )
+if "cell_type" in adata.obs.columns:
+    log_transformation(log, "nerve_celltype_labels",
+        "Preserved the external `cell_type` annotation; marker-derived labels "
+        "written to `cell_type_marker_label`.")
 
 # ----------------------------------------------------------------------------
 # Targets / verification gates
 # ----------------------------------------------------------------------------
-counts = adata.obs["cell_type"].value_counts()
+counts = adata.obs["cell_type_marker_label"].value_counts()
 total = int(counts.sum())
 unknown_frac = float(counts.get("Unknown", 0)) / total
 log_transformation(log, "nerve_celltype_labels",
@@ -158,7 +196,7 @@ for lbl in LABEL_GROUPS:
 
 summary = pd.DataFrame(
     {
-        "cell_type": list(counts.index),
+        "cell_type_marker_label": list(counts.index),
         "n_cells": counts.values,
         "fraction": (counts.values / total).round(4),
         "n_markers_used": [len(resolved.get(lbl, [])) for lbl in counts.index],

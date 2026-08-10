@@ -89,6 +89,9 @@ rule all:
         # full cohort-namespaced chain (Stage A→D). Reference outputs above are
         # untouched. Gated on the `datasets:` config block being present.
         *[p(config["dirs"]["tables"], d, "cohort_concordance_summary.json") for d in DATASETS],
+        # Test Oracle: compartment masks vs Census author annotation. Gates the
+        # scientific validity of every interaction table above.
+        *[p(config["dirs"]["tables"], d, "compartment_audit_gates.csv") for d in DATASETS],
         # scANVI-v2 nerve branch (full parity; side-branch not pulled by concordance).
         *[p(config["dirs"]["tables"],  d, "nerve_cluster_sample_purity_v2.csv") for d in DATASETS],
         *[p(config["dirs"]["tables"],  d, "nerve_celltype_label_summary.csv")   for d in DATASETS],

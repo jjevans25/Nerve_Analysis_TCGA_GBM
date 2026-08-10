@@ -33,6 +33,29 @@ def p(*parts) -> str:
 BASELINE_PINNED = bool(config.get("baseline", {}).get("pinned", False))
 
 
+# ---------------------------------------------------------------------------
+# Annotation marker panels (see the `annotation_markers:` config block).
+#
+# Kept out of `nerve_cells.markers` on purpose: that key is also a param of
+# scrna_qc, which runs once per sample (170 donors x 2 arms), so touching it
+# invalidates every QC artifact and cascades into the ~11 h scVI train. These
+# panels are merged over the neural ones inside scrna_annotate, and win on
+# conflict.
+# ---------------------------------------------------------------------------
+ANNOTATION_MARKERS = config.get("annotation_markers", {}).get("panels", {})
+ANNOTATE_LEIDEN_RESOLUTION = config.get("annotation_markers", {}).get(
+    "leiden_resolution", config["nerve_cells"]["leiden_resolution"]
+)
+ANNOTATE_AMBIGUOUS_MARGIN = config.get("annotation_markers", {}).get("ambiguous_margin", 0.0)
+ANNOTATE_PANEL_COMPARTMENT = config.get("annotation_markers", {}).get("panel_compartment", {})
+
+# The immune compartment is a union of lineages, not one label. `source_label`
+# (str) stays supported so an older config keeps parsing.
+IMMUNE_SOURCE_LABELS = config["immune_cells"].get(
+    "source_labels", [config["immune_cells"].get("source_label", "microglia")]
+)
+
+
 def pinned_target(*parts) -> list:
     """A frozen v1.3.0 artifact — requested only if it still exists on disk.
 

@@ -64,6 +64,51 @@ scrna:
   # 50000 x 24048 x 4B = 4.8 GB/block => ~9.6 GB working set, sized for the
   # phantom 128GB budget. 10000 => ~1.0 GB/block, ~2 GB working set.
   cnv_chunk_size: 10000
+  # --- CNV malignancy calling (rebuilt 2026-08-05; defect D4) ---------------
+  # Window is applied WITHIN a chromosome; it never straddles a contig boundary.
+  cnv_window: 100
+  # Clip centred expression before smoothing so a few extreme genes cannot be
+  # read as a copy-number event (standard infercnv practice).
+  cnv_clip: 3.0
+  # Malignant when the cell's genome-wide profile spread exceeds the reference
+  # mean by this many reference SDs. Reference cells are non-malignant by
+  # construction, so this controls the false-positive rate on known normals.
+  cnv_threshold_sd: 2.0
+  # A second, more sensitive threshold producing `is_malignant_suspected`.
+  # `is_malignant` builds the tumor compartment, so its false positives become
+  # tumor cells; a compartment that must be clean (nerve) has the opposite error
+  # cost and should drop anything merely suspected. One shared threshold cannot
+  # be right for both. Set equal to cnv_threshold_sd to disable the distinction.
+  cnv_exclusion_sd: 2.0
+  # Reference ("normal") population. Was cell_type_predicted in {t_cell,
+  # endothelial} — read from the same annotation this rule should be independent
+  # of, and in the capped arm `endothelial` was never assigned at all, silently
+  # degrading the reference to T cells only. Immune cells are the cleanest
+  # non-malignant population available (audited at 99.5% pure).
+  cnv_reference_labels: ["microglia", "macrophage", "t_cell", "nk_cell", "dc", "neutrophil"]
+  # Diagnostic aneuploidy contrast. A genome-wide "spread" score conflates copy
+  # number with cell-type identity — measured here, normal neural cells scored
+  # HIGHER than malignant ones (0.063 vs 0.057) because an oligodendrocyte
+  # differs from an immune reference across whole chromosomes for reasons that
+  # have nothing to do with dosage. Contrasting a gain against a loss cancels
+  # that baseline, since both are measured inside the same cell.
+  #
+  # +7/-10 is a WHO 2021 diagnostic criterion for IDH-wildtype glioblastoma, and
+  # it also emerges unprompted from this cohort as the single most-up and
+  # most-down contig in Census-malignant cells (chr7 +0.043, chr10 -0.038).
+  # Measured effect: AUC 0.859 -> 0.958; at cnv_threshold_sd 2.0 the caller goes
+  # from precision 0.62 / recall 0.40 to precision 0.93 / recall 0.90.
+  #
+  # Disease-specific by construction. A cohort with no canonical signature sets
+  # both lists to [] and falls back to the genome-wide spread.
+  cnv_gain_contigs: ["7"]
+  cnv_loss_contigs: ["10"]
+  # Keep only the most confidently-called reference cells (drop the bottom
+  # quantile of cell_type_confidence). 0 disables.
+  cnv_reference_confidence_quantile: 0.25
+  cnv_min_reference_cells: 500
+  # Refuse to run if fewer than this fraction of genes carry real coordinates.
+  cnv_min_genes_placed_fraction: 0.80
 
 # -------------------------------------------------------------
 # Proteomics defaults
@@ -212,13 +257,78 @@ nerve_cells:
   # the annotation marker sets enough to reclassify boundary cells. See
   # CHANGELOG.md [2026-05-25] backlog-2.2 assessment.
   frozen_subset_file: "provenance/nerve_subset_v1_1_0.txt"
+  # CANONICAL labels — these must match exactly what scrna_annotate emits (i.e.
+  # the panel names in nerve_cells.markers / annotation_markers). Matching is
+  # exact after case/underscore normalization, and any entry that matches no
+  # observed label now hard-fails the rule.
+  #
+  # "oligodendrocyte precursor cell" used to sit here while annotate emitted
+  # "opc"; neither is a substring of the other, so the old substring match
+  # dropped 70,881 cells in silence (defect D5).
+  #
+  # `astrocyte` and `opc` are DELIBERATELY ABSENT (researcher decision,
+  # 2026-08-05). Measured against the Census author annotation on a 60k-cell
+  # subsample of the full arm, the non-malignant cells carrying each label are:
+  #
+  #     oligodendrocyte    90.2% truly neural
+  #     excitatory_neuron  84.2%
+  #     neuron             61.5%
+  #     opc                18.9%   <-- excluded
+  #     astrocyte          10.0%   <-- excluded
+  #
+  # These two supply ~70% of the residual contamination. They are the AC-like and
+  # OPC-like malignant states that share GFAP/PTPRZ1/SLC1A3 with normal glia, and
+  # that GBM study authors label "malignant cell" — Census reports 347 astrocytes
+  # in 1,006,344 cells (0.03%) against the ~1.5% this panel calls. The CNV caller
+  # does not remove them because they are genuinely CNV-quiet on +7/-10, and
+  # tightening the cut does not help: at 0 SD the compartment is still only 78%
+  # neural and has lost 58% of its true neural cells.
+  #
+  # KNOWN COST: OPCs are a real neural population (21,460 cells in the full arm)
+  # and relevant to neuron-glia-tumor crosstalk. They remain annotated and
+  # present in every artifact — they are excluded from THIS COMPARTMENT only.
+  # Their absence from the interaction tables is a masking decision, not a
+  # biological finding, and must be reported as such.
+  #
+  # SECOND EXCLUSION (researcher decision, 2026-08-06): generic `neuron` and
+  # `ependymal` also removed, on FULL-ARM evidence rather than the subsample.
+  # Measured against Census on all 1,006,344 cells, the non-malignant cells
+  # carrying each label were:
+  #
+  #     inhibitory_neuron  99.5% truly neural
+  #     oligodendrocyte    95.8%
+  #     excitatory_neuron  83.9%
+  #     neuron (generic)   40.6%   <-- excluded
+  #     ependymal          31.6%   <-- excluded
+  #
+  # The subsample had predicted a different culprit; on the full arm the two
+  # LEAST SPECIFIC panels carry nearly all the contamination. Generic `neuron`
+  # (SYN1/SNAP25/STMN2/RBFOX3/MAP2/SYT1) is pan-neuronal and is won by malignant
+  # cells running neurodevelopmental programmes — a well-documented GBM state.
+  # `ependymal` has no Census counterpart at all, so it cannot be checked, and
+  # 68% of what it selects is Census-malignant.
+  #
+  # Result: 74.1% -> 95.4% neural at n=37,945, which lands almost exactly on the
+  # Census truth for this arm (oligodendrocyte 34,160 + neuron 3,401 = 37,561).
+  #
+  # KNOWN COST: 8,290 Census-neural cells that only the loose panels caught are
+  # lost, and "neuron" in the interaction tables now means SUBTYPE-CONFIRMED
+  # excitatory/inhibitory neurons only. Both panels remain scored and present in
+  # every artifact — again a masking decision, not a biological finding.
   cell_types:
-    - "excitatory neuron"
-    - "inhibitory neuron"
-    - "oligodendrocyte precursor cell"
+    - "excitatory_neuron"
+    - "inhibitory_neuron"
     - "oligodendrocyte"
-    - "astrocyte"
-    - "ependymal"
+  # Carried as their own LIANA group rather than per-cluster: ~4.3k neurons
+  # across 170 donors is a group, not a cluster set.
+  neuron_labels:
+    - "excitatory_neuron"
+    - "inhibitory_neuron"
+  # Which malignancy flag excludes a cell from this compartment. See
+  # scrna.cnv_* — `is_malignant` is the balanced call that BUILDS the tumor
+  # compartment; `is_malignant_suspected` is the more sensitive flag, which
+  # trades tumor recall for nerve purity.
+  malignant_flag: "is_malignant"
   markers:
     neuron:
       - "SYN1"
@@ -313,7 +423,22 @@ nerve_cells:
 # -------------------------------------------------------------
 immune_cells:
   leiden_resolution: 1.0             # tune upward if subtypes under-split
-  source_label: "microglia"          # cell_type_predicted value = immune blob
+  # Was a single string, "microglia" — correct only while the annotation had no
+  # myeloid panels and lumped every immune cell into one argmax bucket (which is
+  # why the immune mask measured 99.5% pure). With per-lineage panels now in
+  # annotation_markers, those cells get their own labels and would fall out of
+  # this compartment entirely; the purity gate would still pass, because purity
+  # is not a size check. Hence a list, plus compartment_audit's size gate.
+  # `source_label` (str) is still honored for backward compatibility.
+  source_labels:
+    - "microglia"
+    - "macrophage"
+    - "t_cell"
+    - "nk_cell"
+    - "b_plasma"
+    - "neutrophil"
+    - "dc"
+    - "mast"
   subtype_markers:
     microglia:  ["P2RY12", "CX3CR1", "TMEM119", "AIF1", "C1QA", "C1QB", "C1QC"]
     tam:        ["CD68", "CD163", "MRC1", "MARCO", "LYVE1", "F13A1"]
@@ -335,13 +460,266 @@ immune_cells:
     exclude_subtypes: []
 
 # -------------------------------------------------------------
+# Environment enforcement guard (conda_env_smoke_test)
+#
+# Canaries for the venv-shadowing defect. igraph and torch are the useful ones:
+# the venv carries its own igraph and anaconda base a third copy, so agreement
+# here means the WHOLE declared env is enforced, not just the packages an
+# earlier hotfix happened to install. Must match workflow/envs/scrna.yaml.
+# -------------------------------------------------------------
+env_enforcement:
+  expected_versions:
+    igraph: "0.11.8"
+    torch: "2.12.0"
+    scanpy: "1.12.1"
+    anndata: "0.12.10"
+    liana: "1.7.1"
+    infercnvpy: "0.4.3"
+
+# -------------------------------------------------------------
+# Ensembl gene coordinates for CNV inference
+#
+# CNV callers detect malignancy from runs of co-elevated/co-depressed expression
+# across neighbouring loci, so genes must be in genomic order. Nothing else in
+# this project carries coordinates: Census .var has feature_id / feature_name /
+# feature_length only, and dataset_gene_symbol_map.py writes the literal string
+# "unknown" into its `chromosome` column. scrna_malignancy previously ordered by
+# the numeric suffix of the Ensembl accession — a counter, not a coordinate.
+#
+# After the first successful run, copy the sha256 emitted in
+# gene_positions_manifest.json into `sha256:` below and commit, so later runs
+# verify against a fixed digest (same convention as msigdb:).
+# -------------------------------------------------------------
+gene_positions:
+  release: 113                      # must match databases.ensembl_release
+  download_dir: "data/external/ensembl"
+  gtf_filename: "Homo_sapiens.GRCh38.113.gtf.gz"
+  url: "https://ftp.ensembl.org/pub/release-113/gtf/homo_sapiens/Homo_sapiens.GRCh38.113.gtf.gz"
+  positions_filename: "ensembl113_gene_positions.tsv"
+  sha256: "62f1709b40e083ce9d4cdc64a86b5ffec2c5d5371434bb7095c74dc89079c466"
+  request_timeout: 300
+  max_retries: 5
+
+# -------------------------------------------------------------
+# Whole-cohort annotation marker panels (scrna_annotate ONLY)
+#
+# Deliberately separate from `nerve_cells.markers`. That block is also read by
+# scrna_qc (to set is_nerve_marker) on every per-sample job — 170 donors x 2
+# arms — so editing it invalidates every QC artifact and cascades into the 11 h
+# scVI train. It is also semantically wrong: CD163/MRC1 are not nerve markers.
+# Panels here are merged over nerve_cells.markers and win on conflict.
+#
+# Why these exist at all: before this block, the only non-neural panels were
+# four hardcoded in scrna_annotate.py (microglia, t_cell, endothelial,
+# tumor_gbm). Every macrophage, mural, mast, B, NK, neutrophil and DC in the
+# cohort therefore had nowhere to go and was forced into the nearest neural
+# panel — which is how the "nerve" compartment ended up 27.5% myeloid. A panel
+# per lineage gives those cells somewhere true to land. Defect D3.
+#
+# leiden_resolution: annotate clusters 1M cells; at res 1.0 that is 47 clusters,
+# and cluster-level argmax then averages genuinely different populations
+# together (cluster 4 = 70,881 cells, 82.5% malignant, labelled 'opc'). 2.0
+# splits them finely enough to be callable. Kept separate from
+# nerve_cells.leiden_resolution, which governs a different clustering pass
+# inside the nerve subset and must not move with it.
+# -------------------------------------------------------------
+annotation_markers:
+  leiden_resolution: 2.0
+  # Cluster is labelled 'ambiguous' when its best and second-best panel z-scores
+  # differ by less than this AND the two panels sit in different compartments.
+  # Forcing a call on an indistinguishable margin is what downstream code then
+  # trusts as fact — but only cross-compartment ties actually threaten
+  # compartment integrity. A macrophage-vs-neutrophil tie lands in the immune
+  # compartment either way, so calling it 'ambiguous' would discard a correctly
+  # placed immune cell for no gain; a tumor_gbm-vs-astrocyte tie is exactly the
+  # confusion that produced this whole defect and must be surfaced.
+  ambiguous_margin: 0.10
+  panel_compartment:
+    neuron: neural
+    excitatory_neuron: neural
+    inhibitory_neuron: neural
+    opc: neural
+    oligodendrocyte: neural
+    astrocyte: neural
+    ependymal: neural
+    microglia: immune
+    macrophage: immune
+    t_cell: immune
+    nk_cell: immune
+    b_plasma: immune
+    neutrophil: immune
+    dc: immune
+    mast: immune
+    endothelial: vascular
+    mural: vascular
+    tumor_gbm: malignant
+  panels:
+    # --- annotation-only override of a neural panel ---
+    # VIM is expressed across AC-like and MES-like malignant cells, so the
+    # original GFAP/S100B/AQP4/VIM panel cannot separate a normal astrocyte from
+    # a tumor cell. Replaced with transporter/enzyme markers specific to mature
+    # astrocytes. nerve_cells.markers.astrocyte is intentionally left unchanged.
+    astrocyte:   ["GFAP", "S100B", "AQP4", "SLC1A2", "SLC1A3", "ALDH1L1", "GJA1"]
+    # --- non-neural panels (previously hardcoded in scrna_annotate.py) ---
+    microglia:   ["AIF1", "CX3CR1", "TMEM119", "P2RY12", "PTPRC"]
+    t_cell:      ["CD3D", "CD3E", "CD4", "CD8A", "CD8B"]
+    endothelial: ["PECAM1", "CDH5", "VWF", "ENG"]
+    tumor_gbm:   ["SOX2", "NES", "CD44", "PROM1", "MKI67"]
+    # --- newly added: the lineages with no panel at all before this ---
+    macrophage:  ["CD163", "MRC1", "MSR1", "F13A1"]
+    mural:       ["PDGFRB", "RGS5", "ACTA2", "DCN"]
+    mast:        ["TPSAB1", "CPA3", "KIT"]
+    b_plasma:    ["CD79A", "MS4A1", "MZB1"]
+    nk_cell:     ["NKG7", "GNLY", "KLRD1"]
+    neutrophil:  ["FCGR3B", "CSF3R", "S100A8"]
+    dc:          ["FLT3", "CLEC9A", "LAMP3"]
+
+# -------------------------------------------------------------
+# LIANA ligand-receptor inference
+#
+# max_cells_per_group caps how many cells of each interaction group enter LIANA.
+# DISABLED (0) — uncapped is the default, and is what the shipped results use.
+#
+# Measured 2026-08-06: the three-way rule completed UNCAPPED on all 952,087
+# labelled cells (24,135 genes) in ~10 minutes, emitting 44,139 LR rows; the
+# two-way completed on 358,823 cells in ~3 minutes. An earlier report that this
+# step was thrashing swap and could not finish was a MISDIAGNOSIS — the memory
+# pressure belonged to nerve_cell_heterogeneity (GSEA, 1h50m at 11.5 GB) running
+# concurrently, and both LIANA rules had already succeeded. Capping would
+# therefore discard real cells for no benefit.
+#
+# The mechanism is retained for a future cohort that genuinely does not fit.
+# `rank_aggregate` builds a zero-centred `scaled` layer and zero-centring
+# densifies, so cells x genes x 4 bytes is a hard floor on that layer; if a
+# cohort ever exceeds available RAM, set this to e.g. 15000.
+#
+# When enabled: sampling is per group, without replacement, seeded from
+# scrna.random_seed, so it is reproducible; groups at or below the cap are kept
+# whole, which means every nerve cluster and the pooled neuron group stay intact
+# and only the tumor group and large immune subtypes are subsampled. Capping
+# also balances a design where immune subtypes carry 100k+ cells against nerve
+# clusters of ~1k. See fair_utils.cap_cells_per_group.
+# -------------------------------------------------------------
+liana:
+  max_cells_per_group: 0
+
+# -------------------------------------------------------------
+# Compartment integrity audit (the Test Oracle)
+#
+# Cross-tabulates every compartment mask (nerve / tumor / immune) against the
+# CELLxGENE Census author annotation `obs['cell_type']` — harmonized to the CL
+# ontology, and the only external ground truth these cohorts carry. Runs on
+# existing artifacts; no re-run needed.
+#
+# `enforce: false` records the failing pre-fix baseline without breaking the
+# pipeline. Flipped to true in Phase 4 of
+# markdowns/plan_compartment_integrity_fix.md, after which any breached gate
+# hard-fails the rule and blocks every downstream interaction result.
+#
+# Oracle caveat: Census cell_type is an external author annotation, not a
+# re-derivation from these counts. It under-calls normal astrocytes (347 in a
+# 1M-cell cohort) because most GBM study authors label AC-like cells "malignant
+# cell". A corrected pipeline legitimately finding more astrocytes is not a
+# failure — see the "Known limits" section of the plan.
+# -------------------------------------------------------------
+compartment_audit:
+  # Undeclared sidecar for the audit tables. Snakemake deletes a failed job's
+  # DECLARED outputs, which for this rule destroys the evidence exactly when a
+  # gate fails and you most need it. Nothing in the DAG points here, so nothing
+  # can delete it.
+  sidecar_dir: "results/compartment_audit_snapshots"
+  # Flipped to true in Phase 4 (2026-08-05): the fixes are in, so a breached gate
+  # must now stop the pipeline rather than be recorded and passed over.
+  enforce: true
+  # Census CL labels → coarse class. Any observed cell_type missing from this
+  # map is counted as 'unmapped' and raises a [FAIR-ALERT] in the log rather
+  # than being silently folded into a class.
+  census_class_map:
+    neural:
+      - "neuron"
+      - "oligodendrocyte"
+      - "oligodendrocyte precursor cell"
+      - "astrocyte"
+      - "radial glial cell"
+      - "ependymal cell"
+    malignant:
+      - "malignant cell"
+    myeloid:
+      - "macrophage"
+      - "microglial cell"
+      - "monocyte"
+      - "dendritic cell"
+      - "neutrophil"
+      - "mast cell"
+    lymphoid:
+      - "mature T cell"
+      - "natural killer cell"
+      - "B cell"
+      - "plasma cell"
+    vascular:
+      - "endothelial cell"
+      - "mural cell"
+  # Classes that legitimately belong in the immune compartment.
+  immune_classes: ["myeloid", "lymphoid"]
+  gates:
+    # Relaxed 0.85 -> 0.80 (researcher decision, 2026-08-05) at the same time as
+    # astrocyte/opc were removed from nerve_cells.cell_types. Deliberate and
+    # recorded, not a silently moved goalpost: the residual disagreement is with
+    # an oracle that labels AC-like cells "malignant cell" and reports only 347
+    # astrocytes in a 1M-cell cohort, which the plan's own "Known limits" section
+    # says should not be auto-failed. Measured post-fix value on a 60k subsample
+    # is 82.9%. If this ever needs relaxing again, fix the biology instead.
+    nerve_neural_fraction_min:               0.80
+    tumor_malignant_fraction_min:            0.85
+    malignancy_recall_min:                   0.80
+    malignancy_precision_min:                0.85
+    immune_purity_min:                       0.95   # regression guard (pre-fix: 0.995)
+    max_nerve_cluster_endothelial_fraction:  0.20   # pre-fix nerve_c24 = 0.929
+    # Guards the C3 failure mode: splitting the myeloid blob into per-lineage
+    # labels can drop most of the immune compartment while purity still passes,
+    # because purity is not a size check.
+    immune_size_fraction_of_baseline_min:    0.85
+  # Per-arm expected sizes, measured in Phase 1 (2026-08-05). The capped arm has
+  # no opc/ependymal labels today, so it needs its own range rather than the full
+  # arm's. NOT_SET gates are reported, never silently passed.
+  #
+  # nerve_n bands are derived from each arm's own Census neuroglial census
+  # (oligodendrocyte + OPC + neuron + radial glial + astrocyte), then widened to
+  # allow for the malignancy exclusion at one end and the known astrocyte
+  # under-call at the other. They are sanity bands — "did the compartment
+  # collapse, or is it still full of tumor" — not tight predictions.
+  per_arm:
+    gbm_cellxgene_56c4912d_full:
+      immune_baseline_n: 329608     # measured pre-fix; guards the C3 failure mode
+      # Bands re-derived 2026-08-06 after the SECOND narrowing (generic neuron
+      # and ependymal also removed). Census oligodendrocyte + neuron = 37,561;
+      # measured post-fix on the full arm = 37,945. Sanity band, not a
+      # prediction: it catches "the compartment collapsed" and "it is still full
+      # of tumor".
+      nerve_n_min:       25000
+      nerve_n_max:       50000      # pre-fix compartment was 377,343
+      neuron_n_min:      1500       # Census has 3,401 neurons; guards total loss
+    gbm_cellxgene_56c4912d:
+      immune_baseline_n: 169617
+      # Census oligodendrocyte + neuron = 27,860 for this arm.
+      nerve_n_min:       15000
+      nerve_n_max:       40000      # pre-fix compartment was 270,520
+      neuron_n_min:      1200       # Census has 2,992 neurons
+
+# -------------------------------------------------------------
 # scANVI re-train on the nerve subset (v2 model)
 # Anchors latent space on marker-derived cell-type labels to
 # disentangle patient identity from cell-type biology.
 # -------------------------------------------------------------
 nerve_scanvi:
   batch_key: "sample_id"
-  labels_key: "cell_type"
+  # Was "cell_type" — the column nerve_celltype_labels used to overwrite. That
+  # column is the CELLxGENE authors' CL-ontology annotation and the only external
+  # oracle these cohorts carry (defect D6). Marker labels now go to their own
+  # column and this points at it. Per-arm overridable via
+  # datasets.<arm>.scanvi_labels_key so the reference cohort, whose existing
+  # nerve_cells_counts_labeled.h5ad still carries the old column, is unaffected.
+  labels_key: "cell_type_marker_label"
   unlabeled_category: "Unknown"
   unknown_percentile: 20.0       # cells below this percentile of max-score -> Unknown
   scvi_max_epochs: 400

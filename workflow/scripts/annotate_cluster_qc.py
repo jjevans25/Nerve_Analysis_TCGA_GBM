@@ -21,7 +21,9 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, "workflow/scripts")
-from fair_utils import (
+from fair_utils import (  # noqa: E402
+    NERVE_GROUP_PREFIX,
+    nerve_group_key,
     artifact_id,
     file_sha256,
     log_transformation,
@@ -40,6 +42,9 @@ PURITY_COLUMNS = [
     "n_contributing_samples",
     "normalised_entropy",
 ]
+# Retained only for the error message below; ALL key parsing goes through
+# fair_utils.nerve_group_key (two sites: the per-cluster path and the three-way
+# path). Deriving a key by slicing this prefix by hand is what broke both.
 NERVE_CLUSTER_PREFIX = "nerve_c"
 
 
@@ -72,11 +77,14 @@ def _annotate(
         )
     raw_key = src[join_column].astype(str)
     if strip_prefix:
-        key = raw_key.str.removeprefix(NERVE_CLUSTER_PREFIX)
+        # Via the shared helper, not a bare removeprefix: nerve groups are
+        # `nerve_c{N}` for glial clusters AND `nerve_neuron` for the pooled
+        # neuron group, which has a purity row of its own keyed "neuron".
+        key = raw_key.map(nerve_group_key)
         if key.equals(raw_key):
             raise RuntimeError(
                 f"[FAIR-ALERT] None of the values in '{join_column}' carry "
-                f"the expected '{NERVE_CLUSTER_PREFIX}' prefix in {source_path}"
+                f"the expected '{NERVE_GROUP_PREFIX}' prefix in {source_path}"
             )
     else:
         key = raw_key
@@ -135,7 +143,11 @@ def _annotate_threeway(
     n_src = len(src)
     src["nerve_cluster"] = src["nerve_cluster"].fillna("").astype(str)
     src["immune_subtype"] = src["immune_subtype"].fillna("").astype(str)
-    src["_nerve_key"] = src["nerve_cluster"].str.removeprefix(NERVE_CLUSTER_PREFIX)
+    # Same helper as the per-cluster path above — `nerve_c24` -> `24`,
+    # `nerve_neuron` -> `neuron`, `""` (row involves no nerve group) -> `""`.
+    # A bare removeprefix("nerve_c") leaves `nerve_neuron` intact, which then
+    # matches no purity row and trips the missing-from-purity guard below.
+    src["_nerve_key"] = src["nerve_cluster"].map(nerve_group_key)
     src["_immune_key"] = src["immune_subtype"]
 
     nerve_cols = {

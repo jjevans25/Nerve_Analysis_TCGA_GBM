@@ -38,6 +38,8 @@ if not BASELINE_PINNED:
         params:
             leiden_resolution  = config["nerve_cells"]["leiden_resolution"],
             cell_types         = config["nerve_cells"]["cell_types"],
+            neuron_labels      = config["nerve_cells"].get("neuron_labels", []),
+            malignant_flag     = config["nerve_cells"].get("malignant_flag", "is_malignant"),
             markers            = config["nerve_cells"]["markers"],
             random_seed        = config["scrna"]["random_seed"],
             n_top_genes        = config["scrna"]["n_top_genes"],
@@ -248,6 +250,12 @@ if not BASELINE_PINNED:
             random_seed = config["scrna"]["random_seed"],
             # Reference .X is Seurat SCT log1p already — do not re-normalize.
             normalize_counts = False,
+            # NOTE the 12-space indent: this rule is nested under
+            # `if not BASELINE_PINNED:`, unlike its twin in datasets.smk. At 8
+            # spaces this key falls out of `params:` and Snakemake rejects it as
+            # a rule keyword, which breaks parsing for the WHOLE workflow even
+            # though this rule is pinned out and never runs.
+            max_cells_per_group = config["liana"]["max_cells_per_group"],
         script:
             "../scripts/nerve_tumor_interaction.py"
 
@@ -298,6 +306,8 @@ rule nerve_celltype_labels:
         threads = config["resources"]["default_threads"],
     params:
         markers             = config["nerve_cells"]["markers"],
+        cell_types          = config["nerve_cells"]["cell_types"],
+        neuron_labels       = config["nerve_cells"].get("neuron_labels", []),
         unknown_percentile  = config["nerve_scanvi"]["unknown_percentile"],
         random_seed         = config["scrna"]["random_seed"],
     script:

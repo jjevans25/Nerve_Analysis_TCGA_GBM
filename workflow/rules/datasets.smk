@@ -211,9 +211,10 @@ rule ds_scrna_annotate:
         model_dir   = _md("scvi_model"),
         symbol_map  = _dp("gene_symbol_map.tsv"),
     output:
-        h5ad       = _dp("annotated.h5ad"),
-        summary    = _tb("annotation_summary.csv"),
-        provenance = _pv("annotation_provenance.json"),
+        h5ad           = _dp("annotated.h5ad"),
+        summary        = _tb("annotation_summary.csv"),
+        cluster_scores = _tb("annotation_cluster_scores.csv"),
+        provenance     = _pv("annotation_provenance.json"),
     log:
         os.path.join(config["dirs"]["logs"], "{dataset}_annotate.log"),
     conda:
@@ -222,10 +223,13 @@ rule ds_scrna_annotate:
         mem_mb  = config["resources"]["default_mem_mb"],
         threads = config["resources"]["default_threads"],
     params:
-        leiden_resolution = config["nerve_cells"]["leiden_resolution"],
-        markers           = config["nerve_cells"]["markers"],
-        random_seed       = config["scrna"]["random_seed"],
-        census_version    = config["databases"]["cellxgene_census_version"],
+        leiden_resolution  = ANNOTATE_LEIDEN_RESOLUTION,
+        markers            = config["nerve_cells"]["markers"],
+        annotation_markers = ANNOTATION_MARKERS,
+        ambiguous_margin   = ANNOTATE_AMBIGUOUS_MARGIN,
+        panel_compartment  = ANNOTATE_PANEL_COMPARTMENT,
+        random_seed        = config["scrna"]["random_seed"],
+        census_version     = config["databases"]["cellxgene_census_version"],
     script:
         "../scripts/scrna_annotate.py"
 
@@ -234,6 +238,8 @@ rule ds_scrna_malignancy:
     """CNV-based malignancy labeling (reuses scrna_malignancy.py)."""
     input:
         h5ad = _dp("annotated.h5ad"),
+        gene_positions = os.path.join(config["gene_positions"]["download_dir"],
+                                      config["gene_positions"]["positions_filename"]),
     output:
         h5ad       = _dp("malignancy_labeled.h5ad"),
         cnv_plot   = _fg("cnv_heatmap.png"),
@@ -249,6 +255,16 @@ rule ds_scrna_malignancy:
         random_seed    = config["scrna"]["random_seed"],
         census_version = config["databases"]["cellxgene_census_version"],
         cnv_chunk_size = config["scrna"]["cnv_chunk_size"],
+        cnv_window     = config["scrna"]["cnv_window"],
+        cnv_clip       = config["scrna"]["cnv_clip"],
+        cnv_threshold_sd = config["scrna"]["cnv_threshold_sd"],
+        reference_labels = config["scrna"]["cnv_reference_labels"],
+        reference_confidence_quantile = config["scrna"]["cnv_reference_confidence_quantile"],
+        min_reference_cells = config["scrna"]["cnv_min_reference_cells"],
+        min_genes_placed_fraction = config["scrna"]["cnv_min_genes_placed_fraction"],
+        cnv_exclusion_sd = config["scrna"]["cnv_exclusion_sd"],
+        cnv_gain_contigs = config["scrna"]["cnv_gain_contigs"],
+        cnv_loss_contigs = config["scrna"]["cnv_loss_contigs"],
     script:
         "../scripts/scrna_malignancy.py"
 
@@ -278,6 +294,8 @@ rule ds_nerve_cell_subset:
     params:
         leiden_resolution = config["nerve_cells"]["leiden_resolution"],
         cell_types        = config["nerve_cells"]["cell_types"],
+        neuron_labels     = config["nerve_cells"].get("neuron_labels", []),
+        malignant_flag    = config["nerve_cells"].get("malignant_flag", "is_malignant"),
         markers           = config["nerve_cells"]["markers"],
         random_seed       = config["scrna"]["random_seed"],
         n_top_genes       = config["scrna"]["n_top_genes"],
@@ -400,6 +418,7 @@ rule ds_nerve_tumor_interaction:
         # which wants counts), but LIANA assumes log1p. Default True; a cohort
         # whose .X is already log1p sets `normalize_counts: false` in its entry.
         normalize_counts = lambda wc: _entry(wc.dataset).get("normalize_counts", True),
+        max_cells_per_group = config["liana"]["max_cells_per_group"],
     script:
         "../scripts/nerve_tumor_interaction.py"
 
@@ -422,7 +441,7 @@ rule ds_immune_cell_subset:
         mem_mb  = config["resources"]["default_mem_mb"],
         threads = config["resources"]["default_threads"],
     params:
-        source_label              = config["immune_cells"]["source_label"],
+        source_labels             = IMMUNE_SOURCE_LABELS,
         leiden_resolution         = config["immune_cells"]["leiden_resolution"],
         n_top_genes               = config["scrna"]["n_top_genes"],
         random_seed               = config["scrna"]["random_seed"],
@@ -485,6 +504,7 @@ rule ds_nerve_tumor_immune_interaction:
         random_seed = config["scrna"]["random_seed"],
         # See ds_nerve_tumor_interaction — same raw-UMI vs log1p asymmetry.
         normalize_counts = lambda wc: _entry(wc.dataset).get("normalize_counts", True),
+        max_cells_per_group = config["liana"]["max_cells_per_group"],
     script:
         "../scripts/nerve_tumor_immune_interaction.py"
 
@@ -574,6 +594,8 @@ rule ds_nerve_celltype_labels:
         threads = config["resources"]["default_threads"],
     params:
         markers            = config["nerve_cells"]["markers"],
+        cell_types         = config["nerve_cells"]["cell_types"],
+        neuron_labels      = config["nerve_cells"].get("neuron_labels", []),
         unknown_percentile = config["nerve_scanvi"]["unknown_percentile"],
         random_seed        = config["scrna"]["random_seed"],
     script:
@@ -605,7 +627,8 @@ rule ds_nerve_scanvi_retrain:
         n_layers            = config["scrna"]["n_layers"],
         random_seed         = config["scrna"]["random_seed"],
         batch_key           = config["nerve_scanvi"]["batch_key"],
-        labels_key          = config["nerve_scanvi"]["labels_key"],
+        labels_key          = lambda wc: _entry(wc.dataset).get(
+            "scanvi_labels_key", config["nerve_scanvi"]["labels_key"]),
         unlabeled_category  = config["nerve_scanvi"]["unlabeled_category"],
         scvi_max_epochs     = config["nerve_scanvi"]["scvi_max_epochs"],
         scanvi_max_epochs   = config["nerve_scanvi"]["scanvi_max_epochs"],
@@ -639,6 +662,45 @@ rule ds_nerve_batch_qc_v2:
         min_contributing_samples = config["nerve_cells"]["batch_qc"]["min_contributing_samples"],
     script:
         "../scripts/nerve_batch_qc_v2.py"
+
+
+rule ds_compartment_audit:
+    """Test Oracle: cross-tab every compartment mask against the Census author
+    annotation and gate on the result.
+
+    CLAUDE.md requires comparing outputs against a known reference before a phase
+    is marked complete. Reads obs only from artifacts that already exist, so it
+    costs minutes and needs no re-run. With `compartment_audit.enforce: false` it
+    records a baseline; with true it hard-fails on any breached gate.
+    """
+    input:
+        malig  = _dp("malignancy_labeled.h5ad"),
+        nerve  = _dp("nerve_cells.h5ad"),
+        immune = _dp("immune_cells_labeled.h5ad"),
+    output:
+        audit         = _tb("compartment_audit.csv"),
+        cluster_audit = _tb("nerve_compartment_cluster_audit.csv"),
+        confusion     = _tb("malignancy_confusion.csv"),
+        gates         = _tb("compartment_audit_gates.csv"),
+        provenance    = _pv("compartment_audit_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "{dataset}_compartment_audit.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = config["resources"]["default_mem_mb"],
+        threads = 1,
+    params:
+        dataset          = lambda wc: wc.dataset,
+        random_seed      = config["scrna"]["random_seed"],
+        enforce          = config["compartment_audit"]["enforce"],
+        census_class_map = config["compartment_audit"]["census_class_map"],
+        immune_classes   = config["compartment_audit"]["immune_classes"],
+        gates            = config["compartment_audit"]["gates"],
+        per_arm          = lambda wc: config["compartment_audit"].get("per_arm", {}).get(wc.dataset, {}),
+        sidecar_dir      = config["compartment_audit"]["sidecar_dir"],
+    script:
+        "../scripts/compartment_audit.py"
 
 
 # =============================================================================

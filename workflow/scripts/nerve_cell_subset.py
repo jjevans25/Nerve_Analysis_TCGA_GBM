@@ -6,6 +6,7 @@ from pathlib import Path
 
 import anndata as ad
 import matplotlib
+import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import scanpy as sc
@@ -27,12 +28,24 @@ n_total = adata.n_obs
 # ---------------------------------------------------------------------------
 cell_types: list[str] = snakemake.params.cell_types
 frozen_path: str | None = getattr(snakemake.params, "frozen_subset_file", None)
+# Which malignancy flag excludes a cell from the nerve compartment. `is_malignant`
+# is the balanced call used to BUILD the tumor compartment; a compartment that
+# must be clean can instead key on a more sensitive flag, trading tumor-side
+# recall for nerve-side purity. See scrna_malignancy.
+malignant_flag: str = getattr(snakemake.params, "malignant_flag", None) or "is_malignant"
+if malignant_flag not in adata.obs.columns:
+    raise KeyError(
+        f"[FAIR-ALERT] nerve_cells.malignant_flag='{malignant_flag}' is not a column "
+        f"of the annotated input. Available: {sorted(c for c in adata.obs.columns if 'malig' in c)}"
+    )
+
 
 # Normalize type strings for comparison: lowercase, strip, collapse _↔space.
 # scrna_annotate emits labels like "excitatory_neuron"; config lists them as
 # "excitatory neuron" — both should match.
 def _norm(s: str) -> str:
     return s.lower().strip().replace("_", " ")
+
 
 if frozen_path:
     # v1.2.0 panel-tightening insulator: select cells by frozen barcode list
@@ -58,20 +71,35 @@ if frozen_path:
         )
 else:
     # Default path: derive nerve mask from current cell_type_predicted.
+    #
+    # Exact matching on a canonical label set, replacing substring matching.
+    # The old `any(label in t or t in label ...)` test was silently bidirectional
+    # and silently lenient: config said "oligodendrocyte precursor cell" while
+    # annotate emitted "opc", neither is a substring of the other, and 70,881
+    # cells were dropped without a word in the log. It was also over-permissive
+    # in the other direction — "neuron" is a substring of "excitatory neuron",
+    # so unrelated additions to the panel list could silently widen the mask.
     adata.obs["_ctype_norm"] = adata.obs["cell_type_predicted"].astype(str).map(_norm)
     type_targets = {_norm(t) for t in cell_types}
+    observed_labels = set(adata.obs["_ctype_norm"].unique())
 
-    # Also accept partial matches for flexibility (e.g. "excitatory neuron" matches "neuron")
-    def _is_nerve(label: str) -> bool:
-        label = _norm(label)
-        if label in type_targets:
-            return True
-        # partial: scored as "neuron" covers both excitatory and inhibitory
-        return any(label in t or t in label for t in type_targets)
+    # A configured cell type that matches no observed label is a typo or a stale
+    # name, not an absent population. Fail loudly: silently selecting nothing is
+    # precisely how this defect survived a full pipeline run.
+    unmatched = sorted(type_targets - observed_labels)
+    if unmatched:
+        raise RuntimeError(
+            f"[FAIR-ALERT] nerve_cells.cell_types entries match no observed "
+            f"cell_type_predicted value: {unmatched}. Observed labels: "
+            f"{sorted(observed_labels)}. Every configured type must match a "
+            "canonical label emitted by scrna_annotate (see the panel names in "
+            "config annotation_markers / nerve_cells.markers). Refusing to build "
+            "a compartment from a config entry that selects nothing."
+        )
 
     nerve_mask = (
-        adata.obs["_ctype_norm"].apply(_is_nerve)
-        & (~adata.obs["is_malignant"])
+        adata.obs["_ctype_norm"].isin(type_targets)
+        & (~adata.obs[malignant_flag])
     )
 
 adata_nerve = adata[nerve_mask].copy()
@@ -82,6 +110,31 @@ log_transformation(log, "nerve_cell_subset",
     f"({100 * n_nerve / n_total:.1f}%)")
 log_transformation(log, "nerve_cell_subset",
     f"Cell-type breakdown: {adata_nerve.obs['cell_type_predicted'].value_counts().to_dict()}")
+
+# ---------------------------------------------------------------------------
+# Step 1b: split the compartment into glia and neurons
+#
+# Neurons and glia are not interchangeable signalling partners, and lumping them
+# into one "nerve" compartment lets a glial cluster's ligand profile be read as
+# neuronal. They are separated here rather than at the LIANA step so the
+# distinction is carried on the object and is auditable.
+#
+# Neurons stay a single group instead of being split per cluster: there are only
+# ~3.4k of them across 170 donors, so per-cluster resolution would be noise.
+# ---------------------------------------------------------------------------
+neuron_labels = {_norm(t) for t in (getattr(snakemake.params, "neuron_labels", None) or [])}
+_norm_pred = adata_nerve.obs["cell_type_predicted"].astype(str).map(_norm)
+adata_nerve.obs["nerve_subcompartment"] = np.where(
+    _norm_pred.isin(neuron_labels), "neuron", "glia"
+)
+_sub_counts = adata_nerve.obs["nerve_subcompartment"].value_counts().to_dict()
+log_transformation(log, "nerve_cell_subset",
+    f"Sub-compartments: {_sub_counts}")
+if neuron_labels and _sub_counts.get("neuron", 0) == 0:
+    log_transformation(log, "nerve_cell_subset",
+        f"[FAIR-ALERT] no cells matched nerve_cells.neuron_labels {sorted(neuron_labels)} — "
+        "the neuron group will be absent from the interaction tables entirely.",
+        status="WARNING")
 
 if n_nerve < 2:
     # Hard-fail instead of writing placeholders. A 0-cell nerve compartment

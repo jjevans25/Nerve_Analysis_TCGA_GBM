@@ -1732,3 +1732,645 @@ Note on `--cores all` (14): `resources: mem_mb` is ignored by the scheduler unle
 per-donor backed read) and cost far more wall-clock than it protects. The heavy rules
 (`ds_scrna_integration`, `ds_scrna_malignancy`, `ds_nerve_scanvi_retrain`) are singletons and run
 alone regardless.
+
+---
+
+## [2026-08-05] Phase 0-1 — Compartment integrity fix: plan review + baseline audit (Test Oracle)
+
+**Phase:** Compartment integrity fix (`markdowns/plan_compartment_integrity_fix.md`), Phases 0-1 of 6.
+
+### Action — Phase 0: plan reviewed against the code
+
+Verified every structural claim in the plan against `workflow/rules/datasets.smk`, the scripts, and
+the on-disk artifacts. **All seven defects (D1-D7) are real and correctly located.** Four
+corrections (C1-C4) were written into the plan; they change *how* the fix is built, not *what* it
+fixes:
+
+- **C1** — `dataset_gene_symbol_map.py:35` writes `chromosome = "unknown"` for all 61,497 genes, so
+  D4's "the symbol map already carries a chromosome column" is not executable. Added a new
+  `ds_gene_positions` rule (Ensembl 113 GTF, SHA-pinned like `download_msigdb_gmt`) feeding
+  `infercnvpy`. **This is new work Phase 3 did not previously account for.**
+- **C2** — `nerve_cells.markers` is passed to `ds_scrna_qc` (`datasets.smk:165`) across 170 donors x
+  2 arms. Putting the new TME panels there would invalidate every QC artifact and therefore
+  `ds_scrna_integration` — the 11h13m scVI train the plan exists to preserve. New panels go in a
+  separate `annotation_markers:` block.
+- **C3** — `immune_cell_subset.py:55` matches a single `source_label` string exactly. Adding a
+  macrophage panel drops those cells out of the immune compartment entirely, and the "purity >=95%"
+  gate would still pass because purity is not a size check. `source_label` -> `source_labels` list,
+  plus a size gate.
+- **C4** — `nerve_scanvi.labels_key` and `nerve_cells.leiden_resolution` are global keys the
+  reference cohort also reads; both need per-arm scoping.
+
+### Action — Phase 1: `ds_compartment_audit` built and run on existing artifacts
+
+New `workflow/scripts/compartment_audit.py` + `ds_compartment_audit` rule + `compartment_audit:`
+config block. Reads **obs only** (never `.X`) from artifacts that already exist; both arms complete
+in ~13 s. Registered as a terminal target in `rule all`.
+
+Useful discovery: **`cell_type` survives in `nerve_cells.h5ad` and `immune_cells_labeled.h5ad`.**
+D6's overwrite only hits `nerve_cells_v2.h5ad` (the scANVI side-branch), so the audit needs no
+join back to the 1M-cell parent object.
+
+### Outcome — baseline reproduces the S1PR1 report exactly
+
+| metric | full arm | capped arm | gate |
+|---|---|---|---|
+| nerve neural fraction | **0.1108** | 0.1155 | >=0.85 FAIL |
+| nerve malignant / myeloid / vascular | 0.5888 / 0.2754 / 0.0187 | 0.6155 / 0.2469 / 0.0149 | — |
+| tumor compartment malignant fraction | **0.4790** | 0.4559 | >=0.85 FAIL |
+| malignancy recall | **0.1799** | 0.2482 | >=0.80 FAIL |
+| max nerve-cluster endothelial fraction | **0.9289** (c24) | 0.4526 (c16) | <=0.20 FAIL |
+| immune purity | 0.9946 | 0.9978 | >=0.95 PASS |
+
+Every figure in `markdowns/plan_compartment_integrity_fix.md` and
+`markdowns/s1pr1_localization_report.md` is reproduced to the stated precision (11.1% / 58.9% /
+27.5% / 47.9% / 18.0% / 99.5% / 92.9%). The tumor-compartment contamination breakdown also matches:
+25.5% macrophage, 10.6% microglia, 5.4% oligodendrocyte, 4.3% monocyte. 5 of 40 nerve clusters are
+neural-dominant; 23 are malignant-dominant and 9 myeloid-dominant.
+
+The finding is now **reproducible on disk** rather than existing only as prose — three CSVs plus a
+machine-readable gate table per arm, with provenance.
+
+Per-arm size gates measured and written into config (C4): immune baseline n = 329,608 / 169,617;
+nerve bands 45-75k (full, Census neuroglial total 62,632) and 30-52k (capped, total 43,857).
+
+### Tool failure worth recording
+
+Running the new rule **without `--use-conda`** fails with
+`/bin/bash: /Users/jarrettevans/Documents/Biomedical: No such file or directory`. Snakemake invokes
+`sys.executable` by absolute path and does not quote it, so the space in "Biomedical Data Science"
+splits the command. The pipeline works only because it is always run with `--use-conda` (which
+activates an env and calls `python` from PATH). **`--use-conda` is not optional on this machine.**
+
+Also re-confirmed the plan's warning empirically: a dry-run without `--rerun-triggers=mtime`
+schedules **698 jobs** (340 ingest + 340 QC + both scVI trains), triggered by pre-existing code and
+software-environment drift on `ds_ingest_dataset` / `ds_scrna_qc` / `ds_gene_symbol_map`. With
+`--rerun-triggers=mtime --allowed-rules ds_compartment_audit` it is exactly 2 jobs. Note `--quiet`
+has the same `nargs='+'` target-swallowing behaviour as `--allowed-rules` — pass targets first.
+
+### Verification
+
+- `flake8 workflow/scripts/compartment_audit.py` exit 0.
+- Provenance JSON written per arm; artifacts non-empty.
+- `results/pinned_reference_verification.json` still reads `pass: true, 37/37` — v1.3.0 untouched.
+
+### Open / next
+
+`compartment_audit.enforce` is **false** (baseline mode); flips to true in Phase 4. Phases 2-4
+(annotate fixes, CNV rebuild on infercnvpy, D5/D6/D7 + conda-env enforcement + numba pin) are
+approved to run through. **Phase 5 — the 6-10h full-arm and 4-7h capped-arm re-run — requires
+researcher approval before it starts.**
+
+---
+
+## [2026-08-05] Phases 2-4 — Compartment integrity fix: annotation, CNV, masks, environment
+
+**Phase:** Compartment integrity fix, Phases 2-4 of 6. Phase 5 (the re-run) awaits approval.
+
+### Phase 2 — D1/D2/D3, `scrna_annotate.py`
+
+- **D1.** `sc.tl.score_genes` assumes log-normalized input and does not check; the Census arms
+  carry raw UMIs, so panels were compared on absolute count scales. `.X` is now normalized +
+  log1p'd **in place** for scoring and restored to counts before writing — a normalized copy is
+  16.5 GB on top of 16.5 GB and does not fit in 36 GB. Round-trip verified bit-exact (20k x 3k
+  matrix incl. a 53,027-count outlier), guarded at runtime by a sum-drift check.
+- **D2.** Argmax now runs over per-panel **z-scores**, so panels compete on relative enrichment.
+  Annotate resolution 1.0 -> 2.0 on its own config key. Clusters whose top-vs-second margin is
+  below a floor **and cross a compartment boundary** are labelled `ambiguous`; same-compartment
+  ties (macrophage vs neutrophil) keep the top label. That refinement cut ambiguous from 17.7% to
+  7.5% and recovered ~6,150 correctly-placed immune cells.
+- **D3.** Astrocyte panel drops VIM for SLC1A2/SLC1A3/ALDH1L1/GJA1; seven lineages that had **no
+  panel at all** (macrophage, mural, mast, B/plasma, NK, neutrophil, DC) now have one.
+- **C2.** All of this lives in a new `annotation_markers:` block, NOT `nerve_cells.markers`, which
+  `scrna_qc` also reads per-sample and which would have cascaded into the 11 h scVI train.
+- **C3.** `immune_cells.source_label` (str) -> `source_labels` (list).
+
+### Phase 3 — D4, `scrna_malignancy.py` + new `download_gene_positions` rule
+
+Three stacked defects: gene order came from the Ensembl **accession counter**, not coordinates;
+library-size normalization was missing entirely; and the "normal" reference was drawn from the same
+annotation this rule should be independent of (degrading to T-cells-only in the capped arm).
+
+No coordinates existed anywhere in the project (`dataset_gene_symbol_map.py` writes the literal
+string `"unknown"`), so a new SHA-pinned Ensembl 113 GTF rule supplies them — 100% of both arms'
+genes map. Windows now run **within** each contig.
+
+That reached only 0.62/0.40. The remaining problem was the score itself: measured by genome-wide
+spread, **normal neural cells scored HIGHER than malignant ones** (0.063 vs 0.057), because an
+oligodendrocyte differs from an immune reference across whole chromosomes for reasons unrelated to
+dosage. Replaced with a **chr7-gain minus chr10-loss contrast**, measured inside a single cell so
+the cell-type baseline cancels. +7/-10 is a WHO 2021 IDH-wildtype GBM criterion and also fell out
+of this cohort unprompted as the most-up and most-down contig (+0.043 / -0.038).
+
+    AUC        0.859 -> 0.958
+    precision  0.479 -> 0.934   (gate >= 0.85)  PASS
+    recall     0.180 -> 0.894   (gate >= 0.80)  PASS
+
+### Phase 4 — D5/D6/D7, compartment definition, environment
+
+- **D5.** Exact canonical-label matching replaces substring matching, plus a hard fail when a
+  configured `cell_types` entry matches no observed label. The old bidirectional substring test is
+  what dropped 70,881 `opc` cells in silence.
+- **D6.** `nerve_celltype_labels.py` writes `cell_type_marker_label`; **`cell_type` is never
+  touched**. `nerve_scanvi.labels_key` follows, per-arm overridable.
+- **D7.** Both remaining placeholder-on-empty paths hard-fail.
+- Nerve compartment split into `glia` / `neuron` (`nerve_subcompartment`); neurons minted as one
+  `nerve_neuron` LIANA group, glia per cluster. The `nerve_` prefix is kept so the concordance pair
+  key stays comparable with the pinned v1.3.0 reference.
+
+### Researcher decision — nerve compartment narrowed (2026-08-05)
+
+Post-fix the nerve compartment reached 61.9% neural (from 11.1%), short of the 85% gate. The
+residual was concentrated in two labels:
+
+    oligodendrocyte    90.2% truly neural       excluded: opc        18.9%
+    excitatory_neuron  84.2%                              astrocyte  10.0%
+    neuron             61.5%
+
+These are the AC-like/OPC-like malignant states sharing GFAP/PTPRZ1/SLC1A3 with normal glia; Census
+reports **347 astrocytes in 1,006,344 cells (0.03%)** against the ~1.5% the panel calls. They are
+CNV-quiet on +7/-10, so the caller cannot remove them, and tightening does not help — at 0 SD the
+compartment is still only 78% neural and has lost 58% of its true neural cells.
+
+**Decision: drop `astrocyte` and `opc` from `nerve_cells.cell_types`; gate relaxed 0.85 -> 0.80.**
+Measured result 82.9% neural, retaining 69.2% of true neural cells.
+
+> **KNOWN COST — must be reported, not treated as a finding.** OPCs are a real neural population
+> (21,460 cells in the full arm) and relevant to neuron-glia-tumor crosstalk. They remain annotated
+> and present in every artifact; they are excluded from THIS COMPARTMENT only. Their absence from
+> the interaction tables is a masking decision.
+
+### Defect 1 (conda env enforcement) — CLOSED, root cause was neither candidate approach
+
+`markdowns/task_conda_env_enforcement.md` proposed reinstalling Snakemake outside the venv or
+rebuilding `claude_science`. **Neither was needed.** Root cause: the venv is *active in the calling
+shell*, so its exported `VIRTUAL_ENV` and PATH entry re-shadow `conda activate` inside every job
+subshell. Unsetting `VIRTUAL_ENV` and stripping the venv from PATH before launching Snakemake makes
+all four acceptance criteria pass. `CONDA_PREFIX` must be **left set** — unsetting it makes conda's
+own deactivate-script lookup raise inside `posixpath.join`.
+
+New `scripts/run_snakemake.sh` does this; new `conda_env_smoke_test` rule asserts it (14/14 pass:
+`sys.executable` in the conda env, igraph 0.11.8, torch 2.12.0, liana 1.7.1, infercnvpy 0.4.3, all
+resolving inside the env). **Phase 5 must be launched via the wrapper or enforcement silently
+reverts.**
+
+`numba==0.65.0` + `llvmlite==0.47.0` pinned in `scrna.yaml` (previously transitive and unpinned;
+numba's threading layer caused both SIGSEGVs). This changed the env hash; the env was rebuilt and
+re-verified now, deliberately, rather than mid-run.
+
+### Tool failures worth recording
+
+- **Snakemake deletes a failed job's declared outputs** — and the compartment audit is the one rule
+  where that is exactly backwards, since a failing gate is when its cross-tabs matter most. Hit
+  live: enabling `enforce` deleted the full arm's baseline tables. The audit now also writes an
+  **undeclared sidecar** (`results/compartment_audit_snapshots/<arm>/`) that nothing in the DAG can
+  remove. Baseline regenerated via a `--configfile` overlay with `enforce: false`.
+- **`from __future__ import annotations` breaks under Snakemake `script:`** — Snakemake prepends its
+  preamble, so the future import is no longer first and raises SyntaxError. Unnecessary on 3.12.
+- **Ensembl's HTTPS mirror stalls mid-transfer** on the 64 MB GTF; the downloader now resumes by
+  byte range and treats HTTP 416 as "already complete".
+
+### Verification
+
+- `flake8` exit 0 on all 13 edited scripts.
+- `conda_env_smoke_test`: 14/14.
+- Enforcing audit **correctly fails** on the pre-fix artifacts (7 gates), and the sidecar survives.
+- `results/pinned_reference_verification.json` still `pass: true, 37/37`.
+
+### Deviation from plan — infercnvpy not used
+
+The plan preferred replacing the hand-rolled smoother with `infercnvpy`. It appeared absent from
+the environment, which is precisely what the venv-shadowing defect looked like; it is in fact
+installed (0.4.3). By the time that was clear the in-place rebuild already met the gate at
+0.934/0.894, and swapping in a library unproven at 1M cells — with an `X_cnv` matrix in the ~10 GB
+range — would risk memory on a 36 GB machine for no measured gain. Recorded, not quietly dropped.
+
+### Next
+
+**Phase 5 — the 6-10 h full-arm and 4-7 h capped-arm re-run — requires researcher approval.**
+Launch via `scripts/run_snakemake.sh`. Re-entry at `ds_scrna_annotate`; the 11 h 13 m scVI train is
+preserved because `X_scVI` is label-free.
+
+---
+
+## [2026-08-06] Phase 5 — full-arm re-run: all 10 gates pass; two corrections to the record
+
+**Phase:** Compartment integrity fix, Phase 5. Full arm essentially complete; capped arm pending.
+
+### Result — the fix works
+
+`ds_compartment_audit` ran ENFORCING against the rebuilt full arm and passed **10/10 gates**:
+
+| gate | before | after | required |
+|---|---|---|---|
+| nerve compartment neural | 11.1% | **95.39%** | >=80% |
+| tumor compartment malignant | 47.9% | **92.96%** | >=85% |
+| malignancy precision | 0.479 | **0.9296** | >=0.85 |
+| malignancy recall | 0.180 | **0.8940** | >=0.80 |
+| immune purity | 99.5% | **99.63%** | >=95% |
+| max nerve-cluster endothelial | 92.9% | **0.0000** | <=20% |
+| nerve compartment n | 377,343 | **37,945** | 25k-50k |
+| neuron group n | 0 | **4,275** | >=1,500 |
+
+`nerve_c24` — the 92.9%-endothelial cluster that made S1PR1 look nerve-side and started this whole
+investigation — is gone as a failure mode.
+
+scANVI retrained from scratch on the corrected 37,945-cell subset: classifier accuracy 0.9828.
+Read with care: the compartment now has TWO anchoring labels (neuron, oligodendrocyte) where it had
+five, so the task is easier and this is NOT comparable to the previous 0.8446.
+
+### CORRECTION 1 — LIANA was never failing; I killed a healthy run
+
+An earlier commit message (8ca071e) claims `rank_aggregate` was thrashing swap and "would never
+have finished", and introduced a per-group cell cap on that basis. **That diagnosis was wrong.**
+
+Both LIANA rules had ALREADY COMPLETED, uncapped, before I intervened:
+
+    nerve_tumor_immune_interactions.csv   44,139 rows   13:52   provenance written
+    nerve_tumor_interactions.csv          11,280 rows   13:55   provenance written
+
+The provenance JSON is written last, so its presence is proof of completion. The three-way ran on
+all 952,087 labelled cells x 24,135 genes in ~10 minutes.
+
+What I actually measured (swap 12.5/13.3 GB, ~1s CPU per 20s wall) was `nerve_cell_heterogeneity`
+— GSEA, which legitimately ran 1h50m at 11.5 GB and completed normally at 15:53. My process filter
+matched a LIANA process that was already exiting, and I attributed another rule's memory pressure
+to it. `liana.max_cells_per_group` is therefore set to **0 (disabled)**; the mechanism is retained
+and documented for a cohort that genuinely does not fit, but nothing here needed it.
+
+The other fixes from that episode stand on their own evidence and are unaffected: parent-sourcing
+cured a real silent scale defect and cut peak RSS from 30+ GB to ~9 GB.
+
+### CORRECTION 2 — D8, a silent scale defect (pre-existing, affected the original run too)
+
+The interaction rules concatenated compartments on DIFFERENT scales and then normalized the result
+as one object:
+
+    malignancy_labeled.h5ad    raw counts
+    nerve_cells.h5ad           already log1p  (normalize_total + log1p in *_cell_subset)
+    immune_cells_labeled.h5ad  already log1p
+
+So malignant cells were transformed ONCE and nerve/immune cells TWICE. Every cross-compartment
+ligand-receptor comparison — in this run and in the original — was between differently-transformed
+data. It stayed hidden because the combined X.max() is dominated by the raw malignant cells, so
+every scale check saw "counts".
+
+Fixed by taking EXPRESSION from the shared parent (all three compartments are subsets of it) and
+using the compartment files only for LABELS, with assertions that the three are pairwise disjoint.
+Verified: combined matrix now X.max() 58,860 -> 9.110 on one consistent scale, versus 8,291 -> 8.780
+before.
+
+### Defects found while getting here (all fixed)
+
+- Four consumers still assumed the `nerve_c{N}` label shape and broke on the pooled `nerve_neuron`
+  group. One of them (`_nerve_cluster`) would have SILENTLY blanked every neuron row rather than
+  raising. Now routed through shared `fair_utils.nerve_group_key` / `nerve_group_sort_key`.
+- `nerve_batch_qc` now computes purity over the same groups the interaction rules mint, so the
+  neuron group has a row to join onto (23 -> 21 rows; three clusters were entirely neuronal).
+- scANVI anchoring labels were hardcoded to the v1.x compartment and demanded >=1% OPC from a
+  compartment that deliberately excludes OPC. Now derived from `nerve_cells.cell_types`.
+- Undeclared crash-safe checkpoints survived a legitimate input change and were loaded against the
+  wrong roster. Now fingerprinted (n_obs, n_vars, obs/var hashes, keys, label set, seed) and
+  discarded on mismatch. Verified firing in production.
+- `max_cells_per_group` was indented at 8 spaces inside a rule nested under `if not
+  BASELINE_PINNED:` (12-space params), making it a rule keyword and breaking parsing for the WHOLE
+  workflow — a 1-second failure that masqueraded as a run failure.
+
+### Operational
+
+- macOS has no `setsid(1)`, and a harness-tracked background task gets reaped mid-run. Long runs
+  now launch via `scratchpad/daemonize.py` (double-fork + `os.setsid`), which orphans them to init
+  so nothing upstream can kill them.
+- `--quiet` has the same `nargs='+'` target-swallowing trap as `--allowed-rules`.
+
+### Next
+
+Full arm: 5 light jobs remain (cluster annotations, batch_qc_v2, annotate_cluster_qc, concordance,
+notebook). Capped arm: 18 jobs from `ds_scrna_annotate`, not yet started.
+
+### [2026-08-06 16:25] Full arm COMPLETE — rc=0, all verification met
+
+`gbm_cellxgene_56c4912d_full` finished all 14 jobs. Goal-backward verification:
+
+1. **ZERO nerve-side S1PR1 rows** in `nerve_tumor_immune_top_pairs_with_qc.csv` (zero S1PR1 rows at
+   all). The finding that started this investigation — SPP1->S1PR1 called immune->nerve and
+   tumor->nerve — was an artifact of `nerve_c24` being 92.9% endothelial. That cluster's
+   contamination is now 0.0000 and the rows are gone.
+2. **10/10 compartment-integrity gates PASS** (audit runs enforcing, so this is self-checking):
+   nerve 95.39% neural, tumor 92.96% malignant, malignancy precision 0.9296 / recall 0.8940,
+   immune 99.63% pure, max nerve-cluster endothelial 0.0000, nerve n=37,945, neuron group n=4,275.
+3. `results/pinned_reference_verification.json` still **pass: true, 37/37** — the v1.3.0 reference
+   was never touched.
+4. scANVI-v2 retrained on the corrected subset; `nerve_cells_v2.h5ad` present; `cell_type`
+   preserved throughout (defect D6 closed).
+
+**Concordance against the pinned v1.3.0 reference moved, as predicted:**
+
+    reference significant pairs   3,368
+    dataset significant pairs     2,283
+    shared                        1,724
+    Jaccard overlap               0.439
+    Spearman rho (shared)         0.6182
+
+This is NOT like-for-like and must not be read as a replication failure. The reference's own nerve
+compartment was built by the same uncorrected logic this work removed, it carries no author
+annotation, and it was scored against differently-normalized data (defect D8). Its status is
+*unknown*, not *cleared*. Demote it from headline until the reference is itself re-derived.
+
+**Interaction tables:** 44,139 rows, all nerve-involving; 2,609 rows carry the pooled
+`nerve_neuron` group; 15,504 rows carry `batch_qc_pass=False` (dominated by the neuron group's
+donor-dominance failure, recorded not exempted).
+
+Capped arm `gbm_cellxgene_56c4912d` started automatically at 16:25:13 (18 jobs from
+`ds_scrna_annotate`).
+
+Defects fixed during this final stretch, both the same species — a consumer that parsed the nerve
+group label by hand instead of via the shared helper:
+- `nerve_batch_qc` emitted only the interaction keying, dropping the entirely-neuronal clusters
+  (11, 14, 19) that the marker/enrichment tables key on. Purity now emits per-cluster rows AND a
+  pooled neuron row (24 rows).
+- `annotate_cluster_qc` derives the nerve key in TWO places; only one had been routed through
+  `nerve_group_key`. The three-way path still used a bare `removeprefix("nerve_c")`.
+
+### [2026-08-06 18:10] PHASE 5 COMPLETE — both arms, rc=0
+
+`gbm_cellxgene_56c4912d` finished 18/18 at 18:10:07. Both Census arms are now rebuilt on the
+corrected pipeline and both pass every gate.
+
+| | FULL (1.0M) | CAPPED (615k) |
+|---|---|---|
+| compartment gates | **10/10 PASS** | **10/10 PASS** |
+| nerve neural fraction | 95.39% (was 11.1%) | 94.76% (was 11.6%) |
+| tumor malignant fraction | 92.96% (was 47.9%) | 93.47% (was 45.6%) |
+| malignancy precision / recall | 0.930 / 0.894 | 0.935 / 0.875 |
+| immune purity | 99.63% | 99.63% |
+| max nerve-cluster endothelial | 0.0000 (was 0.929) | 0.0000 (was 0.453) |
+| nerve compartment n | 37,945 | 28,936 |
+| Census neuroglial truth | 37,561 | 27,860 |
+| neuron group n | 4,275 | 4,240 |
+| **nerve-side S1PR1 rows** | **0** | **0** |
+
+The two arms were corrected independently and each landed within ~1-4% of its OWN Census
+neuroglial count. Two cohorts of different sequencing depth converging on their own ground truth
+is the strongest available evidence that the fix is real rather than tuned to one dataset. The
+depth comparison — the reason both arms exist — is preserved.
+
+Concordance against the pinned v1.3.0 reference:
+
+    FULL    jaccard 0.4390   spearman 0.6182   shared 1,724
+    CAPPED  jaccard 0.4739   spearman 0.6620   shared 1,914
+
+Both moved down from the pre-fix figures. **This is not a replication failure and must not be
+reported as one.** The reference's own nerve compartment was built by the uncorrected logic this
+work removed, it carries no author annotation, and it was scored against differently-normalized
+data (defect D8). Its status is *unknown*, not *cleared*. Notably the two corrected arms agree with
+each other far better than either agrees with the reference — consistent with the reference being
+the outlier.
+
+Guards still green after the full re-run:
+  pinned v1.3.0 reference   pass 37/37 unchanged
+  conda env enforcement     pass 14/14
+
+### Open items for the researcher
+
+1. **Re-derive the 40-axis shortlist** (`results/tables/nerve_crosstalk_lead_targets.csv`). It
+   predates the fix. Note S1PR1, CXCR4 and LRP1 were never on it — they appeared only in raw LIANA
+   tables, and whatever shortlist named them was produced outside this repo.
+2. **The neuron group fails batch purity** (dominant_sample_fraction 0.5032; one donor supplies
+   half of all ~4,275 neurons across 7 contributing samples). Recorded, NOT exempted. Any
+   neuron-side axis is substantially one patient's biology.
+3. **The immune compartment doubled** (1.80x full, 2.00x capped) because T/NK/B cells are in it for
+   the first time. Every pre-fix "immune" result was myeloid-only, so immune-side findings change
+   in character, not just magnitude.
+4. **OPC, astrocyte, generic neuron and ependymal are excluded from the nerve compartment** by
+   researcher decision. They remain annotated and present in every artifact — their absence from
+   the interaction tables is a masking decision, not a biological finding.
+5. **The v1.3.0 reference should be re-derived** on the corrected pipeline before concordance is
+   used as evidence either way.
+
+---
+
+### [2026-08-07] | Phase: Post-compartment-fix notebook audit | Status: COMPLETE
+
+**Action:** Researcher asked whether `notebooks/05_census_nerve_immune_explorer.py` references the
+newly generated data after the 2026-08-06 re-run. Audited it against the artifacts on disk.
+
+**Outcome:** Mechanically yes, semantically no. Every path the notebook resolves points at a table
+rebuilt on 2026-08-06, but the logic reading those tables was written against the pre-fix
+compartments. Four defects, one of them silent:
+
+1. **`nerve_neuron` join failure (correctness).** `_prepare` derived its join key with
+   `str.replace("nerve_c", "")`. Neurons are carried as one pooled LIANA group, `nerve_neuron`,
+   which contains no `nerve_c` substring, so the id passed through unchanged and matched no
+   annotation row. **2,679 of 48,581 nerve-side rows** lost their cell type, dropped out of the
+   Panel D interface matrix entirely, and rendered as a bare id in Panel C — no error raised. This
+   is the exact failure `fair_utils.nerve_group_key` exists to prevent and that
+   `annotate_cluster_qc.py` already guards against; the notebook was the one consumer that never
+   adopted the helper. Worse than its row count: the pooled neuron group is precisely the
+   donor-dominated population that needs to be *visible and caveated*, not invisible.
+2. **Panel A's compartment mapping was a hardcoded copy of the old definitions.** It still listed
+   astrocyte/opc/generic-neuron/ependymal as nerve and `microglia` alone as immune. Measured
+   against the live `annotation_summary.csv` for the capped arm, it reported nerve **194,080** and
+   immune **125,671** where config gives **36,712** and **343,280** — nerve overstated 5x, immune
+   understated 3x — and named seven labels as excluded that are now inside the immune compartment.
+3. **Three false narrative claims.** "resolves only 5 cell types … no opc/ependymal/tumor_gbm"
+   (there are now 18 labels including all three); "`mean_confidence` 5.96-15.29" (live range
+   0.95-28.11); and a pointer to `blocker_census_annotation_scoring.md` as an *unfixed* defect —
+   that is defect D1 and `scrna_annotate.py:102-135` now normalizes to log1p before `score_genes`
+   and reverts after. Footer's "11 of 35 nerve clusters fail batch QC" is now 9 of 26.
+4. **Panel F framed the v1.3.0 concordance as an agreement result** ("both rose once the scales
+   matched"), which is exactly the reading the 2026-08-06 entry above forbids.
+
+**Fixes applied** (researcher-directed scope: correctness + stale prose; remove Panel E; §2.5
+option (a) for concordance):
+
+- Import `nerve_group_key` / `nerve_group_sort_key` from `fair_utils` instead of parsing ids by
+  hand; synthesize the pooled-neuron annotation row the Leiden-only annotation rule cannot emit;
+  add a `[FAIR-ALERT]` guard that raises if any nerve group lands without a label, mirroring the
+  pipeline-side check.
+- Panel A now reads `nerve_cells.cell_types` and `immune_cells.source_labels` from config at run
+  time. Its callout states the §2.4 masking decision with the measured per-label purity, and that
+  the tumor compartment is CNV-derived so it cuts across every label in the chart.
+- Panel B sorts nerve groups numerically-then-named and surfaces the neuron group's donor
+  dominance inline.
+- **Panel E removed** — it scored the current tables against a 2026-07-15 shortlist derived when
+  "nerve" was 59% malignant. Replaced with a stub recording why, so it is not silently re-added.
+- Panel F demoted to a diagnostic with the three reasons the reference is not a valid comparator.
+
+**Artifacts:** `notebooks/05_census_nerve_immune_explorer.py`,
+`notebooks/__marimo__/session/05_census_nerve_immune_explorer.py.json`,
+`.claude/plans/plan_notebook05_post_compartment_fix.md`,
+`markdowns/post_compartment_fix_next_steps.md` (researcher's review doc, now tracked — the notebook
+cites it in six places).
+
+**Verification:** `flake8` clean. Headless `marimo export html` run on **both** arms, exit 0, no
+error cells. Join completeness confirmed — the only unmatched nerve key on either arm is `neuron`,
+the group the notebook now synthesizes. Panel A renders 36,712 nerve / 343,280 immune on the capped
+arm. Panel D regains 90 (capped) / 97 (full) neuron rows at the default thresholds that it
+previously discarded. Purity callout renders 9 of 26 groups failing (capped) and 9 of 24 (full).
+
+**Tool Versions:** marimo 0.23.1 (matches the `workflow/envs/notebooks.yaml` pin), pandas 2.x.
+
+**Open Issues:**
+- `markdowns/blocker_census_annotation_scoring.md` still reads `Status: OPEN` although its defect
+  (D1) is fixed. One-line docs correction, not done here.
+- Deferred by researcher decision, all still open: a compartment-audit panel reading
+  `compartment_audit_gates.csv` / `malignancy_confusion.csv` / `nerve_compartment_cluster_audit.csv`
+  (no notebook reads them today); the §3.1 direct S1PR1/CXCR4/LRP1 x `cell_type` cross-tab; §2.1
+  shortlist re-derivation; a cross-arm concordance artifact (§2.5 option (c)).
+- `notebooks/04_tme_nerve_immune_explorer.py` was NOT audited. Its cohort was not rebuilt, so it
+  does not carry defects 1-2, but its concordance framing is worth the same pass.
+
+**FAIR Notes:** No artifact changed — this run modified no table and required no pipeline
+re-execution. The notebook's export sidecar now hashes 11 inputs rather than 12, the dropped one
+being the withdrawn pre-fix shortlist.
+
+---
+
+### [2026-08-07] | Phase: Post-compartment-fix notebook audit (04) | Status: COMPLETE
+
+**Action:** Same pass over `notebooks/04_tme_nerve_immune_explorer.py` as the entry above did for
+05. This notebook reads the **pinned v1.3.0 reference** tables at `results/tables/` (root), which
+the compartment fix did **not** rebuild — so the audit question is different: not "does it read the
+new data" but "does it say what its own data is worth".
+
+**Outcome:** Two of notebook 05's four defects do not apply; the two that remain are the ones that
+matter most here.
+
+*Does not apply, verified rather than assumed:*
+
+1. **No `nerve_neuron` join failure.** The reference cohort's groups are uniformly `nerve_c{N}`;
+   the notebook's prefix slice is exactly equivalent to `fair_utils.nerve_group_key` on this table
+   and leaves **0** rows unmatched. Switched to the helper anyway, plus the same `[FAIR-ALERT]`
+   orphan guard, so the notebook cannot silently lose a group if it is ever pointed at a rebuilt
+   cohort.
+2. **Panel A's hardcoded compartment map is correct here — and must stay hardcoded.** This is the
+   deliberate *opposite* of the fix applied to notebook 05. Config has moved past these pinned
+   artifacts: today's `nerve_cells.cell_types` selects **18,405** labelled cells against the
+   **106,603** actually modelled in the pinned LR run, so reading config at run time would
+   understate the nerve compartment ~6x. The literals are now commented as the definition in force
+   at freeze time, with an explicit DO-NOT-"FIX" note.
+
+*Applies, and was the real gap:*
+
+3. **Nothing on the page said this cohort is unaudited.** Its nerve compartment was built by the
+   logic the fix removed, and unlike both Census arms it carries **no author annotation**, so there
+   is no oracle to check it against. Where that logic could be measured it came out 59% malignant /
+   11% neural; here the contamination is **unknown, not measured, and not cleared**. Added as a
+   top-of-notebook banner and as footer limit 1, which now dominates the others.
+4. **Stale prose.** The header and footer still excluded the Census cohort on the grounds of the
+   raw-counts LIANA defect — RESOLVED 2026-07-26, and that cohort has had its own notebook since.
+   Panel A still described the OPC drop as an open naming miss (defect D5, fixed; OPCs are now
+   excluded by explicit decision) and described `t_cell` as sitting outside the immune subset
+   without noting that this makes every immune result on the page a **myeloid** result.
+
+**Shortlist provenance settled, and a correction to yesterday's work.** Notebook 05's Panel E stub
+asserted the curated shortlist was "derived from tables in which the nerve compartment was 59%
+malignant and 27% myeloid". That figure is the Census full arm's, and the shortlist is not from
+there: **34 of its 40 `best_mag` values reproduce against the reference interaction table to 1e-6,
+and 0 against either Census arm.** It is reference-derived. Corrected the wording in 05 to the
+defensible claim — the shortlist comes from a cohort that has never been audited, so its basis is
+unknown rather than measured-bad. Also found the shortlist's `n_rows` no longer matches the live
+reference table (median gap 186 rows across 40 axes), because it is dated 2026-07-15 and the
+`_with_qc` table was regenerated 2026-07-21; Panel E of 04 now says so.
+
+**Panel E kept in 04, removed in 05 — deliberately asymmetric.** In 04 it traces an axis back to
+the rows that support it within one consistent cohort, which is a like-for-like trace. In 05 it
+scored *corrected* tables against the same shortlist, which reads as a replication test and is not
+one.
+
+**Artifacts:** `notebooks/04_tme_nerve_immune_explorer.py`,
+`notebooks/05_census_nerve_immune_explorer.py` (Panel E wording correction),
+both `notebooks/__marimo__/session/*.json`.
+
+**Verification:** `flake8` clean on both. Headless `marimo export html` on 04, exit 0, no error
+cells; rendered Panel A shows 106,603 modelled nerve against 136,587 labelled and a 2,786-cell
+coverage gap, all three matching hand computation against `annotation_summary.csv` and the pinned
+provenance. Notebook 05 re-exported after its edit, exit 0.
+
+**Open Issues:**
+- `duckdb` is imported by notebook 04 and never used. Left alone — removing it churns the cell
+  return signature for no functional gain.
+- `markdowns/blocker_census_annotation_scoring.md` still reads `Status: OPEN` though defect D1 is
+  fixed (carried over from the previous entry).
+- Notebook 03 (`03_nerve_tumor_immune_explorer.py`) has not had this pass. It is the pure LR view
+  over the same pinned reference tables, so it very likely carries defect 3 above.
+
+**FAIR Notes:** No artifact changed; no pipeline re-execution. The pinned v1.3.0 tables were read
+only.
+
+---
+
+### [2026-08-07] | Phase: Post-fix lead-axes panel (notebook 05) | Status: COMPLETE
+
+**Action:** Researcher generated `results/tables/nerve_immune_lead_axes_postfix.csv` (183 rows x 15
+cols) — the §2.1 re-derivation — and asked for a notebook 05 panel pointing at it. It lands in the
+slot where Panel E was removed on 2026-08-07.
+
+**Provenance established before writing anything.** This shortlist is Census-derived across **both**
+arms: all 183 axes are present in both Census interaction tables and **0** of their magnitudes match
+the pinned v1.3.0 reference. That is the exact inverse of the withdrawn 2026-07-15 shortlist
+(34/40 matching the reference, 0 matching Census), and it is what makes this one usable where its
+predecessor was not.
+
+**Structural facts that drove the design:**
+
+- **The primary key is `(axis, nerve_side)`, not `axis`** — 144 distinct axes over 183 rows, 39 of
+  them ranked separately on both nerve sides (`APP|CD74` is rank 1 on each), with ranks restarting
+  per side. A panel keyed on `axis` would have silently collapsed those pairs. Guarded by a
+  `[FAIR-ALERT]` raise on duplicate keys.
+- **`n_rows` is a FULL-ARM count with no capped counterpart.** Measured under the reconstructed
+  filter it agrees with the full arm on 118/183 axes but with the capped arm on only **47/183**.
+  Comparing it while the capped arm is active would have rendered ~3/4 of the table as
+  "disagreement" that was really just the wrong arm. It is now shown for reference and compared
+  only on the full arm. **This was caught by running both arms, not by reading the file.**
+- **The file's two magnitude columns were not built the same way.** Under the reconstructed rule
+  (QC-passing, `magnitude_rank <= 0.05`, restricted to each axis's own interfaces),
+  `capped_best_mag` reproduces **exactly, 128/128**, while `best_mag` reaches only **128/167**.
+  Worth resolving at the source.
+- **55 axes have a null `capped_best_mag` while still being present in the capped table** — they
+  cleared the bar in the full arm and not the capped one. Surfaced as a `cross_arm` column rather
+  than as missing data; this is the §2.5(c) cross-arm signal, and it is better evidence than the
+  v1.3.0 concordance in Panel F.
+
+**Panel design** (researcher-directed): curated values rendered beside live recomputed ones with
+disagreement flagged; arm-aware via an explicit `dataset` -> column map (never a
+`endswith("_full")` heuristic, which would mislabel a future arm); the Panel E stub replaced,
+keeping a compressed note on why the old shortlist was withdrawn. Local widgets (tier, nerve side,
+disagreements-only) kept separate from the Panel C/D filter block so the two cannot interfere.
+
+**Two columns deliberately not rendered.** `withdrawn` is empty in all 183 rows, and `min_pval` is
+`0.0` in all 183 (the permutation floor at `n_perms=1000`). A column that is entirely null or
+entirely constant carries no information and invites a reader to infer meaning from it.
+
+**Artifacts:** `notebooks/05_census_nerve_immune_explorer.py`,
+`results/tables/nerve_immune_lead_axes_postfix.csv` (NOT tracked — see below),
+`notebooks/__marimo__/session/05_census_nerve_immune_explorer.py.json`.
+
+**Verification:** `flake8` clean. Headless `marimo export html` on both arms, exit 0, no error
+cells. Rendered counters match the offline audit exactly — FULL: 183/183 shown, magnitude 128/167,
+`n_rows` 118/183, 0 capped-only; CAPPED: magnitude 128/128, `n_rows` comparison correctly suppressed,
+55 full-only. Both arms report 55 pooled-neuron axes and CXCR4 3 / LRP1 9 / S1PR1 0. Export sidecar
+now hashes 12 inputs. The disagreements-only filter branch was exercised separately (the checkbox
+defaults off, so the export never reached it) and is index-safe under a tier subset.
+
+**Open Issues:**
+- **`withdrawn` is empty in all 183 rows** although `tier_v2` marks 14 axes
+  `1b_approved_withdrawn_only` and `agents_flagged` carries `[WITHDRAWN]` tags inline. Looks like a
+  bug in the generating script. Not fixed here — that means regenerating the CSV.
+- **The generating script is not in this repository.** Until it is, the panel's live recomputation
+  is the only reproducible statement of what these axes are, and the curated/live gap cannot be
+  closed. This is the same condition §2.1 flagged about the previous shortlist.
+- Notebook 03 still has not had the post-compartment-fix pass (carried from the previous entry).
+
+**FAIR Notes:** [FAIR-ALERT] No artifact changed and no pipeline re-execution, but the new input is
+a FAIR gap on three counts at once: **no producing Snakemake rule**, **no generating script in the
+repository**, and **`results/` is gitignored** (0 results files are tracked — this is the project's
+standing convention, not an oversight, because results are normally derived artifacts). It was
+therefore NOT force-added; doing so would override a deliberate .gitignore for a file that policy
+says should be regenerable. The consequence is that this input can be neither rebuilt nor restored
+from git, so a clean checkout cannot render Panel E. The notebook's missing-artifact callout
+special-cases it rather than sending the reader after a Snakemake rule that does not exist, and
+Panel E carries the same alert. **A rule under `workflow/rules/` that emits this table would close
+the reproducibility gap, the versioning gap and the curated/live gap together** — recommended as the
+next step, and it is also what CLAUDE.md's "never run one-off scripts for analysis steps" requires.

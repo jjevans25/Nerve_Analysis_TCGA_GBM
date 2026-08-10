@@ -42,6 +42,8 @@ import liana as li  # noqa: E402
 sys.path.insert(0, "workflow/scripts")
 from counts_utils import LOG1P_MAX_PLAUSIBLE, is_log1p_scale  # noqa: E402
 from fair_utils import (  # noqa: E402
+    cap_cells_per_group,
+    nerve_group_sort_key,  # noqa: E402
     log_transformation,
     stamp_artifact,
     verify_artifact,
@@ -65,69 +67,111 @@ log_transformation(
     "nerve_tumor_interaction",
     f"Loading {snakemake.input.malig} and {snakemake.input.nerve}",  # type: ignore[name-defined]
 )
-malig_full = ad.read_h5ad(snakemake.input.malig)  # type: ignore[name-defined]
-nerve = ad.read_h5ad(snakemake.input.nerve)  # type: ignore[name-defined]
+# EXPRESSION comes from the shared parent; nerve_cells.h5ad supplies only LABELS.
+#
+# CORRECTNESS: the two files are on DIFFERENT SCALES. malignancy_labeled.h5ad
+# carries raw counts, while nerve_cell_subset ran normalize_total + log1p before
+# writing. The old code concatenated them and then normalized the WHOLE object,
+# so malignant cells were transformed once and nerve cells twice — every
+# tumor-vs-nerve comparison was between differently-transformed data. It was
+# silent because the combined X.max() is dominated by the raw malignant cells and
+# so looks like counts to any scale check.
+#
+# MEMORY: both compartments are subsets of the same parent, so concatenating them
+# duplicated the payload. Reading the parent backed and materialising the
+# labelled subset once is also what keeps the three-way twin of this rule inside
+# 36 GB (it was SIGKILLed at 30+ GB on 2026-08-06).
+parent = ad.read_h5ad(snakemake.input.malig, backed="r")  # type: ignore[name-defined]
+nerve_obs = ad.read_h5ad(snakemake.input.nerve, backed="r").obs  # type: ignore[name-defined]
 
-malig = malig_full[malig_full.obs["is_malignant"].astype(bool)].copy()
-# Release the whole-cohort object once the malignant subset exists — only ~20% of
-# its cells survive the filter, and nothing below reads it again.
-del malig_full
+# Neurons are carried as ONE group, glia per cluster. Splitting ~4.3k neurons
+# spread across 170 donors into per-cluster groups would give LIANA a handful of
+# cells per group and turn sampling noise into "interactions"; pooling glia
+# would throw away real cluster structure. The `nerve_` prefix is kept on both
+# so the compartment key stays comparable with the pinned v1.3.0 reference —
+# renaming it would break every concordance pair.
+if "nerve_subcompartment" in nerve_obs.columns:
+    nerve_labels = pd.Series(
+        np.where(
+            nerve_obs["nerve_subcompartment"].astype(str).eq("neuron").to_numpy(),
+            "nerve_neuron",
+            "nerve_c" + nerve_obs["nerve_leiden"].astype(str),
+        ),
+        index=nerve_obs.index,
+    )
+else:
+    nerve_labels = "nerve_c" + nerve_obs["nerve_leiden"].astype(str)
+
+malig_idx = parent.obs_names[parent.obs["is_malignant"].astype(bool).to_numpy()]
+nerve_idx = nerve_labels.index
+overlap = malig_idx.intersection(nerve_idx)
+if len(overlap):
+    raise RuntimeError(
+        f"[FAIR-ALERT] tumor and nerve compartments share {len(overlap)} cells "
+        f"(e.g. {list(overlap[:5])}). They must be disjoint or a cell would appear "
+        "on both sides of its own interaction."
+    )
+
+cell_label = pd.Series(pd.NA, index=parent.obs_names, dtype=object)
+src = pd.Series(pd.NA, index=parent.obs_names, dtype=object)
+cell_label.loc[malig_idx] = "malignant"
+src.loc[malig_idx] = "malignant"
+cell_label.loc[nerve_idx] = nerve_labels.reindex(nerve_idx).to_numpy()
+src.loc[nerve_idx] = "nerve"
+keep_cells = cell_label.notna().to_numpy()
+
+# Cap each group before materialisation — see fair_utils.cap_cells_per_group.
+# LIANA's zero-centred `scaled` layer densifies, so an uncapped run at this cell
+# count exhausts memory; capping also balances a very unbalanced design.
+max_per_group = int(snakemake.params.max_cells_per_group)  # type: ignore[name-defined]
+if max_per_group > 0:
+    _labels_kept = cell_label[keep_cells]
+    _before = _labels_kept.astype(str).value_counts()
+    _cap_mask = cap_cells_per_group(
+        _labels_kept, max_per_group, int(snakemake.params.random_seed)  # type: ignore[name-defined]
+    )
+    _capped = _before[_before > max_per_group]
+    keep_cells[np.flatnonzero(keep_cells)[~_cap_mask]] = False
+    log_transformation(
+        log,
+        "nerve_tumor_interaction",
+        f"Capped groups at {max_per_group:,} cells: {len(_capped)} of "
+        f"{len(_before)} groups were larger and were subsampled "
+        f"({_capped.to_dict() if len(_capped) else 'none'}); "
+        f"{int(keep_cells.sum()):,} cells retained of {int(_before.sum()):,}",
+    )
+
+# Gene selection on the backed view too, so the payload is materialised exactly
+# once. LIANA's consensus resource is HGNC-keyed.
+if "gene_symbol" not in parent.var.columns:
+    raise KeyError("gene_symbol missing from var — cannot run LIANA on Ensembl IDs")
+_sym = parent.var["gene_symbol"]
+keep_genes = (_sym.notna() & ~_sym.astype(str).duplicated(keep="first")).to_numpy()
+
+n_malignant_cells = int(len(malig_idx))
+n_nerve_cells = int(len(nerve_idx))
+
 log_transformation(
     log,
     "nerve_tumor_interaction",
-    f"Malignant subset: {malig.n_obs} cells; nerve subset: {nerve.n_obs} cells",
+    f"Malignant subset: {n_malignant_cells:,} cells; nerve subset: "
+    f"{n_nerve_cells:,} cells ({int(pd.Series(nerve_labels).nunique())} groups)",
 )
 
-# Standardize obs labels.
-malig.obs["cell_label"] = "malignant"
-nerve.obs["cell_label"] = "nerve_c" + nerve.obs["nerve_leiden"].astype(str)
-
-# Use HGNC symbols as var index for LIANA (consensus resource is HGNC-keyed).
-# Both AnnDatas already carry `gene_symbol` in var.
-
-
-def _to_symbol_index(a: ad.AnnData) -> ad.AnnData:
-    if "gene_symbol" not in a.var.columns:
-        raise KeyError("gene_symbol missing from var — cannot run LIANA on Ensembl IDs")
-    mask = a.var["gene_symbol"].notna()
-    a = a[:, mask].copy()
-    # Collapse duplicates by keeping the first occurrence (most-expressed
-    # tie-breaking is overkill here; consensus resource is dedup'd already).
-    a.var = a.var.copy()
-    a.var["_symbol"] = a.var["gene_symbol"].astype(str)
-    a = a[:, ~a.var["_symbol"].duplicated(keep="first")].copy()
-    a.var.index = a.var["_symbol"].values
-    a.var.index.name = "gene_symbol"
-    return a
-
-
-malig = _to_symbol_index(malig)
-nerve = _to_symbol_index(nerve)
-
-# Concatenate on shared genes (inner join).
-shared_genes = malig.var_names.intersection(nerve.var_names)
-log_transformation(
-    log,
-    "nerve_tumor_interaction",
-    f"Shared HGNC-symbol gene set: {len(shared_genes)} genes",
-)
-combined = ad.concat(
-    [malig[:, shared_genes], nerve[:, shared_genes]],
-    axis=0,
-    join="inner",
-    label="src_h5ad",
-    keys=["malignant", "nerve"],
-    index_unique=None,
-)
-# Both compartments are fully represented in `combined`; LIANA never reads them
-# again. Counts captured first for the provenance block below.
-n_malignant_cells, n_nerve_cells = malig.n_obs, nerve.n_obs
-del malig, nerve
+combined = parent[keep_cells, keep_genes].to_memory()
+del parent
+combined.var = combined.var.copy()
+combined.var.index = combined.var["gene_symbol"].astype(str).values
+combined.var.index.name = "gene_symbol"
+combined.obs["cell_label"] = cell_label[keep_cells].to_numpy()
+combined.obs["src_h5ad"] = src[keep_cells].to_numpy()
 combined.obs_names_make_unique()
 log_transformation(
     log,
     "nerve_tumor_interaction",
-    f"Combined AnnData: {combined.n_obs} cells × {combined.n_vars} genes",
+    f"Combined AnnData: {combined.n_obs:,} cells x {combined.n_vars:,} genes "
+    "(materialised once from the parent, so both compartments sit on one "
+    "consistent raw-count scale)",
 )
 
 # --- Normalization: LIANA requires log1p input -------------------------------
@@ -177,7 +221,7 @@ if not is_log1p_scale(combined.X):
 # --- Restrict groupby pairs to malignant↔nerve only --------------------------
 nerve_groups = sorted(
     combined.obs.loc[combined.obs["cell_label"] != "malignant", "cell_label"].unique(),
-    key=lambda s: int(s.replace("nerve_c", "")),
+    key=nerve_group_sort_key,
 )
 pairs_records = []
 for g in nerve_groups:
