@@ -44,6 +44,57 @@ rule derive_withdrawn_agents:
         "../scripts/derive_withdrawn_agents.py"
 
 
+rule refresh_drug_annotation:
+    """Mint a NEW dated drug-annotation snapshot from public ChEMBL + ClinicalTrials.gov.
+
+    OPT-IN — deliberately not in `rule all`. Requires network access and takes a while
+    (one ChEMBL round-trip per gene, per target and per molecule, politely paced).
+
+    Its output WILL differ from the pinned snapshot and is not supposed to match: both
+    databases have moved since 2026-08-07, the original ChEMBL release was never
+    recorded, and one of the original's inputs is permanently lost. Adopting a refreshed
+    snapshot means pointing `config.lead_axes.drug_annotation` at it deliberately, after
+    a diff — this rule never mutates the pinned file.
+
+    Fails loudly rather than emitting a partial snapshot: an unresolved gene silently
+    becomes `4_no_chembl_target`, which reads downstream as "this target has no
+    chemistry" — a scientific claim manufactured by a network error.
+
+    The `_refreshed_` infix is load-bearing: it keeps this rule's output namespace
+    disjoint from the pinned/derived snapshots, so a date wildcard can never resolve to
+    a committed file and shadow it (2026-08-19 would otherwise match both this rule and
+    `derive_withdrawn_agents`). It also makes re-queried snapshots visually distinct
+    from derived ones in a directory listing.
+
+    Invoke explicitly, e.g.:
+      scripts/run_snakemake.sh \\
+        reference/drug_annotation/nerve_immune_axis_drug_annotation_refreshed_$(date +%F).csv \\
+        --use-conda --cores 1 --allowed-rules refresh_drug_annotation
+    """
+    input:
+        table   = os.path.join(config["dirs"]["tables"], "nerve_immune_lead_axes_postfix.csv"),
+        curated = os.path.join(_DRUG_DIR, "curated_agent_map_2026-08-07.json"),
+    output:
+        snapshot   = os.path.join(_DRUG_DIR, "nerve_immune_axis_drug_annotation_refreshed_{refresh_date}.csv"),
+        manifest   = os.path.join(_DRUG_DIR, "refresh_manifest_{refresh_date}.json"),
+        provenance = os.path.join(config["dirs"]["provenance"], "refresh_drug_annotation_{refresh_date}.json"),
+    wildcard_constraints:
+        refresh_date = r"\d{4}-\d{2}-\d{2}",
+    log:
+        os.path.join(config["dirs"]["logs"], "refresh_drug_annotation_{refresh_date}.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = 2000,
+        threads = 1,
+    params:
+        max_retries = 4,
+        timeout_s   = 60,
+        pause_s     = 0.34,
+    script:
+        "../scripts/refresh_drug_annotation.py"
+
+
 rule nerve_immune_lead_axes:
     """Cross-arm reproducible nerve–immune signalling axes, tiered by druggability.
 

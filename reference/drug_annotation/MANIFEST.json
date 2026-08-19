@@ -94,10 +94,36 @@
 
   "refreshing": {
     "rule": "refresh_drug_annotation",
-    "behaviour": "Writes a NEW dated file; never overwrites this snapshot.",
-    "adoption": "Bump config.lead_axes.drug_annotation deliberately, after diffing.",
-    "expect_drift": "Output WILL differ from this snapshot — both databases have moved since 2026-08-07, and the lost prior-pass artifact cannot be reconstructed.",
-    "must_record": "The refreshed manifest must capture the ChEMBL release, which is the pin missing here."
+    "status": "IMPLEMENTED 2026-08-19",
+    "naming": "Refreshed snapshots are named nerve_immune_axis_drug_annotation_refreshed_<DATE>.csv. The `_refreshed_` infix keeps the rule's wildcard namespace disjoint from the pinned and derived snapshots, so a date wildcard can never resolve to a committed file and shadow it.",
+    "behaviour": "Writes a NEW dated file plus refresh_manifest_<DATE>.json; never overwrites a pinned or derived snapshot.",
+    "adoption": "Bump config.lead_axes.drug_annotation deliberately, after diffing. Not automatic.",
+    "expect_drift": "Output WILL differ from the 2026-08-07 snapshot — both databases have moved, and the lost prior-pass artifact cannot be reconstructed. Drift is expected and is a scientific judgement, not a build step.",
+    "failure_semantics": "Aborts with [FAIR-ALERT] and writes no output rather than emitting a partial snapshot. An unresolved gene would silently become '4_no_chembl_target', which reads downstream as 'this target has no chemistry' — a scientific claim manufactured by a network error.",
+    "records_chembl_release": "Yes — read from /status and required. This is the pin the 2026-08-07 snapshot is missing; the rule refuses to mint another unpinned snapshot.",
+    "sources": {
+      "chembl": "https://www.ebi.ac.uk/chembl/api/data — /target filtered on target_components__target_component_synonyms__component_synonym__iexact (NOT /target/search, which rejects target_type/organism filters with a 400 and 400s outright on short symbols like C3), then /mechanism, then /molecule/{id} per molecule. No API key.",
+      "clinicaltrials": "https://clinicaltrials.gov/api/v2/studies — query.cond + query.intr (NOT query.intv). No API key."
+    },
+    "gotchas_found_by_running_it": [
+      "ChEMBL_37 serialises max_phase as the STRING '4.0'. A naive `phase == 4` is always False, so every approved drug silently falls through to 3_chembl_target_no_agent. The first successful run produced a clean-looking 144-axis snapshot claiming ZERO approved or clinical agents across all 156 genes, exit code 0, no error. A plausibility guard now refuses to write any snapshot where no axis reaches an approved or clinical tier.",
+      "/target/search cannot be used for gene-symbol resolution. The exact synonym filter is also more precise: it returns exactly one human target per gene rather than a fuzzy ranked list."
+    ],
+    "first_refresh_2026-08-19": {
+      "artifact": "nerve_immune_axis_drug_annotation_refreshed_2026-08-19.csv",
+      "sha256": "0280e1f82a9bd7a4d02774003de7c2830f193ebb88243ea0ad5747da1981c726",
+      "chembl_release": "ChEMBL_37",
+      "adopted": false,
+      "adoption_note": "NOT adopted. config.lead_axes.drug_annotation still points at the derived 2026-08-19 snapshot. This file exists as evidence the rule works and as the basis for a future adoption decision.",
+      "drift_vs_pinned": {
+        "axis_set": "identical — same 144 axes",
+        "tier_v2_unchanged": "120/144 (83%)",
+        "tier_deltas": {"1_approved_available": -9, "1b_approved_withdrawn_only": 2, "2_clinical": 6, "3_chembl_target_no_agent": 13, "4_no_chembl_target": -12},
+        "reading": "The 12 axes leaving 4_no_chembl_target are an improvement — exact gene-symbol resolution finds targets the original full-text search missed. The 9 leaving 1_approved_available are the expected cost of the permanently lost prior-pass artifact, which supplied approved/clinical agents for genes with no ChEMBL mechanism record; without it those genes now tier on ChEMBL evidence alone.",
+        "glioma_trials_exact_match": "130/144 — the 14 differences are trials registered since 2026-08-07"
+      },
+      "cross_validation": "The `withdrawn` column re-queried directly from ChEMBL's withdrawn_flag matches the column derived independently by `rule derive_withdrawn_agents` from the inline [WITHDRAWN] tags on 13/13 axes, character for character. Two independent derivations agreeing is strong evidence the tag-parsing recovery was correct."
+    }
   },
 
   "license": "CC-BY 4.0 (project default for data artifacts). Underlying data: ChEMBL (CC BY-SA 3.0), ClinicalTrials.gov (public domain)."

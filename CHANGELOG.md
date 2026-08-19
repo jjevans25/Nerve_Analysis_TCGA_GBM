@@ -2557,3 +2557,79 @@ is 128 + 55. Corrected. Item 3 (`refresh_drug_annotation`) remains open.
 **FAIR Notes:** The notebook's oracle deliberately duplicates the rule's selection logic —
 an oracle sharing an implementation with the thing it checks cannot catch anything. The cost
 is that the two must be edited together; that is stated in the cell so the next editor knows.
+
+---
+
+### [2026-08-19] | Phase: Lead-axes open items (3/3) — refresh rule | Status: COMPLETE
+
+**Action:** Fix open item 3 — implement `rule refresh_drug_annotation` so the drug annotation
+can be re-derived from public APIs instead of only being pinned.
+
+**Outcome:** Implemented and, contrary to plan, **fully exercised**. ChEMBL was returning HTTP
+500s and timeouts throughout planning, so the approved plan was to ship the ChEMBL half
+unexercised; EBI recovered mid-session (now serving **ChEMBL_37**, released 2026-05-01), so the
+whole rule was run for real. That mattered — it caught two bugs that code review did not, both
+of which would have shipped as confidently wrong output.
+
+**Bug 1 — `/target/search` is the wrong endpoint.** It rejects `target_type`/`organism` filters
+with HTTP 400, and 400s outright on short symbols (`q=C3` fails even bare). Replaced with an
+exact gene-symbol match on the non-search `/target` endpoint via
+`target_components__target_component_synonyms__component_synonym__iexact`. Also strictly more
+precise: exactly one human target per gene instead of a fuzzy ranked list, so a near-miss cannot
+be mistaken for a hit. `NLGN1` correctly resolves to nothing at any target type, matching the
+original generator's recorded finding.
+
+**Bug 2 — the dangerous one.** ChEMBL_37 serialises `max_phase` as the **string** `'4.0'`, so
+`phase == 4` was never true and every approved drug fell through to `3_chembl_target_no_agent`.
+The run exited 0 and wrote a clean-looking 144-axis snapshot asserting **zero approved or
+clinical agents across all 156 genes** — including CXCR4, whose plerixafor record had been
+verified by hand minutes earlier. Not a crash: a plausible table making a false scientific claim.
+Fixed by coercion, plus `1 <= phase <= 3` for the clinical band (which also catches ChEMBL's
+fractional phases). A **plausibility guard** now aborts if no axis reaches an approved or
+clinical tier — drift is expected, total collapse of the top tiers is a parse failure.
+
+**Fail-loud semantics verified under real failure**, not simulated: the first run aborted on gene
+`C3` after 4 backed-off retries and wrote no output file. A partial snapshot would have demoted
+every unresolved gene to `4_no_chembl_target`.
+
+**Drift vs the pinned snapshot** (same 144 axes; `tier_v2` unchanged on **120/144, 83%**):
+
+| tier | pinned | refreshed | Δ |
+|---|---:|---:|---:|
+| `1_approved_available` | 38 | 29 | −9 |
+| `1b_approved_withdrawn_only` | 10 | 12 | +2 |
+| `2_clinical` | 40 | 46 | +6 |
+| `3_chembl_target_no_agent` | 33 | 46 | +13 |
+| `4_no_chembl_target` | 23 | 11 | −12 |
+
+The 12 axes leaving `4_no_chembl_target` are an improvement — exact symbol resolution finds
+targets the original full-text search missed. The 9 leaving `1_approved_available` are the
+expected cost of the permanently lost prior-pass artifact, which supplied agents for genes with
+no ChEMBL mechanism record; without it those genes tier on ChEMBL evidence alone.
+`glioma_trials` matches exactly on 130/144, the 14 differences being trials registered since
+2026-08-07.
+
+**Cross-validation worth recording:** the `withdrawn` column re-queried straight from ChEMBL's
+`withdrawn_flag` matches the column derived in commit 1/3 by parsing inline `[WITHDRAWN]` tags on
+**13/13 axes, character for character**. Two fully independent derivations agreeing is the
+strongest evidence available that the tag-parsing recovery was correct.
+
+**NOT ADOPTED.** `config.lead_axes.drug_annotation` still points at the derived 2026-08-19
+snapshot. The refreshed file is committed as evidence the rule works and as the basis for a
+future adoption decision, which is the researcher's call, not a build step.
+
+**Artifacts:** `workflow/scripts/refresh_drug_annotation.py` (new), `rule refresh_drug_annotation`
+in `workflow/rules/leads.smk`, `reference/drug_annotation/nerve_immune_axis_drug_annotation_refreshed_2026-08-19.csv`,
+`refresh_manifest_2026-08-19.json`, `provenance/refresh_drug_annotation_2026-08-19.json`,
+MANIFEST.json (refresh section, drift table, gotchas).
+
+**Tool Versions:** pandas 2.3.3, requests 2.32.3 (`workflow/envs/scrna.yaml`); ChEMBL_37;
+ClinicalTrials.gov API v2
+
+**Open Issues:** None of the three items from the 2026-08-19 lead-axes entry remain open. Whether
+to adopt the refreshed snapshot is an open *decision*, not an open defect.
+
+**FAIR Notes:** The refreshed snapshot records its ChEMBL release — the pin the 2026-08-07 original
+never had, and the single biggest reason that one is unreproducible. Refreshed snapshots use a
+distinct `_refreshed_` filename infix so the rule's date wildcard can never resolve to a committed
+pinned/derived file and shadow it.
