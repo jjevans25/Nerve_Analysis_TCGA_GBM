@@ -150,7 +150,7 @@ def _header(dataset, mo):
     # GBM Census — Nerve × Immune Replication Explorer
 
     **Cohort: `{dataset}`** — the CELLxGENE Census GBM 10x replication cohort
-    (170 donors), independent of the 17-sample TCGA reference.
+    (170 donors).
 
     **Read alongside:** `01_census_cohort_qc` (what the cohort is made of, and how
     unevenly), `02_census_nerve_enrichment` (what the nerve clusters are enriched
