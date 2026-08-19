@@ -21,6 +21,39 @@
 # Their Census successors are below.
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+rule ds_census_compartment_audit_notebook:
+    """Export the compartment integrity audit (Test Oracle) explorer to HTML.
+
+    No reference-cohort ancestor and cannot have one: the audit cross-tabulates each
+    compartment against the CELLxGENE Census author annotation, and the 17-sample
+    TCGA reference carries no such annotation. This notebook is the evidence that
+    distinguishes the Census cohort from the archived one.
+    """
+    input:
+        notebook       = "notebooks/06_census_compartment_audit.py",
+        gates          = os.path.join(config["dirs"]["tables"], "{dataset}", "compartment_audit_gates.csv"),
+        audit          = os.path.join(config["dirs"]["tables"], "{dataset}", "compartment_audit.csv"),
+        confusion      = os.path.join(config["dirs"]["tables"], "{dataset}", "malignancy_confusion.csv"),
+        cluster_audit  = os.path.join(config["dirs"]["tables"], "{dataset}", "nerve_compartment_cluster_audit.csv"),
+        purity         = os.path.join(config["dirs"]["tables"], "{dataset}", "nerve_cluster_sample_purity.csv"),
+        purity_v2      = os.path.join(config["dirs"]["tables"], "{dataset}", "nerve_cluster_sample_purity_v2.csv"),
+        celltype_labels = os.path.join(config["dirs"]["tables"], "{dataset}", "nerve_celltype_label_summary.csv"),
+    output:
+        html       = os.path.join(config["dirs"]["figures"],    "{dataset}", "06_census_compartment_audit.html"),
+        provenance = os.path.join(config["dirs"]["provenance"], "{dataset}", "census_compartment_audit_notebook_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "{dataset}_census_compartment_audit_notebook.log"),
+    conda:
+        "../envs/notebooks.yaml",
+    resources:
+        mem_mb  = 4000,
+        threads = 1,
+    params:
+        env = lambda wc: {"GBM_DATASET": wc.dataset},
+    script:
+        "../scripts/run_notebook_export.py"
+
 rule ds_census_nerve_immune_notebook:
     """Export the replication-cohort nerve x immune explorer to HTML.
 
