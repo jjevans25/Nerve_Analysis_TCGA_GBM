@@ -15,6 +15,12 @@ than 170 summarised donors. Distribution shape within a donor is deliberately
 reduced to median plus IQR — this notebook is about *between-donor* variation,
 which is what a cohort-level analysis is exposed to.
 
+IMPORTANT: `*_qc_metrics.csv` is written by `scrna_qc.py` BEFORE its filters run
+(line 37 of that script; the filters are at lines 93-95). So every figure here is
+the **pre-filter** population, which is what makes the filtering funnel in Panel A
+computable at all — applying the configured thresholds to these metrics reproduces
+the documented post-QC count exactly.
+
 Source rules: workflow/rules/datasets.smk -> ds_scrna_qc, ds_scrna_annotate.
 """
 
@@ -55,6 +61,13 @@ def _load_config(Path, mo, os, yaml):
     presence_files = sorted(ds_tables.glob("*_gene_presence.csv"))
     annotation_path = ds_tables / "annotation_summary.csv"
 
+    # Read the same thresholds ds_scrna_qc applied, from config rather than hardcoded —
+    # they have to match or the funnel in Panel A is fiction.
+    _q = config.get("scrna", {})
+    QC_MIN_GENES = int(_q.get("min_genes", 200))
+    QC_MAX_GENES = int(_q.get("max_genes", 6000))
+    QC_MAX_PCT_MT = float(_q.get("max_pct_mito", 20))
+
     if not qc_files or not annotation_path.exists():
         mo.stop(True, mo.callout(mo.md(
             f"QC artifacts not found for cohort `{dataset}` under `{ds_tables}`.\n\n"
@@ -62,11 +75,12 @@ def _load_config(Path, mo, os, yaml):
             f"  results/tables/{dataset}/annotation_summary.csv \\\n"
             "  --use-conda --cores all --rerun-triggers mtime\n```"
         ), kind="danger"))
-    return annotation_path, dataset, presence_files, qc_files
+    return (QC_MAX_GENES, QC_MAX_PCT_MT, QC_MIN_GENES, annotation_path, dataset,
+            presence_files, qc_files)
 
 
 @app.cell
-def _load_qc(np, pd, qc_files):
+def _load_qc(QC_MAX_GENES, QC_MAX_PCT_MT, QC_MIN_GENES, np, pd, qc_files):
     """Summarise each donor's per-cell QC into one row. ~1.02M cells -> 170 rows."""
     _rows = []
     for _p in qc_files:
@@ -74,9 +88,19 @@ def _load_qc(np, pd, qc_files):
         _d = pd.read_csv(_p)
         if not len(_d):
             continue
+        # These metrics are pre-filter, so the thresholds can be replayed here to see
+        # what ds_scrna_qc removed. Verified: this reproduces the documented post-QC
+        # cohort size exactly (1,006,344 on the full arm).
+        _keep = (
+            (_d["n_genes_by_counts"] >= QC_MIN_GENES)
+            & (_d["n_genes_by_counts"] <= QC_MAX_GENES)
+            & (_d["pct_counts_mt"] < QC_MAX_PCT_MT)
+        )
         _rows.append({
             "sample_id": _sample,
             "n_cells": len(_d),
+            "n_cells_passing": int(_keep.sum()),
+            "pct_removed": float(1 - _keep.mean()),
             "median_genes": float(_d["n_genes_by_counts"].median()),
             "q25_genes": float(_d["n_genes_by_counts"].quantile(0.25)),
             "q75_genes": float(_d["n_genes_by_counts"].quantile(0.75)),
@@ -99,8 +123,9 @@ def _header(dataset, mo, qc_df):
     mo.md(f"""
     # GBM Census — Cohort QC and Composition
 
-    **Cohort: `{dataset}`** — **{len(qc_df)} donors**, **{int(qc_df['n_cells'].sum()):,}
-    cells** post-QC.
+    **Cohort: `{dataset}`** — **{len(qc_df)} donors**,
+    **{int(qc_df['n_cells'].sum()):,} cells before filtering**, of which
+    **{int(qc_df['n_cells_passing'].sum()):,}** clear the configured QC thresholds.
 
     Census replacement for the archived `01_explore_gbm_data.py`, which asked the same
     questions of the 17-sample TCGA reference. Ten times the donors, and — unlike the
@@ -147,12 +172,24 @@ def _scale_panel(mo, np, plt, qc_df):
 
     _half = int(np.searchsorted(_cum, 0.5) + 1)
     _top10 = float(_cum[min(9, len(_cum) - 1)])
+    _raw = int(qc_df["n_cells"].sum())
+    _kept = int(qc_df["n_cells_passing"].sum())
+    _worst = qc_df.nlargest(3, "pct_removed")
     mo.vstack([
         mo.center(_fig),
         mo.md(
             f"**{_half} of {len(_n)} donors supply half the cells.** The largest 10 "
             f"supply **{_top10:.0%}**. Median {int(np.median(_n)):,} cells per donor; "
             f"range {int(_n.min()):,}–{int(_n.max()):,}."
+        ),
+        mo.md(
+            f"**Filtering funnel.** {_raw:,} cells ingested → **{_kept:,} pass** the "
+            f"configured thresholds ({_raw - _kept:,} removed, "
+            f"{(_raw - _kept) / _raw:.1%}). Hardest-hit donors: "
+            + ", ".join(f"`{r.sample_id}` ({r.pct_removed:.0%})"
+                        for r in _worst.itertuples())
+            + ". A donor losing a large share is worth checking before its cells carry "
+            "a cluster."
         ),
         mo.callout(mo.md(
             "**This is the ceiling on every donor-level QC claim downstream.** The "
@@ -355,9 +392,12 @@ def _footer(dataset, mo, qc_df):
        pipeline on the basis of this page.
     3. `cell_type_predicted` composition is the pipeline's own output. The independent
        check is notebook 06.
-    4. Cells here are already post-QC — `ds_scrna_qc` applied `min_genes`/`max_genes`
-       and mitochondrial thresholds upstream, so this is the surviving population, not
-       the raw one. The filtering those thresholds did is not visible from this page.
+    4. Cells here are **pre-filter**. `scrna_qc.py` writes `*_qc_metrics.csv` before it
+       applies `min_genes`/`max_genes`/`max_pct_mito`, so this is the population as
+       ingested. That is what makes the funnel in Panel A computable — the thresholds
+       are replayed here from config, and doing so reproduces the documented post-QC
+       cohort size exactly. It also means the medians and outlier flags below describe
+       cells that were *not all kept*.
 
     **FAIR.** Inputs from `ds_scrna_qc` (per-donor `*_qc_metrics.csv`,
     `*_gene_presence.csv`) and `ds_scrna_annotate` (`annotation_summary.csv`).

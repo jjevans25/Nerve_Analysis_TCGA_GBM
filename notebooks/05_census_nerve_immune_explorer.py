@@ -2,17 +2,25 @@
 Marimo reactive notebook: TME x nerve x immune ligand-receptor exploration for the
 CELLxGENE Census GBM replication cohort (gbm_cellxgene_56c4912d).
 Addresses: Which nerve cell types interface with which immune subtypes in an
-independent 169-donor cohort, and which signalling axes reproduce across BOTH
+independent 170-donor cohort, and which signalling axes reproduce across BOTH
 Census arms? Cross-arm agreement is the replication evidence here — the pinned
 v1.3.0 reference is no longer used as a comparator (see the Panel F removal note).
 Source rules: workflow/rules/datasets.smk -> ds_nerve_tumor_immune_interaction,
 ds_annotate_cluster_qc, ds_nerve_cluster_annotations; and
 workflow/rules/leads.smk -> nerve_immune_lead_axes.
 
-Sibling of notebooks/archive/04_tme_nerve_immune_explorer.py, which covered the pinned
-v1.3.0 reference cohort. Deliberately a separate file rather than a cohort switch:
-the two cohorts differ in what exists (no clinical metadata here, no curated
-target list, 169 donors instead of 17), so the panels are not the same.
+Part of the Census notebook set: 01_census_cohort_qc (cohort composition and QC),
+02_census_nerve_enrichment (what the nerve clusters are enriched for),
+06_census_compartment_audit (the Test Oracle — where this notebook's compartment
+claims are demonstrated), and this one (the three-way LR analysis).
+
+Its reference-cohort predecessor, 04_tme_nerve_immune_explorer, was archived on
+2026-08-19 to notebooks/archive/ together with the rest of the reference set. Their
+nerve compartment was built by the logic the 2026-08-05/06 fix removed, and it is
+not correctable: the reference is pinned and unreproducible, and its v1.1.0
+frozen-barcode insulator bypasses the fixed mask entirely. They are a record of what
+was believed, not a comparator. The one capability lost with them is clinical
+association — this cohort's gdc_clinical.tsv is a generated stub.
 
 REQUIRES the 2026-07-26 normalization fix. Before it, this cohort's LIANA tables
 were computed on raw UMI counts and every row had an empty specificity_rank.
@@ -142,18 +150,28 @@ def _header(dataset, mo):
     # GBM Census — Nerve × Immune Replication Explorer
 
     **Cohort: `{dataset}`** — the CELLxGENE Census GBM 10x replication cohort
-    (169 donors), independent of the 17-sample TCGA reference.
+    (170 donors), independent of the 17-sample TCGA reference.
 
-    Companion to `notebooks/archive/04_tme_nerve_immune_explorer.py` (ARCHIVED), which covered the
-    reference cohort. Kept separate because the two cohorts do not offer the same
-    evidence: this one has **no usable clinical metadata** (its `gdc_clinical.tsv`
-    is a generated stub) and **no curated target list** of its own.
+    **Read alongside:** `01_census_cohort_qc` (what the cohort is made of, and how
+    unevenly), `02_census_nerve_enrichment` (what the nerve clusters are enriched
+    for), and **`06_census_compartment_audit`** — which is where the compartment
+    claims quoted below are actually demonstrated rather than asserted.
+
+    Its reference-cohort predecessor, `04_tme_nerve_immune_explorer`, was **archived on
+    2026-08-19** along with the rest of the reference notebook set
+    (`notebooks/archive/`). Its nerve compartment was built by the logic the
+    compartment fix removed and cannot be corrected, so it is a historical record, not
+    a comparator. This cohort still has **no usable clinical metadata** (its
+    `gdc_clinical.tsv` is a generated stub), which is the one capability that was lost
+    with it.
 
     > **Every table below was rebuilt by the 2026-08-05/06 compartment-integrity
     > fix.** Before it, the "nerve" compartment of this cohort was 59% malignant
     > and 27% myeloid, and the `immune` compartment was 96% myeloid because
     > `t_cell` was never in `immune_cells.source_labels`. Both arms now pass 10/10
-    > compartment gates. Two consequences to carry while reading:
+    > compartment gates — **rendered in `06_census_compartment_audit`, which also
+    > shows that 5 of 23 nerve clusters still sit below the 0.80 neural bar despite
+    > the aggregate passing at 95.4%.** Two consequences to carry while reading:
     > **(i)** any earlier statement of the form *"immune cells signal to X"* meant
     > *"myeloid cells signal to X"* and has to be re-tested; **(ii)** nothing
     > computed before 2026-08-05 — including the curated 40-axis shortlist — is
@@ -542,7 +560,7 @@ def _patient_purity(
                 f"Their rows are marked `*` and can be dropped in Panel C."
                 + _neu_txt
                 + "\n\n*Why this is a bar chart and not the `cluster × patient` heatmap "
-                "used in notebook 04: this cohort has 169 donors, so that matrix is "
+                "used in the archived notebook 04: this cohort has 170 donors, so that matrix is "
                 "unreadable. The purity summary carries the same verdict legibly.*"
             ),
             kind="info",
@@ -1051,21 +1069,27 @@ def _footer(dataset, mo, nerve_purity_df):
     _n_fail = int((~nerve_purity_df["pass_overall"].astype(bool)).sum())
     mo.md(f"""
     ---
-    **Cohort.** `{dataset}` — CELLxGENE Census GBM 10x, 169 donors. The reference
-    cohort lives in `notebooks/04_tme_nerve_immune_explorer.py`. That reference was
-    *not* rebuilt by the compartment fix and is **not** a valid comparator for
-    anything here — replication evidence on this page is cross-arm agreement, not
-    agreement with it.
+    **Cohort.** `{dataset}` — CELLxGENE Census GBM 10x, 170 donors. The reference
+    cohort's notebook is archived at
+    `notebooks/archive/04_tme_nerve_immune_explorer.py`. That reference was *not*
+    rebuilt by the compartment fix and is **not** a valid comparator for anything here
+    — replication evidence on this page is cross-arm agreement, not agreement with it.
+
+    **Sibling notebooks.** `01_census_cohort_qc`, `02_census_nerve_enrichment`,
+    `06_census_compartment_audit`.
 
     **Limits carried by this cohort, all surfaced above.**
     1. No clinical metadata — `gdc_clinical.tsv` here is a generated stub, so the
-       clinical-association panel from notebook 04 has no counterpart.
+       clinical-association panel from the archived notebook 04 has no counterpart and
+       cannot be rebuilt for this cohort.
     2. The lead axes in Panel E come from `nerve_immune_lead_axes_postfix.csv`, built
        by `rule nerve_immune_lead_axes` and Census-derived across both arms (the
-       withdrawn 2026-07-15 shortlist was not). Its four drug columns are a committed
-       ChEMBL/ClinicalTrials.gov snapshot, not a live query — see
-       `reference/drug_annotation/MANIFEST.json` for what that snapshot can and cannot
-       support.
+       withdrawn 2026-07-15 shortlist was not). Its four drug columns are a **pinned
+       snapshot re-derived from ChEMBL_37 and the ClinicalTrials.gov v2 API** by
+       `rule refresh_drug_annotation`, adopted 2026-08-19 — every value traces to a
+       recorded database release, but it is a snapshot rather than a live query and
+       glioma-trial coverage is bounded by a hand-curated 20-agent list. See
+       `reference/drug_annotation/MANIFEST.json`.
     3. `astrocyte`, `opc`, generic `neuron` and `ependymal` are masked out of the
        nerve compartment by decision (Panel A). Their absence from the interaction
        tables is **not** evidence that they do not participate in crosstalk.

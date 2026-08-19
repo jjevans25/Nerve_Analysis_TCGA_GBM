@@ -2896,3 +2896,65 @@ decision for the researcher.
 `annotation_summary.csv` is the declared edge because `ds_scrna_annotate` sits downstream of
 `ds_scrna_qc` for every sample and so cannot exist before them. Stated in the rule docstring so
 the shortcut is visible rather than implicit.
+
+---
+
+### [2026-08-19] | Phase: Notebook prose audit after the archive/replace work | Status: COMPLETE
+
+**Action:** Researcher asked whether notebook 05's language had gone stale. Audited it and
+the two notebooks written earlier today.
+
+**Outcome:** Three classes of problem, one of them a factual error of mine.
+
+**[BUG, mine] Notebook 01 described its own data backwards.** It called the population
+"cells post-QC" and its limits section claimed "cells here are already post-QC ... this is
+the surviving population, not the raw one." That is inverted: `scrna_qc.py` writes
+`*_qc_metrics.csv` at line 37, *before* the filters at lines 93-95, so the file is the
+**pre-filter** population. Introduced this morning when the notebook was written and
+caught only by cross-checking its 1,020,902 against notebook 05's donor count.
+
+Fixing it made the notebook better rather than merely correct: because the metrics are
+pre-filter, the thresholds can be replayed from config to show what filtering removed.
+Doing so reproduces the documented post-QC size **exactly** — 1,020,902 ingested →
+1,006,344 passing (98.6%), matching `markdowns/GBM_TME_Crosstalk_Analysis.md` line 78.
+Panel A now carries that funnel and names the hardest-hit donors (`LB3771T` 26%,
+`MGH143` 25%, `LB4130T` 18%), which is a QC signal that was previously invisible.
+
+**[FACT] Notebook 05 said 169 donors; the cohort has 170.** Five occurrences, all wrong,
+contradicting the crosstalk markdown (which says 170 in four places), the 170
+`*_qc_metrics.csv` files and the 170 distinct `sample_id`s in `*_gene_presence.csv`.
+Corrected. The `169617` in `config.baseline.immune_baseline_n` is an unrelated cell count
+and is probably where the digit came from.
+
+**[STALE] References to the now-archived notebook 04.** Three survived the archive commit:
+the footer still pointed at `notebooks/04_tme_nerve_immune_explorer.py` (wrong path), and
+two prose mentions read as though it were live. Corrected, and the framing changed — 04 was
+described as a "Companion", which it no longer is.
+
+**Also updated in notebook 05:**
+- Header and docstring now name the sibling notebooks (01, 02, 06) rather than a single
+  archived predecessor, so a reader landing here knows where the cohort QC, enrichment and
+  audit views are.
+- The "both arms pass 10/10 compartment gates" claim now points at notebook 06, where it is
+  rendered — **and states the finding notebook 06 surfaced**, that 5 of 23 nerve clusters
+  sit below the 0.80 neural bar despite the aggregate passing at 95.4%. A page that quotes
+  the aggregate should not omit that.
+- The drug-annotation limit was written when the annotation was an un-refreshable snapshot.
+  It now says the columns are re-derived from **ChEMBL_37** via `refresh_drug_annotation`
+  and adopted 2026-08-19, while keeping the two limits that still hold (snapshot not live
+  query; trial coverage bounded by a curated 20-agent list).
+
+**Verification:** all three notebooks parse, `flake8 --select=F` clean, render on both arms
+with 0 cell errors. Notebook 05 Panel E still 183/183 on both arms. Rendered HTML confirmed
+to contain "170 donors", the sibling-notebook list and `ChEMBL_37`, and to contain neither
+"169 donors" nor the stale `notebooks/04_tme` path.
+
+**Artifacts:** `notebooks/01_census_cohort_qc.py`, `notebooks/05_census_nerve_immune_explorer.py`,
+`markdowns/GBM_TME_Crosstalk_Analysis.md` (footer now distinguishes ingested from post-QC),
+six re-rendered HTMLs.
+
+**Open Issues:** None from this pass.
+
+**FAIR Notes:** The QC thresholds used for the funnel are read from `config.scrna` rather
+than hardcoded — if they change and the notebook is not re-run, the funnel would otherwise
+silently describe a filter that no longer exists.

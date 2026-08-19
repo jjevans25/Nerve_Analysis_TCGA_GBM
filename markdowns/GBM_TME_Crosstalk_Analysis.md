@@ -759,6 +759,6 @@ it was produced.
 ---
 
 *Cohort: `gbm_cellxgene_56c4912d_full` — CELLxGENE Census GBM 10x, 170 donors,
-1,006,344 cells post-QC. Pipeline: Snakemake + scvi-tools + scanpy + LIANA +
+1,020,902 cells ingested, 1,006,344 post-QC. Pipeline: Snakemake + scvi-tools + scanpy + LIANA +
 marimo on Apple M4 Max (MPS). Full audit trail in `CHANGELOG.md`; open items in
 `markdowns/post_compartment_fix_next_steps.md`.*
