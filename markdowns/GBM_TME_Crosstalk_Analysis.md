@@ -184,7 +184,7 @@ flowchart TD
         LR --> QC2["ds_annotate_cluster_qc"]
     end
     subgraph D["Stage D — deliverables"]
-        QC2 --> CON["ds_cohort_concordance"]
+        QC2 --> CON["ds_cohort_concordance<br/>still runs; no longer read<br/>by the notebook"]
         QC2 --> LA["nerve_immune_lead_axes<br/>un-wildcarded: both arms"]
         DRUG[("reference/drug_annotation<br/>committed snapshot")] --> LA
         LA --> NB["ds_census_nerve_immune_notebook<br/>05_*.py → HTML"]
@@ -487,14 +487,25 @@ arm while the recomputation runs on both, that quietly undercounted `n_rows` by
 selection rule — an oracle that shares code with the thing it checks cannot catch
 anything — which is a maintenance cost stated in the cell itself.
 
-**Panel F — concordance with the pinned v1.3.0 reference.** Jaccard 0.439,
-Spearman ρ 0.6182 over 1,724 shared pairs. The panel is titled *a diagnostic, not
-a replication result*, and the callout explains why: the reference's own nerve
+**Panel F — removed 2026-08-19.** It showed whole-table overlap with the pinned
+v1.3.0 reference: Jaccard 0.439, Spearman ρ 0.6182 over 1,724 shared pairs, under a
+callout titled *a diagnostic, not a replication result* which then spent three
+bullets explaining that the reference is not a valid comparator — its nerve
 compartment was built by the logic this pipeline removed, it carries no author
-annotation so has never been audited, and it was scored against
-differently-normalized data. The telling detail is that **the two corrected arms
-agree with each other markedly better than either agrees with the reference** —
-which points at the reference as the outlier.
+annotation so has never been audited, it was scored against differently-normalized
+data, and it is structurally unreproducible.
+
+A panel whose own callout tells the reader not to use its numbers is an invitation
+to use them anyway. The evidence it was standing in for is already on the page and
+does not need the reference: **every axis in Panel E clears the significance bar in
+both Census arms independently**, and the two corrected arms agree with each other
+markedly better than either ever agreed with v1.3.0 — which was always the finding
+that pointed at the reference as the outlier rather than at a failure to replicate.
+Cross-arm agreement is the replication claim this cohort can actually support.
+
+Policy is unchanged (§2.5 option (a)): v1.3.0 stays pinned, and is simply no longer
+compared against. `ds_cohort_concordance` still runs as a pipeline rule and still
+writes its summary and shared-pairs table; the notebook just no longer reads them.
 
 Finally, an **export button** writes the filtered view to CSV with a
 `.provenance.txt` sidecar recording a SHA-256 prefix of every input file and every

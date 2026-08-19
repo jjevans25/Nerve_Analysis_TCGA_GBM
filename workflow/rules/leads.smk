@@ -72,7 +72,18 @@ rule refresh_drug_annotation:
         --use-conda --cores 1 --allowed-rules refresh_drug_annotation
     """
     input:
-        table   = os.path.join(config["dirs"]["tables"], "nerve_immune_lead_axes_postfix.csv"),
+        # The axis set of record, NOT results/tables/nerve_immune_lead_axes_postfix.csv.
+        # Reading the lead-axes table here would be the obvious choice and is a cycle:
+        # once a refreshed snapshot is adopted, config.lead_axes.drug_annotation points
+        # at this rule's own output, so nerve_immune_lead_axes -> refreshed snapshot ->
+        # refresh_drug_annotation -> lead-axes table -> nerve_immune_lead_axes.
+        #
+        # The 2026-08-07 snapshot is committed, static and carries exactly the 144 axes,
+        # so it breaks the cycle without changing what gets queried. If the upstream LR
+        # tables ever change the axis set, this list goes stale — but that is caught
+        # loudly rather than silently: nerve_immune_lead_axes raises [FAIR-ALERT] when
+        # an axis has no row in the annotation it is joining.
+        axes    = os.path.join(_DRUG_DIR, "nerve_immune_axis_drug_annotation_2026-08-07.csv"),
         curated = os.path.join(_DRUG_DIR, "curated_agent_map_2026-08-07.json"),
     output:
         snapshot   = os.path.join(_DRUG_DIR, "nerve_immune_axis_drug_annotation_refreshed_{refresh_date}.csv"),

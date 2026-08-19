@@ -187,8 +187,11 @@ curated = json.loads(Path(snakemake.input.curated).read_text())  # type: ignore[
 AGENTS = curated["agents"]
 AG2GENE = curated["agent_to_gene"]
 
-table = pd.read_csv(snakemake.input.table)  # type: ignore[name-defined]
-axes = sorted(table["axis"].dropna().unique())
+# Axis set of record. Deliberately NOT results/tables/nerve_immune_lead_axes_postfix.csv
+# — see the rule's `input:` comment; reading it here is a dependency cycle once a
+# refreshed snapshot has been adopted.
+axis_source = pd.read_csv(snakemake.input.axes)  # type: ignore[name-defined]
+axes = sorted(axis_source["axis"].dropna().unique())
 genes = sorted({g for a in axes for g in _axis_genes(a)})
 log_transformation(log, RULE, f"{len(axes)} axes, {len(genes)} genes, {len(AGENTS)} agents")
 
@@ -335,7 +338,7 @@ log_transformation(log, RULE,
 prov = stamp_artifact(
     output_path=str(out),
     rule_name=RULE,
-    input_paths=[snakemake.input.table, snakemake.input.curated],  # type: ignore[name-defined]
+    input_paths=[snakemake.input.axes, snakemake.input.curated],  # type: ignore[name-defined]
     tool_versions={"pandas": pd.__version__, "requests": requests.__version__},
     parameters=manifest,
     description="Refreshed nerve-immune axis drug annotation from ChEMBL + ClinicalTrials.gov",

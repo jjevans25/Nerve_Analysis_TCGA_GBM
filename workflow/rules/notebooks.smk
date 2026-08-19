@@ -83,16 +83,18 @@ rule ds_census_nerve_immune_notebook:
         immune_cl_purity   = os.path.join(config["dirs"]["tables"], "{dataset}", "immune_cluster_sample_purity.csv"),
         immune_purity      = os.path.join(config["dirs"]["tables"], "{dataset}", "immune_subtype_sample_purity.csv"),
         annotation_summary = os.path.join(config["dirs"]["tables"], "{dataset}", "annotation_summary.csv"),
-        concordance        = os.path.join(config["dirs"]["tables"], "{dataset}", "cohort_concordance_summary.json"),
-        shared_pairs       = os.path.join(config["dirs"]["tables"], "{dataset}", "cohort_concordance_shared_pairs.csv"),
         lr_provenance      = os.path.join(config["dirs"]["provenance"], "{dataset}", "nerve_tumor_immune_interaction_provenance.json"),
-        # Reference-cohort input: the curated shortlist has no per-cohort twin, and
-        # Panel E exists precisely to test it against this cohort.
-        lead_targets       = os.path.join(config["dirs"]["tables"], "nerve_crosstalk_lead_targets.csv"),
-        # Panel E's actual source. Un-wildcarded: it spans both Census arms. Declared
-        # so rebuilding the shortlist re-renders the notebook — Panel E asserts the
-        # table against a live recomputation, so a stale render hides a regression.
+        # Panel E's source. Un-wildcarded: it spans both Census arms. Declared so
+        # rebuilding the shortlist re-renders the notebook — Panel E asserts the table
+        # against a live recomputation, so a stale render hides a regression.
         lead_axes_postfix  = os.path.join(config["dirs"]["tables"], "nerve_immune_lead_axes_postfix.csv"),
+        # Removed 2026-08-19 with Panel F:
+        #   concordance / shared_pairs — ds_cohort_concordance still runs and still
+        #     writes them; this notebook simply no longer reads them.
+        #   lead_targets (nerve_crosstalk_lead_targets.csv) — the withdrawn 2026-07-15
+        #     reference shortlist. It was declared but never opened by this notebook
+        #     (only notebook 04 reads it), so it was a spurious dependency tying the
+        #     Census notebook to the pinned reference cohort.
     output:
         html       = os.path.join(config["dirs"]["figures"],    "{dataset}", "05_census_nerve_immune_explorer.html"),
         provenance = os.path.join(config["dirs"]["provenance"], "{dataset}", "census_nerve_immune_notebook_provenance.json"),

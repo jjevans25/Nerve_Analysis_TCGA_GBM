@@ -2697,3 +2697,68 @@ not delete or edit" in the manifest — each records what was true at its date. 
 now separates what is reproducible (the active snapshot, re-runnable against ChEMBL_37)
 from what never will be (the 2026-08-07 original), instead of applying the original's
 limits to all three.
+
+---
+
+### [2026-08-19] | Phase: Remove Panel F from notebook 05 | Status: COMPLETE
+
+**Action:** Researcher asked for Panel F (whole-table overlap with the pinned v1.3.0
+reference) to be removed — the reference is no longer a valid comparator, so the panel
+has no value.
+
+**Outcome:** Removed. The panel's own callout already argued at length that the
+reference is not a comparator (its nerve compartment was built by the logic this
+pipeline removed; no author annotation so never audited; scored against
+differently-normalized data, defect D8; structurally unreproducible). A panel whose
+callout tells the reader not to use its numbers is an invitation to use them anyway.
+Cross-arm agreement — every Panel E axis clears the bar in **both** Census arms — is the
+replication evidence this cohort actually has, and it does not need v1.3.0 to stand up.
+
+Policy unchanged (§2.5 option (a)): v1.3.0 stays pinned and is simply no longer compared
+against. `ds_cohort_concordance` still runs and still writes its outputs; the notebook
+just no longer reads them. A removal note in the notebook records what was there and why
+it went, so this does not read later as an accidental deletion.
+
+**Removed with it:** the `concordance` and `shared_pairs` loads, their `paths` entries,
+and their declarations on `ds_census_nerve_immune_notebook`.
+
+**Also removed — a spurious dependency found while checking.** The notebook rule declared
+`lead_targets = results/tables/nerve_crosstalk_lead_targets.csv` (the withdrawn 2026-07-15
+reference shortlist), but notebook 05 never opens that file — its only mention is prose
+inside a Panel E callout. Only notebook 04 reads it. The declaration was tying the Census
+notebook to the pinned reference cohort for no reason.
+
+**[BUG FOUND] Cyclic dependency, mine, latent since the adoption commit.** The full-DAG
+dry run raised `CyclicGraphException on rule nerve_immune_lead_axes`. Adopting the
+refreshed snapshot pointed `config.lead_axes.drug_annotation` at
+`refresh_drug_annotation`'s own output, while that rule read the lead-axes table:
+`nerve_immune_lead_axes -> refreshed snapshot -> refresh_drug_annotation -> lead-axes
+table -> nerve_immune_lead_axes`.
+
+It went unnoticed because every check after adoption was scoped with `--allowed-rules`,
+which never builds the whole DAG — a real gap in that commit's verification, not a
+harmless oversight: `rule all` would have failed for anyone running the pipeline plainly.
+Fixed by sourcing the refresh rule's axis list from the committed, static 2026-08-07
+snapshot instead of from the table it feeds. That breaks the cycle without changing what
+gets queried, and a stale axis list is caught loudly rather than silently, because
+`nerve_immune_lead_axes` already raises `[FAIR-ALERT]` when an axis has no annotation row.
+
+**Also fixed:** `_cp` (compartment_pair array) was left dead in the Panel E cell when the
+spurious `interfaces` restriction was removed earlier today — caught by `flake8 --select=F`
+on the notebook, which had not been run against it before.
+
+**Verification:** notebook parses; `flake8 --select=F` clean; rendered for **both** arms
+with zero tracebacks; panels present are A–E with F absent and no "Jaccard overlap" text
+remaining; Panel E still **183/183** on magnitude and row counts in both arms. Full
+`rule all` dry run resolves with **0 cyclic errors**; the opt-in refresh target still
+resolves to exactly 1 job. HTML shrank ~964K→764K (full arm) and ~1.0M→804K (capped).
+
+**Artifacts:** `notebooks/05_census_nerve_immune_explorer.py`, `workflow/rules/notebooks.smk`,
+`workflow/rules/leads.smk`, `workflow/scripts/refresh_drug_annotation.py`,
+`markdowns/GBM_TME_Crosstalk_Analysis.md` (§3 DAG + §7 panel description), both rendered HTMLs.
+
+**Open Issues:** None.
+
+**FAIR Notes:** Removing a panel removes a claim from the record, so the notebook keeps an
+in-place comment explaining what Panel F showed, why it was withdrawn, and that the
+underlying rule still runs — future readers should not have to reconstruct that from git.
