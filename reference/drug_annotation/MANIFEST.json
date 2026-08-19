@@ -1,0 +1,121 @@
+{
+  "_what_this_directory_is": [
+    "Drug-annotation snapshots for the nerve-immune lead-axes shortlist. Each supplies",
+    "the tier_v2 / agents_flagged / glioma_trials / withdrawn columns of",
+    "results/tables/nerve_immune_lead_axes_postfix.csv, joined on `axis` by",
+    "rule nerve_immune_lead_axes.",
+    "",
+    "Exactly one snapshot is active at a time, named by config.lead_axes.drug_annotation.",
+    "The others are audit records and must not be deleted or edited — each is what was",
+    "true at its date."
+  ],
+
+  "_active_snapshot": "nerve_immune_axis_drug_annotation_refreshed_2026-08-19.csv",
+
+  "snapshots": [
+    {
+      "artifact": "nerve_immune_axis_drug_annotation_2026-08-07.csv",
+      "sha256": "a80b1de3c98bd0ed5191df2101315c05f4fd8e2e72d6b3b6021fd4b615781acc",
+      "status": "superseded — audit record, do not delete or edit",
+      "produced_by": "out-of-band Claude Science session (claude_science/code_export/02_chembl_druggability_pipeline.py), extracted from the 2026-08-07 artifact",
+      "note": "What the original generator actually produced, including the empty `withdrawn` column. NOT reproducible: its ChEMBL release was never recorded and one of its inputs is permanently lost (see unreproducible_original below)."
+    },
+    {
+      "artifact": "nerve_immune_axis_drug_annotation_2026-08-19.csv",
+      "sha256": "eed0995c8b141ae3563da30f357206b77d423004b2e80bbae0f101000190e8be",
+      "status": "superseded — audit record, do not delete or edit",
+      "produced_by": "rule derive_withdrawn_agents",
+      "note": "The 2026-08-07 snapshot with `withdrawn` recovered from the inline [WITHDRAWN] tags in agents_flagged. Identical to it in every other column, enforced by the rule's own guards."
+    },
+    {
+      "artifact": "nerve_immune_axis_drug_annotation_refreshed_2026-08-19.csv",
+      "sha256": "0280e1f82a9bd7a4d02774003de7c2830f193ebb88243ea0ad5747da1981c726",
+      "status": "ACTIVE — referenced by config.lead_axes.drug_annotation",
+      "produced_by": "rule refresh_drug_annotation",
+      "chembl_release": "ChEMBL_37",
+      "note": "Re-derived from public ChEMBL and ClinicalTrials.gov. Every value traces to a recorded database release. This one IS reproducible — re-running the rule against ChEMBL_37 reproduces it."
+    }
+  ],
+
+  "active_snapshot_facts": {
+    "n_axes": 144,
+    "n_genes": 156,
+    "columns": ["axis", "tier_v2", "agents_flagged", "glioma_trials", "withdrawn"],
+    "consumed_by": "rule nerve_immune_lead_axes (workflow/rules/leads.smk), joined on `axis`",
+    "join_is_lossless": "All four columns are a pure function of the axis string — across the 39 axes appearing on both nerve sides, zero disagreement. So 144 axis-keyed rows populate all 183 table rows exactly.",
+    "tier_v2_counts_per_distinct_axis": {
+      "1_approved_available": 29,
+      "1b_approved_withdrawn_only": 12,
+      "2_clinical": 46,
+      "3_chembl_target_no_agent": 46,
+      "4_no_chembl_target": 11
+    },
+    "tier_v2_counts_in_the_183_row_table": {
+      "1_approved_available": 34,
+      "1b_approved_withdrawn_only": 18,
+      "2_clinical": 57,
+      "3_chembl_target_no_agent": 57,
+      "4_no_chembl_target": 17
+    }
+  },
+
+  "column_semantics": {
+    "tier_v2": "Axis tier = best (lowest-ordinal) tier among constituent genes, ordered {'1_':1,'1b':1.5,'2_':2,'3_':3,'4_':4}. Genes come from splitting the axis on '|' then each end on '_' to expand LIANA subunit complexes.",
+    "agents_flagged": "'GENE: AGENT [tag]; ...' joined by ' | '. '[WITHDRAWN]' takes precedence over '[black-box]'. '[clinical]' marks a gene with no approved agent.",
+    "glioma_trials": "'<agent> (<n>: <first three NCT ids>)' joined by ' | '. A truncated summary, not the full trial list.",
+    "withdrawn": "Per-gene market-withdrawn approved agents, 'GENE: AGENT; AGENT' joined by ' | '. Populated on 13 axes covering BENZIODARONE, PRENYLAMINE, PROBUCOL."
+  },
+
+  "adoption_2026-08-19": {
+    "adopted": true,
+    "from": "nerve_immune_axis_drug_annotation_2026-08-19.csv",
+    "to": "nerve_immune_axis_drug_annotation_refreshed_2026-08-19.csv",
+    "rationale": "Every value now traces to a recorded database release (ChEMBL_37) rather than partly to a prior-session artifact nobody can inspect. Accepted with its cost stated below.",
+    "cost_accepted": "12 of 183 table rows leave 1_approved_available, concentrated in the ITGB1 and CALM/PDE1 axes, whose tier-1 status rested on agents supplied by the permanently lost prior-pass artifact rather than by ChEMBL.",
+    "gain": "18 rows leave 4_no_chembl_target because exact gene-symbol resolution finds targets the original full-text search missed.",
+    "impact_on_the_183_row_table": {
+      "geometry_untouched": "ranks, magnitudes, row counts, interfaces, immune, nerve_side, compartment_side and min_pval are all bit-identical — adoption swaps only the drug annotation",
+      "tier_v2_rows_changed": "33/183 (150 unchanged)",
+      "agents_flagged_rows_changed": "82/183",
+      "glioma_trials_rows_changed": "15/183",
+      "withdrawn_rows_changed": "0/183 — the re-queried column agrees exactly with the tag-derived one, so adoption does not disturb it"
+    },
+    "notable_correction": "CALM1|PDE1A and CALM1|PDE1C move 1_approved_available -> 1b_approved_withdrawn_only. That is a correction, not a loss: they are the 'CALM1 axes are a trap' cases, where the only approved agents on the CALM1 end (benziodarone, prenylamine) are market-withdrawn.",
+    "cross_validation": "The `withdrawn` column re-queried directly from ChEMBL's withdrawn_flag matches the column derived independently by rule derive_withdrawn_agents from the inline [WITHDRAWN] tags on 13/13 axes, character for character. Two derivations sharing no code and no data path, agreeing exactly."
+  },
+
+  "limits_that_still_apply": [
+    "GLIOMA-TRIAL COVERAGE IS BOUNDED BY A HAND-CURATED 20-AGENT LIST (curated_agent_map_2026-08-07.json). An empty glioma_trials cell means no NAMED trial for a LISTED agent — not that no trial exists.",
+    "CLINICALTRIALS.GOV HAS NO RELEASE VERSION. Only the retrieval date pins it; trial counts drift continuously.",
+    "TIERS ARE PHARMACOLOGICAL REACHABILITY, NOT BIOLOGICAL IMPORTANCE. 4_no_chembl_target means no database record, which is often a statement about drug-discovery attention rather than about the target."
+  ],
+
+  "unreproducible_original": {
+    "applies_to": "nerve_immune_axis_drug_annotation_2026-08-07.csv only — the active snapshot IS reproducible",
+    "reasons": [
+      "ChEMBL release was never recorded, so even an identical re-query cannot be proven equivalent.",
+      "One input is permanently lost: genes with no ChEMBL mechanism record inherited approved/clinical agents from a prior-session artifact addressed only as UUID 34d720d0-5c16-46bb-92e6-d8d6b6a02ec3 (evidence_source == 'prior_reference_pass'). Not in this repo, not recoverable.",
+      "The generator's handoff/*.json MCP response caches did not survive the session."
+    ]
+  },
+
+  "refreshing": {
+    "rule": "refresh_drug_annotation",
+    "status": "IMPLEMENTED and exercised 2026-08-19",
+    "naming": "Refreshed snapshots are nerve_immune_axis_drug_annotation_refreshed_<DATE>.csv. The `_refreshed_` infix keeps the rule's date wildcard namespace disjoint from committed pinned/derived snapshots, so it can never resolve to one and shadow it.",
+    "behaviour": "Opt-in, never in `rule all`. Writes a NEW dated file plus refresh_manifest_<DATE>.json; never overwrites an existing snapshot.",
+    "adoption": "Bump config.lead_axes.drug_annotation deliberately, after diffing. Not automatic — drift is a scientific judgement, not a build step.",
+    "failure_semantics": "Aborts with [FAIR-ALERT] and writes no output rather than emitting a partial snapshot. An unresolved gene would silently become '4_no_chembl_target', which reads downstream as 'this target has no chemistry' — a scientific claim manufactured by a network error. Verified under real failure: a run aborted on gene C3 after 4 backed-off retries and wrote nothing.",
+    "records_chembl_release": "Yes — read from /status and required. The rule refuses to mint an unpinned snapshot.",
+    "sources": {
+      "chembl": "https://www.ebi.ac.uk/chembl/api/data — /target filtered on target_components__target_component_synonyms__component_synonym__iexact (NOT /target/search, which rejects target_type/organism filters with a 400 and 400s outright on short symbols like C3), then /mechanism, then /molecule/{id} per molecule. No API key.",
+      "clinicaltrials": "https://clinicaltrials.gov/api/v2/studies — query.cond + query.intr (NOT query.intv). No API key."
+    },
+    "gotchas_found_by_running_it": [
+      "ChEMBL_37 serialises max_phase as the STRING '4.0'. A naive `phase == 4` is always False, so every approved drug silently falls through to 3_chembl_target_no_agent. The first successful run produced a clean-looking 144-axis snapshot claiming ZERO approved or clinical agents across all 156 genes, exit code 0, no error. A plausibility guard now refuses to write any snapshot where no axis reaches an approved or clinical tier.",
+      "/target/search cannot be used for gene-symbol resolution. The exact synonym filter is also more precise: exactly one human target per gene rather than a fuzzy ranked list, so a near-miss cannot be mistaken for a hit."
+    ]
+  },
+
+  "license": "CC-BY 4.0 (project default for data artifacts). Underlying data: ChEMBL (CC BY-SA 3.0), ClinicalTrials.gov (public domain)."
+}

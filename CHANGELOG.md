@@ -2374,3 +2374,587 @@ special-cases it rather than sending the reader after a Snakemake rule that does
 Panel E carries the same alert. **A rule under `workflow/rules/` that emits this table would close
 the reproducibility gap, the versioning gap and the curated/live gap together** — recommended as the
 next step, and it is also what CLAUDE.md's "never run one-off scripts for analysis steps" requires.
+
+---
+
+### [2026-08-19] | Phase: Lead-axes generator brought into the pipeline | Status: COMPLETE
+
+**Action:** Close the reproducibility gap flagged in the 2026-08-07 entry above — give
+`results/tables/nerve_immune_lead_axes_postfix.csv` a producing Snakemake rule. The generator
+arrived as four Claude Science REPL transcripts in `claude_science/code_export/` (gitignored, since
+`claude_science/` is a venv).
+
+**Outcome:** New `rule nerve_immune_lead_axes` reproduces the 2026-08-07 artifact **byte-for-byte**
+— sha256 `f30d33ed71c8038f8cc989a3d29d48ade873ad2837e47570d1d067bbe00f6286` before and after. That
+exact match is the proof the reimplementation is faithful; it was the acceptance gate for the work.
+
+Root cause of the `best_mag` discrepancy Panel E reports, now understood and documented: the CSV is
+a `pd.concat` of **two halves built by different rules**, not one table.
+
+| | oligodendrocyte (128 rows) | neuron (55 rows) |
+|---|---|---|
+| source arm | full | capped |
+| batch QC | required | **not applied** |
+| clusters | all | `nerve_neuron` only |
+| sort key | `['best_mag','min_pval']` | `['best_mag']` only |
+| dense rank | `rank_full` 1..128 | `rank_capped` 1..55 |
+| `capped_best_mag` | populated | **column never created → NaN** |
+
+So `best_mag` means "full arm, QC-passing" for 128 rows and "capped arm, no QC, neuron-only" for 55,
+and `n_rows` is arm-inconsistent the same way. That is why a single-arm live recomputation reproduces
+`capped_best_mag` 128/128 but `best_mag` only 128/167. **Reproduced deliberately, not fixed** — the
+fix changes the science and is scoped to a separate commit so it can be reviewed and reverted alone.
+
+**The four drug columns cannot be recomputed and are now vendored.** `tier_v2`, `agents_flagged`,
+`glioma_trials`, `withdrawn` came from ChEMBL and ClinicalTrials.gov via a Claude Science MCP
+connector. None of the generator's `handoff/*.json` response caches survived, and one input is
+permanently lost: a prior-session artifact addressed only as UUID
+`34d720d0-5c16-46bb-92e6-d8d6b6a02ec3`, which supplied fallback agents for genes with no ChEMBL
+mechanism record. Vendoring is lossless because all four columns are a pure function of the `axis`
+string — verified: zero disagreement across the 39 axes appearing on both nerve sides — so a 144-row
+axis-keyed snapshot reproduces all 183 rows.
+
+**Artifacts:**
+- `workflow/rules/leads.smk` (new), `workflow/scripts/nerve_immune_lead_axes.py` (new)
+- `reference/drug_annotation/` (new tracked dir — `data/` and `results/` are both gitignored, so
+  neither could host a committed input): pinned snapshot `..._2026-08-07.csv` (144 axes, sha256
+  `a80b1de3c98bd0ed5191df2101315c05f4fd8e2e72d6b3b6021fd4b615781acc`), `curated_agent_map_2026-08-07.json`,
+  `MANIFEST.json`
+- `config/config.yaml`: new `lead_axes:` block; `Snakefile`: include + `rule all` target
+- `provenance/nerve_immune_lead_axes_provenance.json` (new; FAIR validation now 68 records)
+
+**Tool Versions:** pandas 2.3.3 (`workflow/envs/scrna.yaml`), Snakemake 9.x
+
+**Verification:** dry run schedules exactly 1 job (no upstream LIANA rebuild); byte-identity gate
+passed; 183 rows / 15 columns; 128 + 55 split; `capped_best_mag` non-null on exactly the oligo rows;
+oligo `rank_full` == 1..128; neuron `rank_capped` == 1..55; tier counts match §8 of
+`markdowns/GBM_TME_Crosstalk_Analysis.md` (46/14/50/38/35); `fair_validate_metadata` passes;
+`flake8` clean. Notebook 05 was **not** re-rendered — its input is byte-identical, so Panel E cannot
+have changed.
+
+**Open Issues:**
+1. **`withdrawn` is empty in all 183 rows — a real bug, carried forward on purpose.** The generator
+   sourced it from `DRUG.withdrawn_agents`, populated by the bulk chembl_id lookup, which per the
+   export's own README does not carry withdrawal status; the corrected set came from a later by-name
+   sweep and was never written back. Recoverable — the data survives inline as `[WITHDRAWN]` tags in
+   `agents_flagged` and as the 14 axes tiered `1b_approved_withdrawn_only`.
+2. Arm-inconsistent `best_mag` / `n_rows` (see table above) — fix alongside notebook 05 Panel E and
+   §8 of the crosstalk markdown, whose 128/128 and 128/167 counts go stale the moment it changes.
+3. `rule refresh_drug_annotation` (opt-in ChEMBL + ClinicalTrials.gov REST re-query, writing a NEW
+   dated snapshot) is **specified but not yet implemented**. Until it exists the drug annotation is
+   frozen, not refreshable.
+
+**FAIR Notes:** The provenance and versioning gaps are closed — the table is now rebuildable offline
+from committed inputs, with a provenance sidecar. The *recomputability* gap is NOT closed and cannot
+be: `reference/drug_annotation/MANIFEST.json` states this plainly rather than implying otherwise,
+including that the ChEMBL release behind the snapshot was never recorded and that glioma-trial
+coverage is bounded by a hand-curated 20-agent list (absence of a trial ≠ no trial exists).
+
+---
+
+### [2026-08-19] | Phase: Lead-axes open items (1/3) — `withdrawn` recovered | Status: COMPLETE
+
+**Action:** Fix open item 1 from the entry above — `withdrawn` was empty in all 183 rows of
+`nerve_immune_lead_axes_postfix.csv`, a generator bug rather than a property of the data.
+
+**Outcome:** New `rule derive_withdrawn_agents` recovers the column offline from the inline
+`[WITHDRAWN]` tags that `agents_flagged` already carried, writing a new dated snapshot
+`reference/drug_annotation/nerve_immune_axis_drug_annotation_2026-08-19.csv` (sha256
+`eed0995c…`). The 2026-08-07 file is kept untouched as the audit record — rewriting a dated
+artifact would falsify what it contained on that date.
+
+**13 of 144 axes** populated, covering **3 agents: BENZIODARONE, PRENYLAMINE, PROBUCOL** —
+matching the generator's own report text verbatim. In the 183-row table that is 20 rows (some
+axes appear on both nerve sides), 14 of them tier `1b_approved_withdrawn_only`. Zero 1b axes
+were left empty, so tier and agent tags now corroborate each other instead of contradicting.
+
+Three of the 13 are tiered `1_approved_available`, not 1b — `CALM1|INSR`, `CALM1|PDE1A`,
+`CALM1|PDE1C`. That is correct, not a leak: axis tier is the *best* tier among constituent
+genes, so a withdrawn CALM1 agent does not demote an axis whose partner gene has a clean
+approved one. These are exactly the "CALM1 axes are a trap" cases the generator's report calls
+out — the agent a reader would reach for is withdrawn even though the axis reads tier 1.
+
+**Verification:** the rebuilt table differs from the previous build in **exactly one column**
+(`withdrawn`) — every other column compared equal, and the rule carries its own guards that
+raise `[FAIR-ALERT]` if any passthrough column moves, if the row count changes, if the parsed
+count disagrees with the tag count, or if a 1b axis ends up empty. Table sha256 moves
+`f30d33ed…` → `62e66e0d…`. `flake8` clean.
+
+**Artifacts:** `workflow/scripts/derive_withdrawn_agents.py` (new), `rule derive_withdrawn_agents`
+in `workflow/rules/leads.smk`, the 2026-08-19 snapshot,
+`provenance/derive_withdrawn_agents_provenance.json`, `config/config.yaml` (repointed),
+`reference/drug_annotation/MANIFEST.json` (`corrections` section added; the `withdrawn` defect
+moved to RESOLVED).
+
+**Tool Versions:** pandas 2.3.3 (`workflow/envs/scrna.yaml`)
+
+**Open Issues:** items 2 (arm-inconsistent `best_mag`/`n_rows`) and 3 (`refresh_drug_annotation`)
+still open — next two commits. Notebook 05 Panel E still says `withdrawn` "is empty in all 183
+rows … looks like a bug in the generating script"; that text goes stale with this commit and is
+corrected in the item-2 commit, which is where the notebook is touched.
+
+**FAIR Notes:** The correction is itself a provenance-stamped Snakemake rule, not a manual edit,
+so the fix is as reproducible as the artifact it fixes. No network access — this recovers
+misplaced data, it does not introduce new data, so nothing here depends on ChEMBL's current state.
+
+---
+
+### [2026-08-19] | Phase: Lead-axes open items (2/3) — arm-explicit magnitudes | Status: COMPLETE
+
+**Action:** Fix open item 2 — `best_mag` and `n_rows` were arm-inconsistent: full-arm
+QC-passing for the 128 oligodendrocyte rows, capped-arm non-QC pooled-neuron for the 55
+neuron rows, with nothing in the row saying which.
+
+**Outcome:** Both replaced by four arm-labelled columns — `full_best_mag`,
+`capped_best_mag`, `full_n_rows`, `capped_n_rows` — **all 183/183 populated**. No NaNs,
+because each half is already a cross-arm intersection, so every axis has a counterpart in
+the other arm. The 55 `capped_best_mag` NaNs disappear as a side effect. Table is now
+183×16; sha256 `62e66e0d…` → `9869b698…`.
+
+Verified as a pure relabelling, not a recomputation: the oligodendrocyte half's
+`full_best_mag`/`full_n_rows` equal the old `best_mag`/`n_rows` exactly, and the neuron
+half's `capped_best_mag`/`capped_n_rows` equal its old `best_mag`/`n_rows` exactly. Ranks
+still dense 1..128 and 1..55; tier counts unchanged at 46/14/50/38/35.
+
+**What this does NOT fix, stated in the script docstring, the rule docstring, Panel E and
+§8:** the *selection rule* still differs between halves — oligodendrocyte is QC-passing
+all-cluster, neuron is no-QC pooled-neuron-only. That is what defines the two halves and
+is labelled by `compartment_side`. The arm is now explicit; the filter is not. Comparing
+a `full_best_mag` across the two sides is still comparing two different filters.
+
+**Panel E reframed from caveat to regression check.** Two corrections were needed to make
+the oracle actually correct, both found by testing rather than assumed:
+1. It applied the oligodendrocyte rule to every row. The neuron half is built without the
+   QC filter and restricted to `nerve_neuron`, so all 55 neuron rows would have read as
+   disagreements. The oracle now branches on `compartment_side`, as the rule does.
+2. It restricted matches to each axis's own `interfaces`. The rule *derives* that column
+   from the matched rows rather than filtering on it, and each half's value is computed on
+   one arm while the recomputation runs on both — so the restriction silently undercut
+   `n_rows` by 5/183 on the capped arm and 1/183 on the full one. Removed.
+
+With both fixed the recomputation agrees **183/183 on magnitude and 183/183 on row counts
+in both arms** — confirmed in the rendered HTML, not just in a harness. Panel E now turns
+the callout red and prints a REGRESSION banner if either falls below 183.
+
+**Also fixed:** `rule ds_census_nerve_immune_notebook` declared the *withdrawn predecessor*
+`nerve_crosstalk_lead_targets.csv` as an input but never `nerve_immune_lead_axes_postfix.csv`,
+the file Panel E actually reads — so rebuilding the shortlist did not re-render the notebook
+and a stale render could hide a regression. Now declared.
+
+**Artifacts:** `workflow/scripts/nerve_immune_lead_axes.py`, `workflow/rules/notebooks.smk`,
+`notebooks/05_census_nerve_immune_explorer.py` (Panel E compute + view cells, the
+`_unbuildable`/FAIR-ALERT machinery removed from the loader),
+`markdowns/GBM_TME_Crosstalk_Analysis.md` §8 (now tracked in git for the first time).
+
+**Verification:** 183 rows / 16 cols; four arm columns 183/183 non-null; `best_mag` and
+`n_rows` absent; relabelling equalities all True; notebook rendered for both arms with zero
+tracebacks and 183/183 agreement; `flake8` clean.
+
+**Open Issues:** §8 of the markdown carried a pre-existing arithmetic error — "125 on the
+oligodendrocyte side and 55 on the pooled-neuron side" sums to 180, not 183. The real split
+is 128 + 55. Corrected. Item 3 (`refresh_drug_annotation`) remains open.
+
+**FAIR Notes:** The notebook's oracle deliberately duplicates the rule's selection logic —
+an oracle sharing an implementation with the thing it checks cannot catch anything. The cost
+is that the two must be edited together; that is stated in the cell so the next editor knows.
+
+---
+
+### [2026-08-19] | Phase: Lead-axes open items (3/3) — refresh rule | Status: COMPLETE
+
+**Action:** Fix open item 3 — implement `rule refresh_drug_annotation` so the drug annotation
+can be re-derived from public APIs instead of only being pinned.
+
+**Outcome:** Implemented and, contrary to plan, **fully exercised**. ChEMBL was returning HTTP
+500s and timeouts throughout planning, so the approved plan was to ship the ChEMBL half
+unexercised; EBI recovered mid-session (now serving **ChEMBL_37**, released 2026-05-01), so the
+whole rule was run for real. That mattered — it caught two bugs that code review did not, both
+of which would have shipped as confidently wrong output.
+
+**Bug 1 — `/target/search` is the wrong endpoint.** It rejects `target_type`/`organism` filters
+with HTTP 400, and 400s outright on short symbols (`q=C3` fails even bare). Replaced with an
+exact gene-symbol match on the non-search `/target` endpoint via
+`target_components__target_component_synonyms__component_synonym__iexact`. Also strictly more
+precise: exactly one human target per gene instead of a fuzzy ranked list, so a near-miss cannot
+be mistaken for a hit. `NLGN1` correctly resolves to nothing at any target type, matching the
+original generator's recorded finding.
+
+**Bug 2 — the dangerous one.** ChEMBL_37 serialises `max_phase` as the **string** `'4.0'`, so
+`phase == 4` was never true and every approved drug fell through to `3_chembl_target_no_agent`.
+The run exited 0 and wrote a clean-looking 144-axis snapshot asserting **zero approved or
+clinical agents across all 156 genes** — including CXCR4, whose plerixafor record had been
+verified by hand minutes earlier. Not a crash: a plausible table making a false scientific claim.
+Fixed by coercion, plus `1 <= phase <= 3` for the clinical band (which also catches ChEMBL's
+fractional phases). A **plausibility guard** now aborts if no axis reaches an approved or
+clinical tier — drift is expected, total collapse of the top tiers is a parse failure.
+
+**Fail-loud semantics verified under real failure**, not simulated: the first run aborted on gene
+`C3` after 4 backed-off retries and wrote no output file. A partial snapshot would have demoted
+every unresolved gene to `4_no_chembl_target`.
+
+**Drift vs the pinned snapshot** (same 144 axes; `tier_v2` unchanged on **120/144, 83%**):
+
+| tier | pinned | refreshed | Δ |
+|---|---:|---:|---:|
+| `1_approved_available` | 38 | 29 | −9 |
+| `1b_approved_withdrawn_only` | 10 | 12 | +2 |
+| `2_clinical` | 40 | 46 | +6 |
+| `3_chembl_target_no_agent` | 33 | 46 | +13 |
+| `4_no_chembl_target` | 23 | 11 | −12 |
+
+The 12 axes leaving `4_no_chembl_target` are an improvement — exact symbol resolution finds
+targets the original full-text search missed. The 9 leaving `1_approved_available` are the
+expected cost of the permanently lost prior-pass artifact, which supplied agents for genes with
+no ChEMBL mechanism record; without it those genes tier on ChEMBL evidence alone.
+`glioma_trials` matches exactly on 130/144, the 14 differences being trials registered since
+2026-08-07.
+
+**Cross-validation worth recording:** the `withdrawn` column re-queried straight from ChEMBL's
+`withdrawn_flag` matches the column derived in commit 1/3 by parsing inline `[WITHDRAWN]` tags on
+**13/13 axes, character for character**. Two fully independent derivations agreeing is the
+strongest evidence available that the tag-parsing recovery was correct.
+
+**NOT ADOPTED.** `config.lead_axes.drug_annotation` still points at the derived 2026-08-19
+snapshot. The refreshed file is committed as evidence the rule works and as the basis for a
+future adoption decision, which is the researcher's call, not a build step.
+
+**Artifacts:** `workflow/scripts/refresh_drug_annotation.py` (new), `rule refresh_drug_annotation`
+in `workflow/rules/leads.smk`, `reference/drug_annotation/nerve_immune_axis_drug_annotation_refreshed_2026-08-19.csv`,
+`refresh_manifest_2026-08-19.json`, `provenance/refresh_drug_annotation_2026-08-19.json`,
+MANIFEST.json (refresh section, drift table, gotchas).
+
+**Tool Versions:** pandas 2.3.3, requests 2.32.3 (`workflow/envs/scrna.yaml`); ChEMBL_37;
+ClinicalTrials.gov API v2
+
+**Open Issues:** None of the three items from the 2026-08-19 lead-axes entry remain open. Whether
+to adopt the refreshed snapshot is an open *decision*, not an open defect.
+
+**FAIR Notes:** The refreshed snapshot records its ChEMBL release — the pin the 2026-08-07 original
+never had, and the single biggest reason that one is unreproducible. Refreshed snapshots use a
+distinct `_refreshed_` filename infix so the rule's date wildcard can never resolve to a committed
+pinned/derived file and shadow it.
+
+---
+
+### [2026-08-19] | Phase: Adopt the refreshed drug annotation | Status: COMPLETE
+
+**Action:** Researcher accepted the ChEMBL-only answer, including its cost. Pointed
+`config.lead_axes.drug_annotation` at the refreshed 2026-08-19 snapshot
+(sha256 `0280e1f8…`, ChEMBL_37) and propagated it.
+
+**Outcome:** The drug annotation is no longer inherited from an artifact nobody can
+inspect — every value now traces to a recorded database release. Table sha256
+`9869b698…` → `1ca78122…`.
+
+**Adoption swaps only the annotation.** Verified on a `(axis, compartment_side)` key
+rather than positionally, because rows sort by `tier_v2` and reordering otherwise masks
+as a diff: `rank_full`, `rank_capped`, `full_best_mag`, `capped_best_mag`, `full_n_rows`,
+`capped_n_rows`, `nerve_side`, `interfaces`, `immune` and `min_pval` are **all
+bit-identical**. Changed: `tier_v2` 33/183, `agents_flagged` 82/183, `glioma_trials`
+15/183, and `withdrawn` **0/183**.
+
+That last number is the interesting one. The `withdrawn` column re-queried from ChEMBL's
+`withdrawn_flag` is character-identical to the one derived days earlier by parsing inline
+`[WITHDRAWN]` tags, so adoption does not disturb it at all.
+
+**Tier movement in the 183-row table:**
+
+| tier | before | after | Δ |
+|---|---:|---:|---:|
+| `1_approved_available` | 46 | 34 | −12 |
+| `1b_approved_withdrawn_only` | 14 | 18 | +4 |
+| `2_clinical` | 50 | 57 | +7 |
+| `3_chembl_target_no_agent` | 38 | 57 | +19 |
+| `4_no_chembl_target` | 35 | 17 | −18 |
+
+The 12 tier-1 losses concentrate in the ITGB1 axes (`ITGB1|VCAN`, `ITGB1|LGALS1`,
+`ITGB1|LGALS3BP`, the `ITGA*_ITGB1|SPP1` family, `CD14|ITGB1`) and the CALM/PDE1 axes —
+exactly the genes whose tier-1 status came from the lost prior-pass artifact rather than
+from ChEMBL. The 18 leaving `4_no_chembl_target` are the gain from exact gene-symbol
+resolution.
+
+**`CALM1|PDE1A` and `CALM1|PDE1C` moving to `1b_approved_withdrawn_only` is a correction,
+not a loss.** These are the "CALM1 axes are a trap" cases the original generator's own
+report warned about: the only approved agents on the CALM1 end are benziodarone and
+prenylamine, both market-withdrawn. Under the old annotation a clean partner agent held
+the axis at tier 1 and hid that; the ChEMBL-only view surfaces it.
+
+**Verification:** notebook 05 re-rendered for both arms — Panel E still **183/183** on
+magnitude and row counts, no regression banner, zero tracebacks (expected: the oracle
+checks geometry, which adoption does not touch). `config` ↔ `MANIFEST._active_snapshot`
+↔ table tier counts all cross-checked consistent. All three snapshots present on disk.
+
+**Artifacts:** `config/config.yaml`, `reference/drug_annotation/MANIFEST.json` (rewritten
+— it had accreted across three commits into claiming "nothing in this repository can
+regenerate it", which the refresh rule had made false), `markdowns/GBM_TME_Crosstalk_Analysis.md`
+§8 (tier table + provenance paragraph), both rendered notebook HTMLs.
+
+**Open Issues:** None. All three lead-axes items are closed and the adoption decision is
+made.
+
+**FAIR Notes:** Both superseded snapshots stay committed and are marked "audit record, do
+not delete or edit" in the manifest — each records what was true at its date. The manifest
+now separates what is reproducible (the active snapshot, re-runnable against ChEMBL_37)
+from what never will be (the 2026-08-07 original), instead of applying the original's
+limits to all three.
+
+---
+
+### [2026-08-19] | Phase: Remove Panel F from notebook 05 | Status: COMPLETE
+
+**Action:** Researcher asked for Panel F (whole-table overlap with the pinned v1.3.0
+reference) to be removed — the reference is no longer a valid comparator, so the panel
+has no value.
+
+**Outcome:** Removed. The panel's own callout already argued at length that the
+reference is not a comparator (its nerve compartment was built by the logic this
+pipeline removed; no author annotation so never audited; scored against
+differently-normalized data, defect D8; structurally unreproducible). A panel whose
+callout tells the reader not to use its numbers is an invitation to use them anyway.
+Cross-arm agreement — every Panel E axis clears the bar in **both** Census arms — is the
+replication evidence this cohort actually has, and it does not need v1.3.0 to stand up.
+
+Policy unchanged (§2.5 option (a)): v1.3.0 stays pinned and is simply no longer compared
+against. `ds_cohort_concordance` still runs and still writes its outputs; the notebook
+just no longer reads them. A removal note in the notebook records what was there and why
+it went, so this does not read later as an accidental deletion.
+
+**Removed with it:** the `concordance` and `shared_pairs` loads, their `paths` entries,
+and their declarations on `ds_census_nerve_immune_notebook`.
+
+**Also removed — a spurious dependency found while checking.** The notebook rule declared
+`lead_targets = results/tables/nerve_crosstalk_lead_targets.csv` (the withdrawn 2026-07-15
+reference shortlist), but notebook 05 never opens that file — its only mention is prose
+inside a Panel E callout. Only notebook 04 reads it. The declaration was tying the Census
+notebook to the pinned reference cohort for no reason.
+
+**[BUG FOUND] Cyclic dependency, mine, latent since the adoption commit.** The full-DAG
+dry run raised `CyclicGraphException on rule nerve_immune_lead_axes`. Adopting the
+refreshed snapshot pointed `config.lead_axes.drug_annotation` at
+`refresh_drug_annotation`'s own output, while that rule read the lead-axes table:
+`nerve_immune_lead_axes -> refreshed snapshot -> refresh_drug_annotation -> lead-axes
+table -> nerve_immune_lead_axes`.
+
+It went unnoticed because every check after adoption was scoped with `--allowed-rules`,
+which never builds the whole DAG — a real gap in that commit's verification, not a
+harmless oversight: `rule all` would have failed for anyone running the pipeline plainly.
+Fixed by sourcing the refresh rule's axis list from the committed, static 2026-08-07
+snapshot instead of from the table it feeds. That breaks the cycle without changing what
+gets queried, and a stale axis list is caught loudly rather than silently, because
+`nerve_immune_lead_axes` already raises `[FAIR-ALERT]` when an axis has no annotation row.
+
+**Also fixed:** `_cp` (compartment_pair array) was left dead in the Panel E cell when the
+spurious `interfaces` restriction was removed earlier today — caught by `flake8 --select=F`
+on the notebook, which had not been run against it before.
+
+**Verification:** notebook parses; `flake8 --select=F` clean; rendered for **both** arms
+with zero tracebacks; panels present are A–E with F absent and no "Jaccard overlap" text
+remaining; Panel E still **183/183** on magnitude and row counts in both arms. Full
+`rule all` dry run resolves with **0 cyclic errors**; the opt-in refresh target still
+resolves to exactly 1 job. HTML shrank ~964K→764K (full arm) and ~1.0M→804K (capped).
+
+**Artifacts:** `notebooks/05_census_nerve_immune_explorer.py`, `workflow/rules/notebooks.smk`,
+`workflow/rules/leads.smk`, `workflow/scripts/refresh_drug_annotation.py`,
+`markdowns/GBM_TME_Crosstalk_Analysis.md` (§3 DAG + §7 panel description), both rendered HTMLs.
+
+**Open Issues:** None.
+
+**FAIR Notes:** Removing a panel removes a claim from the record, so the notebook keeps an
+in-place comment explaining what Panel F showed, why it was withdrawn, and that the
+underlying rule still runs — future readers should not have to reconstruct that from git.
+
+---
+
+### [2026-08-19] | Phase: Demote the reference-cohort notebooks | Status: COMPLETE
+
+**Action:** Researcher asked whether the non-05 notebooks still make sense, given they
+read the pinned v1.3.0 reference. Investigated, then demoted all five.
+
+**Outcome:** `01_explore_gbm_data`, `02_nerve_enrichment_explorer`,
+`03_nerve_tumor_immune_explorer`, `04_tme_nerve_immune_explorer` and
+`nerve_tumor_exploration` are no longer built by `rule all`. Their rules remain in
+`workflow/rules/notebooks.smk` and can be invoked explicitly; the `.py` files stay.
+
+**The finding that made this urgent:** `rule all` was actively rebuilding all five. They
+are gated on `SAMPLES` (17 configured) and a dry run showed every one *pending*, so a
+plain pipeline run would regenerate five HTMLs into `results/figures/` alongside notebook
+05's, looking equally current — while every nerve-side number in them derives from the
+compartment `nerve_cell_subset.py` was fixed on 2026-08-06, which measured 59% malignant
+and 11% neural. This was not a dormant wart; it was a live source of void deliverables.
+
+Every existing render predated the fix (May 23 – Jul 26). They cannot be corrected:
+`data/processed/nerve_cells.h5ad` was deleted on 2026-07-21 and v1.3.0 is pinned and
+structurally unreproducible.
+
+**Demoted rather than deleted**, because the two things at issue are separable. The
+rendered HTMLs and the automatic rebuild were the hazard; the notebook *code* is not.
+If a v1.4.0 baseline is ever rebuilt through the corrected pipeline — which the removed
+Panel F callout explicitly contemplated — 02/03/04 become usable again immediately. The
+project already treats superseded artifacts this way: v1.3.0 stays pinned, the 2026-08-07
+annotation snapshot is kept as an audit record, feature branches are retained.
+
+**Banners added in two places per notebook**, because they serve different readers: the
+module docstring for anyone opening the `.py`, and a `kind="danger"` marimo cell placed
+second (right after imports) so it is the first thing in any rendered HTML. Both state
+what the defect was, that nerve-side claims are void, that it cannot be corrected, why the
+file is kept, and where the current analysis lives.
+
+**Stale HTMLs removed** — but only after verifying every one is re-renderable: all five
+rules had 100% of their declared inputs present on disk (2, 3, 3, 3 and 12 inputs
+respectively, 0 missing). Deleting an unreproducible record would have destroyed the only
+copy; deleting a reproducible one just removes a stale artifact.
+
+**Verification:** all six notebooks parse; `02` re-rendered end-to-end as a smoke test —
+0 tracebacks, banner present in the HTML, "59% malignant" text confirmed rendered; `rule
+all` dry run now schedules `ds_census_nerve_immune_notebook` (×2 arms) and **no** reference
+notebook rule; `results/figures/` root holds no notebook HTMLs, Census renders living
+under `results/figures/<dataset>/`.
+
+**Artifacts:** `Snakefile` (rule all block replaced with an explanatory comment carrying
+the explicit re-render command), the five notebook `.py` files.
+
+**Open Issues:** Notebook 05's docstring still names `notebooks/04_tme_nerve_immune_explorer.py`
+as the reference-cohort sibling. That remains accurate — 04 still exists and still covers
+that cohort — so it was left alone.
+
+**FAIR Notes:** Demotion is recorded in three places a reader might look: the `Snakefile`
+comment explaining why the targets are absent and how to render them anyway, the notebook
+docstrings, and the rendered banner. Removing the targets silently would have looked like
+an oversight and invited someone to add them back.
+
+---
+
+### [2026-08-19] | Phase: Census notebook set replaces the archived reference set | Status: COMPLETE
+
+**Action:** Archive the five reference-cohort notebooks and replace them, where the data
+supports it, with Census-cohort notebooks.
+
+**Outcome:** `notebooks/` now holds four Census notebooks, all built by `rule all` for
+both arms. The five reference notebooks moved to `notebooks/archive/` with their rules
+deleted (see the previous entry).
+
+| archived | replacement | reason |
+|---|---|---|
+| `01_explore_gbm_data` | `01_census_cohort_qc` | 170 donors vs 17 |
+| `02_nerve_enrichment_explorer` | `02_census_nerve_enrichment` | compartment now 95.4% neural, was 11% |
+| `nerve_tumor_exploration` | — | declined; overlaps Panels C/D of notebook 05 |
+| `03_nerve_tumor_immune_explorer` | — | notebook 05 already *is* its Census equivalent |
+| `04_tme_nerve_immune_explorer` | — | same |
+| — | `06_census_compartment_audit` | **new, no ancestor possible** |
+
+**Notebook 06 is the one that could not have existed for the reference cohort** and is
+the reason the asymmetry matters: it cross-tabulates every compartment against the
+CELLxGENE author annotation, and the TCGA reference carries no author annotation at all.
+Five panels — the 10 enforcing gates with margin-to-threshold, compartment composition
+against the oracle, the malignancy confusion matrix with its false-positive breakdown,
+per-cluster nerve purity, and donor purity v1 vs scANVI-v2.
+
+**[FINDING] It immediately surfaced something no existing artifact shows.** The nerve
+compartment passes at 95.4% neural in aggregate, but **5 of 23 clusters in the full arm
+sit below the 0.80 bar** — `c12` (1,314 cells, 16% neural / 83% malignant), `c19`, `c21`,
+`c17`, `c18` — together 1,677 of 37,945 cells (4.4%), three of them majority-malignant.
+The capped arm shows 4 of 25, 1,042 of 28,936 (3.6%). This is not a regression and does
+not contradict the gate: it is the residue the mask could not separate, small enough that
+the aggregate stays well clear. But it is exactly the failure mode a per-cluster view
+exists to catch, and `batch_qc_pass` does **not** cover it — that flag is donor
+dominance, not cell identity. The panel names the clusters and says to cross-reference
+the interaction table's `nerve_cluster` column before reporting an axis resting on them.
+
+**Second finding, from notebook 01:** the capped arm needs **63 of 170 donors** to reach
+half its cells against **35 of 170** in the full arm — direct evidence that
+`subsample_per_donor` did what it was designed to do, measured rather than assumed.
+
+**Deliberately not built:** a nerve↔tumour LR notebook. `ds_nerve_tumor_interaction`
+output exists, but Panels C and D of notebook 05 already browse the three-way table that
+subsumes it; a fourth notebook would have duplicated it.
+
+**Not portable, and stated rather than faked:** `nerve_clinical_association` and
+`nerve_leiden_resolution_sweep` have no `ds_` twin, and the Census `gdc_clinical.tsv` is a
+generated stub. Clinical association is genuinely lost with the reference cohort.
+
+**Fixed while building:** `nerve_cluster_sample_purity.csv` writes `cluster` as str while
+the v2 table writes int64, so the join raised. Normalised to str and kept the join outer —
+v1 has 24 clusters and v2 20, and a cluster in only one is a real difference between
+clusterings, not missing data. The panel now says the two are different partitions so the
+scatter is not misread as paired measurements.
+
+**Verification:** all four notebooks parse, `flake8 --select=F` clean, and render for both
+arms with **0 cell errors**. Full `rule all` DAG resolves with no cyclic or missing-rule
+errors. Notebook 01 reports 170 donors / 1,020,902 cells (full) and 624,688 (capped);
+notebook 02 reports 160/460 and 180/500 enrichment rows from donor-dominated clusters;
+notebook 06 reports 10/10 gates on both arms.
+
+**Artifacts:** `notebooks/01_census_cohort_qc.py`, `notebooks/02_census_nerve_enrichment.py`,
+`notebooks/06_census_compartment_audit.py`, three new rules in `workflow/rules/notebooks.smk`,
+`Snakefile` (`rule all` now lists four Census notebooks per arm).
+
+**Open Issues:** The 5 sub-0.80-neural nerve clusters are now visible but not acted on. Whether
+to exclude them from LR aggregation, or flag axes that depend on them, is a scientific
+decision for the researcher.
+
+**FAIR Notes:** Notebook 01 globs the 170 per-donor QC files rather than declaring 340 inputs;
+`annotation_summary.csv` is the declared edge because `ds_scrna_annotate` sits downstream of
+`ds_scrna_qc` for every sample and so cannot exist before them. Stated in the rule docstring so
+the shortcut is visible rather than implicit.
+
+---
+
+### [2026-08-19] | Phase: Notebook prose audit after the archive/replace work | Status: COMPLETE
+
+**Action:** Researcher asked whether notebook 05's language had gone stale. Audited it and
+the two notebooks written earlier today.
+
+**Outcome:** Three classes of problem, one of them a factual error of mine.
+
+**[BUG, mine] Notebook 01 described its own data backwards.** It called the population
+"cells post-QC" and its limits section claimed "cells here are already post-QC ... this is
+the surviving population, not the raw one." That is inverted: `scrna_qc.py` writes
+`*_qc_metrics.csv` at line 37, *before* the filters at lines 93-95, so the file is the
+**pre-filter** population. Introduced this morning when the notebook was written and
+caught only by cross-checking its 1,020,902 against notebook 05's donor count.
+
+Fixing it made the notebook better rather than merely correct: because the metrics are
+pre-filter, the thresholds can be replayed from config to show what filtering removed.
+Doing so reproduces the documented post-QC size **exactly** — 1,020,902 ingested →
+1,006,344 passing (98.6%), matching `markdowns/GBM_TME_Crosstalk_Analysis.md` line 78.
+Panel A now carries that funnel and names the hardest-hit donors (`LB3771T` 26%,
+`MGH143` 25%, `LB4130T` 18%), which is a QC signal that was previously invisible.
+
+**[FACT] Notebook 05 said 169 donors; the cohort has 170.** Five occurrences, all wrong,
+contradicting the crosstalk markdown (which says 170 in four places), the 170
+`*_qc_metrics.csv` files and the 170 distinct `sample_id`s in `*_gene_presence.csv`.
+Corrected. The `169617` in `config.baseline.immune_baseline_n` is an unrelated cell count
+and is probably where the digit came from.
+
+**[STALE] References to the now-archived notebook 04.** Three survived the archive commit:
+the footer still pointed at `notebooks/04_tme_nerve_immune_explorer.py` (wrong path), and
+two prose mentions read as though it were live. Corrected, and the framing changed — 04 was
+described as a "Companion", which it no longer is.
+
+**Also updated in notebook 05:**
+- Header and docstring now name the sibling notebooks (01, 02, 06) rather than a single
+  archived predecessor, so a reader landing here knows where the cohort QC, enrichment and
+  audit views are.
+- The "both arms pass 10/10 compartment gates" claim now points at notebook 06, where it is
+  rendered — **and states the finding notebook 06 surfaced**, that 5 of 23 nerve clusters
+  sit below the 0.80 neural bar despite the aggregate passing at 95.4%. A page that quotes
+  the aggregate should not omit that.
+- The drug-annotation limit was written when the annotation was an un-refreshable snapshot.
+  It now says the columns are re-derived from **ChEMBL_37** via `refresh_drug_annotation`
+  and adopted 2026-08-19, while keeping the two limits that still hold (snapshot not live
+  query; trial coverage bounded by a curated 20-agent list).
+
+**Verification:** all three notebooks parse, `flake8 --select=F` clean, render on both arms
+with 0 cell errors. Notebook 05 Panel E still 183/183 on both arms. Rendered HTML confirmed
+to contain "170 donors", the sibling-notebook list and `ChEMBL_37`, and to contain neither
+"169 donors" nor the stale `notebooks/04_tme` path.
+
+**Artifacts:** `notebooks/01_census_cohort_qc.py`, `notebooks/05_census_nerve_immune_explorer.py`,
+`markdowns/GBM_TME_Crosstalk_Analysis.md` (footer now distinguishes ingested from post-QC),
+six re-rendered HTMLs.
+
+**Open Issues:** None from this pass.
+
+**FAIR Notes:** The QC thresholds used for the funnel are read from `config.scrna` rather
+than hardcoded — if they change and the notebook is not re-run, the funnel would otherwise
+silently describe a filter that no longer exists.

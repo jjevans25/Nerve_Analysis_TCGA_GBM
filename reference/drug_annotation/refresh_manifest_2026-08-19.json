@@ -1,0 +1,24 @@
+{
+  "artifact": "nerve_immune_axis_drug_annotation_refreshed_2026-08-19.csv",
+  "sha256": "0280e1f82a9bd7a4d02774003de7c2830f193ebb88243ea0ad5747da1981c726",
+  "retrieved_at_utc": "2026-08-19T13:55:04.364834+00:00",
+  "chembl_release": "ChEMBL_37",
+  "chembl_api": "https://www.ebi.ac.uk/chembl/api/data",
+  "clinicaltrials_api": "https://clinicaltrials.gov/api/v2/studies",
+  "n_axes": 144,
+  "n_genes": 156,
+  "curated_agent_map": "reference/drug_annotation/curated_agent_map_2026-08-07.json",
+  "tier_v2_counts": {
+    "3_chembl_target_no_agent": 46,
+    "2_clinical": 46,
+    "1_approved_available": 29,
+    "1b_approved_withdrawn_only": 12,
+    "4_no_chembl_target": 11
+  },
+  "expect_drift_from_pinned_snapshot": true,
+  "notes": [
+    "This snapshot is NOT expected to match the 2026-08-07 pinned one. Both databases have moved, the original ChEMBL release was never recorded, and the prior-session fallback artifact it used is permanently lost.",
+    "Adopting it means pointing config.lead_axes.drug_annotation here deliberately, after a diff. This rule never mutates the pinned snapshot.",
+    "Glioma-trial coverage is bounded by the curated agent list: an empty cell means no named trial for a LISTED agent, not that no trial exists."
+  ]
+}

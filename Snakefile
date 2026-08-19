@@ -28,6 +28,7 @@ include: "workflow/rules/immune.smk"
 include: "workflow/rules/proteomics.smk"
 include: "workflow/rules/notebooks.smk"
 include: "workflow/rules/datasets.smk"
+include: "workflow/rules/leads.smk"
 
 # Ensure required directories exist before any rule runs
 from pathlib import Path
@@ -80,11 +81,21 @@ rule all:
         *(pinned_target(config["dirs"]["tables"],         "nerve_tumor_immune_interactions_with_qc.csv") if SAMPLES else []),
         *(pinned_target(config["dirs"]["tables"],         "nerve_tumor_immune_top_pairs_with_qc.csv") if SAMPLES else []),
         *([p(config["dirs"]["tables"],         "protein_quant_matrix.csv")]         if MS_SAMPLES else []),
-        *([p(config["dirs"]["figures"],        "01_explore_gbm_data.html")]         if SAMPLES    else []),
-        *([p(config["dirs"]["figures"],        "02_nerve_enrichment_explorer.html")] if SAMPLES    else []),
-        *([p(config["dirs"]["figures"],        "nerve_tumor_exploration.html")]      if SAMPLES    else []),
-        *([p(config["dirs"]["figures"],        "03_nerve_tumor_immune_explorer.html")] if SAMPLES  else []),
-        *([p(config["dirs"]["figures"],        "04_tme_nerve_immune_explorer.html")] if SAMPLES    else []),
+        # ── Reference-cohort notebooks: DEMOTED 2026-08-19, deliberately not built ──
+        # 01/02/03/04 and nerve_tumor_exploration all read the pinned v1.3.0 reference,
+        # whose nerve compartment was built by the logic `nerve_cell_subset.py` removed
+        # on 2026-08-06 (it measured 59% malignant / 11% neural). Every nerve claim they
+        # render is void, and they cannot be corrected: `data/processed/nerve_cells.h5ad`
+        # is gone and v1.3.0 is pinned and unreproducible.
+        #
+        # Their rules are kept in workflow/rules/notebooks.smk and can be invoked
+        # explicitly, so the code stays reusable if a v1.4.0 baseline is ever rebuilt
+        # through the corrected pipeline. What is removed is the automatic rebuild —
+        # leaving them here regenerated superseded HTMLs into results/figures/ next to
+        # notebook 05's, where they looked equally current.
+        #
+        #   scripts/run_snakemake.sh results/figures/04_tme_nerve_immune_explorer.html \
+        #     --use-conda --cores 1 --allowed-rules tme_nerve_immune_notebook
         # Replication cohorts: terminal concordance target pulls each dataset's
         # full cohort-namespaced chain (Stage A→D). Reference outputs above are
         # untouched. Gated on the `datasets:` config block being present.
@@ -96,8 +107,18 @@ rule all:
         *[p(config["dirs"]["tables"],  d, "nerve_cluster_sample_purity_v2.csv") for d in DATASETS],
         *[p(config["dirs"]["tables"],  d, "nerve_celltype_label_summary.csv")   for d in DATASETS],
         *[p(config["dirs"]["figures"], d, "nerve_scanvi_training_curves.png")    for d in DATASETS],
-        # Replication-cohort explorer (pulls ds_nerve_cluster_annotations too).
+        # Replication-cohort explorers. These five (per arm) are the notebook set —
+        # the reference-cohort notebooks were archived on 2026-08-19, see above.
+        *[p(config["dirs"]["figures"], d, "01_census_cohort_qc.html")           for d in DATASETS],
+        *[p(config["dirs"]["figures"], d, "02_census_nerve_enrichment.html")    for d in DATASETS],
         *[p(config["dirs"]["figures"], d, "05_census_nerve_immune_explorer.html") for d in DATASETS],
+        *[p(config["dirs"]["figures"], d, "06_census_compartment_audit.html")   for d in DATASETS],
+        # Cross-arm lead shortlist. Un-wildcarded: spans both census arms, so it
+        # sits at the tables root rather than in either arm's namespace. Gated on
+        # both arms being configured, since it intersects them.
+        *([p(config["dirs"]["tables"], "nerve_immune_lead_axes_postfix.csv")]
+          if {config["lead_axes"]["full_arm"], config["lead_axes"]["capped_arm"]} <= set(DATASETS)
+          else []),
 
 
 # -------------------------------------------------------------

@@ -1,6 +1,21 @@
 """
 Marimo reactive notebook: Interactive exploration of TCGA GBM loom files.
 Addresses: What is the cell/gene composition and QC landscape of each GBM sample?
+
+SUPERSEDED 2026-08-19 — reads the pinned v1.3.0 reference cohort.
+
+This notebook is retained as a record of the pre-fix analysis and is NOT built by
+`rule all`. Its nerve compartment was assembled by the logic removed from
+`workflow/scripts/nerve_cell_subset.py` on 2026-08-06, which measured 59% malignant
+and 11% neural, so every nerve-side claim rendered here is void. It cannot be
+corrected: `data/processed/nerve_cells.h5ad` was deleted by a failed job on
+2026-07-21 and the v1.3.0 reference is pinned and unreproducible.
+
+The current analysis is `notebooks/05_census_nerve_immune_explorer.py`, over the
+CELLxGENE Census arms. This file is kept because it becomes usable again if a
+v1.4.0 baseline is ever rebuilt through the corrected pipeline; render it
+explicitly via its rule in `workflow/rules/notebooks.smk` if you need the
+historical view.
 """
 
 import marimo
@@ -27,6 +42,34 @@ def _imports():
     import yaml
 
     return Path, ad, datetime, duckdb, loompy, mo, np, pd, plt, sc, uuid, yaml
+
+
+@app.cell
+def _superseded_banner(mo):
+    mo.callout(
+        mo.md(
+            "**SUPERSEDED — do not read the nerve-side numbers on this page.**\n\n"
+            "This notebook reads the pinned **v1.3.0 reference cohort**, whose nerve "
+            "compartment was built by the logic removed from `nerve_cell_subset.py` on "
+            "2026-08-06. That compartment measured **59% malignant and 11% neural**: "
+            "the cells it labelled 'nerve' were largely tumour and myeloid, so every "
+            "nerve-side enrichment, interaction and lead axis rendered below is an "
+            "artefact of the defect rather than a finding.\n\n"
+            "It **cannot be corrected**. `data/processed/nerve_cells.h5ad` was deleted "
+            "by a failed job on 2026-07-21 and the v1.3.0 reference is pinned and "
+            "structurally unreproducible, so there is no path to re-rendering this "
+            "against clean compartments.\n\n"
+            "Retained as a record of what was believed before the fix, and because the "
+            "code becomes reusable if a v1.4.0 baseline is ever rebuilt through the "
+            "corrected pipeline. It is **not** built by `rule all`.\n\n"
+            "Current analysis: `notebooks/05_census_nerve_immune_explorer.py` "
+            "(CELLxGENE Census arms, compartments audited at 95.4% neural against an "
+            "external oracle)."
+        ),
+        kind="danger",
+    )
+    return
+
 
 
 @app.cell
