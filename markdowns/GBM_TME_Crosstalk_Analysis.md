@@ -478,11 +478,11 @@ each tiered by druggability:
 
 | tier | axes |
 |---|---:|
-| `1_approved_available` | 46 |
-| `1b_approved_withdrawn_only` | 14 |
-| `2_clinical` | 50 |
-| `3_chembl_target_no_agent` | 38 |
-| `4_no_chembl_target` | 35 |
+| `1_approved_available` | 34 |
+| `1b_approved_withdrawn_only` | 18 |
+| `2_clinical` | 57 |
+| `3_chembl_target_no_agent` | 57 |
+| `4_no_chembl_target` | 17 |
 
 **`rule nerve_immune_lead_axes` produces this table** (`workflow/rules/leads.smk`).
 It was originally generated out of band using **Claude Science**, and that
@@ -504,18 +504,32 @@ differ. Panel E re-derives every value independently from the LR tables and
 currently agrees on 183/183 in both arms; a disagreement there is a regression,
 not a caveat.
 
-**What is still not recomputable is the drug annotation.** `tier_v2`,
-`agents_flagged`, `glioma_trials` and `withdrawn` came from ChEMBL and
-ClinicalTrials.gov queries whose response caches did not survive the session, and
-one input — a prior-session artifact referenced only by UUID — is permanently
-lost. They are supplied by a committed, version-pinned snapshot under
-`reference/drug_annotation/`, joined on `axis`, which is lossless because all four
-are a pure function of the axis string. That closes the provenance and versioning
-gaps; it does not make the annotation reproducible, and
-`reference/drug_annotation/MANIFEST.json` says so plainly — including that the
-ChEMBL release behind it was never recorded, and that glioma-trial coverage is
-bounded by a hand-curated 20-agent list, so an empty cell means *no named trial
-for a listed agent*, not that no trial exists.
+**The drug annotation is now re-derived, not inherited.** `tier_v2`,
+`agents_flagged`, `glioma_trials` and `withdrawn` originally came from queries whose
+response caches did not survive the session, together with a prior-session artifact
+referenced only by UUID that is permanently lost. `rule refresh_drug_annotation`
+replaces that provenance: it re-derives all four columns from **ChEMBL_37** and the
+ClinicalTrials.gov v2 API, and the snapshot it produced on 2026-08-19 is the one in
+use. Every value now traces to a recorded database release.
+
+That was adopted with its cost stated. Against the original annotation, 12 rows
+leave `1_approved_available` — concentrated in the ITGB1 and CALM/PDE1 axes, whose
+tier-1 status rested on agents supplied by the lost artifact rather than by ChEMBL.
+Two of those, `CALM1|PDE1A` and `CALM1|PDE1C`, drop to
+`1b_approved_withdrawn_only`, which is a correction rather than a loss: they are
+precisely the "CALM1 axes are a trap" cases, where the only approved agents on the
+CALM1 end (benziodarone, prenylamine) are market-withdrawn. Pulling the other way,
+18 rows leave `4_no_chembl_target` because exact gene-symbol resolution finds
+targets the original full-text search missed. Tiering is unchanged on 150 of 183
+rows. A shortlist that looks slightly less druggable but whose every value is
+traceable is the better instrument.
+
+Two limits remain, and `reference/drug_annotation/MANIFEST.json` states both:
+glioma-trial coverage is bounded by a hand-curated 20-agent list, so an empty cell
+means *no named trial for a listed agent*, not that no trial exists; and the
+original 2026-08-07 annotation can never be reproduced, because its ChEMBL release
+was never recorded and its fallback artifact is gone. Both earlier snapshots stay
+committed as audit records.
 
 ---
 

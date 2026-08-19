@@ -625,11 +625,20 @@ lead_axes:
   full_arm:           "gbm_cellxgene_56c4912d_full"
   capped_arm:         "gbm_cellxgene_56c4912d"
   neuron_group:       "nerve_neuron"
-  # 2026-08-19 supersedes 2026-08-07: identical except the `withdrawn` column, which
-  # was empty in all 144 axes due to a generator bug and is recovered by
-  # `rule derive_withdrawn_agents` from the inline [WITHDRAWN] tags in agents_flagged.
-  # The 2026-08-07 file stays committed as the audit record — do not delete it.
-  drug_annotation:    "reference/drug_annotation/nerve_immune_axis_drug_annotation_2026-08-19.csv"
+  # ADOPTED 2026-08-19: the refreshed snapshot, re-derived from ChEMBL_37 and the
+  # ClinicalTrials.gov v2 API by `rule refresh_drug_annotation`. This is the
+  # ChEMBL-only answer — it no longer inherits agents from the prior-session artifact
+  # that was lost with the original generator, so 12 rows leave `1_approved_available`
+  # (mostly ITGB1 and CALM/PDE1 axes) while 18 leave `4_no_chembl_target` on the back
+  # of more precise gene-symbol target resolution. Accepted deliberately: an annotation
+  # whose every value traces to a recorded database release beats a better-looking one
+  # resting partly on an artifact nobody can inspect.
+  #
+  # The two earlier snapshots stay committed as audit records — do not delete either:
+  #   _2026-08-07     what the out-of-band generator actually produced
+  #   _2026-08-19     the same, with `withdrawn` recovered from the inline tags
+  # See reference/drug_annotation/MANIFEST.json for the full drift table.
+  drug_annotation:    "reference/drug_annotation/nerve_immune_axis_drug_annotation_refreshed_2026-08-19.csv"
   compartment_side_oligo:  "oligodendrocyte (QC-passing)"
   compartment_side_neuron: "neuron (pooled; donor-caveated)"
 

@@ -2633,3 +2633,67 @@ to adopt the refreshed snapshot is an open *decision*, not an open defect.
 never had, and the single biggest reason that one is unreproducible. Refreshed snapshots use a
 distinct `_refreshed_` filename infix so the rule's date wildcard can never resolve to a committed
 pinned/derived file and shadow it.
+
+---
+
+### [2026-08-19] | Phase: Adopt the refreshed drug annotation | Status: COMPLETE
+
+**Action:** Researcher accepted the ChEMBL-only answer, including its cost. Pointed
+`config.lead_axes.drug_annotation` at the refreshed 2026-08-19 snapshot
+(sha256 `0280e1f8…`, ChEMBL_37) and propagated it.
+
+**Outcome:** The drug annotation is no longer inherited from an artifact nobody can
+inspect — every value now traces to a recorded database release. Table sha256
+`9869b698…` → `1ca78122…`.
+
+**Adoption swaps only the annotation.** Verified on a `(axis, compartment_side)` key
+rather than positionally, because rows sort by `tier_v2` and reordering otherwise masks
+as a diff: `rank_full`, `rank_capped`, `full_best_mag`, `capped_best_mag`, `full_n_rows`,
+`capped_n_rows`, `nerve_side`, `interfaces`, `immune` and `min_pval` are **all
+bit-identical**. Changed: `tier_v2` 33/183, `agents_flagged` 82/183, `glioma_trials`
+15/183, and `withdrawn` **0/183**.
+
+That last number is the interesting one. The `withdrawn` column re-queried from ChEMBL's
+`withdrawn_flag` is character-identical to the one derived days earlier by parsing inline
+`[WITHDRAWN]` tags, so adoption does not disturb it at all.
+
+**Tier movement in the 183-row table:**
+
+| tier | before | after | Δ |
+|---|---:|---:|---:|
+| `1_approved_available` | 46 | 34 | −12 |
+| `1b_approved_withdrawn_only` | 14 | 18 | +4 |
+| `2_clinical` | 50 | 57 | +7 |
+| `3_chembl_target_no_agent` | 38 | 57 | +19 |
+| `4_no_chembl_target` | 35 | 17 | −18 |
+
+The 12 tier-1 losses concentrate in the ITGB1 axes (`ITGB1|VCAN`, `ITGB1|LGALS1`,
+`ITGB1|LGALS3BP`, the `ITGA*_ITGB1|SPP1` family, `CD14|ITGB1`) and the CALM/PDE1 axes —
+exactly the genes whose tier-1 status came from the lost prior-pass artifact rather than
+from ChEMBL. The 18 leaving `4_no_chembl_target` are the gain from exact gene-symbol
+resolution.
+
+**`CALM1|PDE1A` and `CALM1|PDE1C` moving to `1b_approved_withdrawn_only` is a correction,
+not a loss.** These are the "CALM1 axes are a trap" cases the original generator's own
+report warned about: the only approved agents on the CALM1 end are benziodarone and
+prenylamine, both market-withdrawn. Under the old annotation a clean partner agent held
+the axis at tier 1 and hid that; the ChEMBL-only view surfaces it.
+
+**Verification:** notebook 05 re-rendered for both arms — Panel E still **183/183** on
+magnitude and row counts, no regression banner, zero tracebacks (expected: the oracle
+checks geometry, which adoption does not touch). `config` ↔ `MANIFEST._active_snapshot`
+↔ table tier counts all cross-checked consistent. All three snapshots present on disk.
+
+**Artifacts:** `config/config.yaml`, `reference/drug_annotation/MANIFEST.json` (rewritten
+— it had accreted across three commits into claiming "nothing in this repository can
+regenerate it", which the refresh rule had made false), `markdowns/GBM_TME_Crosstalk_Analysis.md`
+§8 (tier table + provenance paragraph), both rendered notebook HTMLs.
+
+**Open Issues:** None. All three lead-axes items are closed and the adoption decision is
+made.
+
+**FAIR Notes:** Both superseded snapshots stay committed and are marked "audit record, do
+not delete or edit" in the manifest — each records what was true at its date. The manifest
+now separates what is reproducible (the active snapshot, re-runnable against ChEMBL_37)
+from what never will be (the 2026-08-07 original), instead of applying the original's
+limits to all three.
