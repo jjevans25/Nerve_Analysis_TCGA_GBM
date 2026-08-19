@@ -9,7 +9,7 @@ Source rules: workflow/rules/datasets.smk -> ds_nerve_tumor_immune_interaction,
 ds_annotate_cluster_qc, ds_nerve_cluster_annotations; and
 workflow/rules/leads.smk -> nerve_immune_lead_axes.
 
-Sibling of notebooks/04_tme_nerve_immune_explorer.py, which covers the pinned
+Sibling of notebooks/archive/04_tme_nerve_immune_explorer.py, which covered the pinned
 v1.3.0 reference cohort. Deliberately a separate file rather than a cohort switch:
 the two cohorts differ in what exists (no clinical metadata here, no curated
 target list, 169 donors instead of 17), so the panels are not the same.
@@ -144,7 +144,7 @@ def _header(dataset, mo):
     **Cohort: `{dataset}`** — the CELLxGENE Census GBM 10x replication cohort
     (169 donors), independent of the 17-sample TCGA reference.
 
-    Companion to `notebooks/04_tme_nerve_immune_explorer.py`, which covers the
+    Companion to `notebooks/archive/04_tme_nerve_immune_explorer.py` (ARCHIVED), which covered the
     reference cohort. Kept separate because the two cohorts do not offer the same
     evidence: this one has **no usable clinical metadata** (its `gdc_clinical.tsv`
     is a generated stub) and **no curated target list** of its own.
