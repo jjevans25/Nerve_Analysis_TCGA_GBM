@@ -1,394 +1,268 @@
 # GBM Nerve–Tumor–Immune Single-Cell Analysis
 
-An autonomous, FAIR-compliant single-cell RNA-seq pipeline for characterizing nerve-cell heterogeneity in the Glioblastoma (GBM) tumor microenvironment (TME) — and the ligand–receptor crosstalk that connects the tumor and immune compartments to it. Built on Apple M4 Max hardware with Snakemake, scvi-tools, and scanpy, and tested for replication across two independent GBM cohorts.
+A FAIR-compliant single-cell RNA-seq pipeline characterising nerve-cell heterogeneity in the glioblastoma (GBM) tumour microenvironment, and the ligand–receptor crosstalk connecting the tumour and immune compartments to it. Snakemake + scvi-tools + scanpy + LIANA + marimo, on Apple Silicon (MPS).
+
+The analysis runs on a **170-donor CELLxGENE Census cohort**, carried as two arms at different sequencing depths. Every compartment is audited against a held-out external annotation before any result is read.
 
 ---
 
-## Scientific Questions
+## Read this first
 
-**1. Composition.** What subtypes of nerve cells (neurons, oligodendrocytes, OPCs, astrocytes) are present in the GBM TME, how heterogeneous are they across patients, and which molecular programs define each subtype?
+**A 17-sample TCGA-GBM cohort was the project's original discovery set. It is no longer part of the analysis.**
 
-**2. Crosstalk.** Which ligand–receptor interactions link malignant and immune cells to the nerve-cell compartment — the tumor→immune→nerve axis?
+On 2026-08-06 a compartment-integrity defect was found and fixed. The "nerve" compartment had been built by a silently bidirectional substring match on `cell_type_predicted`, and it was **59 % malignant and 27 % myeloid — only ~11 % neural**. Every nerve-side result computed before that date describes tumour and microglia under a nerve label.
 
-**3. Replication.** Do those interactions reproduce in an independent GBM cohort, or are they specific to the discovery data?
+The Census arms were rebuilt with the corrected mask and now pass **10/10 enforcing compartment gates**. The TCGA reference could not be: its `data/processed/nerve_cells.h5ad` was destroyed by a failed job on 2026-07-21, the surviving tables are structurally pinned at v1.3.0, and — decisively — its `nerve_cell_subset` run is insulated by a v1.1.0 frozen barcode list that **bypasses the fixed mask entirely**. Re-running it today would faithfully reproduce the defect.
 
-The analysis addresses these by:
-1. Ingesting each cohort into a common AnnData format (GDC loom, or `.h5ad` from CELLxGENE Census)
-2. Integrating samples with scVI to remove batch effects
-3. Annotating cell types using canonical marker gene scoring
-4. Separating malignant GBM cells from bona fide normal nerve cells via CNV inference
-5. Subclustering the nerve-cell compartment and running differential expression + gene set enrichment
-6. Subclustering the immune compartment into microglia / TAM / T / NK / dendritic subtypes
-7. Scoring two-way (tumor→nerve) and three-way (tumor→immune→nerve) ligand–receptor interactions with LIANA
-8. Re-running the whole chain on a replication cohort and scoring concordance against the reference
+So the TCGA cohort is retained as a frozen, citable record and is **not a valid comparator**. Replication evidence in this project is **cross-arm agreement between the two Census arms**, not agreement with the old baseline. Its notebooks live in `notebooks/archive/`.
 
-### Cohorts
+| | Census — full arm | Census — capped arm | TCGA reference |
+|---|---|---|---|
+| **Key** | `gbm_cellxgene_56c4912d_full` | `gbm_cellxgene_56c4912d` | — |
+| **Donors** | 170 | 170 | 17 samples |
+| **Cells** | 1,020,902 → 1,006,344 post-QC | 624,688 | subsampled loom |
+| **`subsample_per_donor`** | `null` | 5,000 | — |
+| **Compartment gates** | **10/10 PASS** | **10/10 PASS** | not auditable |
+| **Nerve compartment** | 95.4 % neural | 94.8 % neural | ~11 % neural (defective) |
+| **Status** | active | active | frozen v1.3.0, **archived** |
 
-| | Reference (discovery) | Replication |
+Both arms are kept because a result that holds at one sequencing depth and not the other is not a result. Capping is not free — it discards real cells — so neither arm is authoritative alone.
+
+---
+
+## Scientific questions
+
+**1. Composition.** Which nerve-cell subtypes are present in the GBM TME, how heterogeneous are they across donors, and which molecular programs define each?
+
+**2. Crosstalk.** Which ligand–receptor interactions link malignant and immune cells to the nerve compartment — the tumour → immune → nerve axis?
+
+**3. Reproducibility.** Which of those interactions hold in **both** Census arms, and are any of them pharmacologically reachable?
+
+The chain: ingest per donor → scVI batch correction → marker-based annotation → CNV malignancy calling → compartment masks (nerve / tumour / immune) → **compartment audit against a held-out oracle** → LIANA ligand–receptor scoring → cross-arm lead-axis shortlist with druggability tiers.
+
+---
+
+## The audit that gates everything
+
+The single highest-leverage decision in this project was pulling CELLxGENE's author `cell_type` annotation and **never letting it touch the pipeline**. It is held out entirely and used only to audit the compartments the pipeline builds for itself.
+
+`ds_compartment_audit` runs ten gates as **hard build gates** — a failure stops the run, so a defective compartment cannot silently reach an interaction table again:
+
+| gate | full arm | threshold |
 |---|---|---|
-| **Source** | TCGA-GBM via GDC | CELLxGENE Census (10x, primary data only) |
-| **Scale** | 17 samples, subsampled loom | 1.29M cells × 61,497 genes, 174 donors |
-| **Scope run** | full cohort | single largest study (`56c4912d`), capped at 5,000 cells/donor |
-| **Matrix** | SCT log1p (counts recovered for scVI) | genuine raw UMIs |
-| **Status** | frozen at **v1.3.0**, structurally pinned | active |
+| `nerve_neural_fraction` | 0.954 | ≥ 0.80 |
+| `tumor_malignant_fraction` | 0.930 | ≥ 0.85 |
+| `malignancy_recall` | 0.894 | ≥ 0.80 |
+| `malignancy_precision` | 0.930 | ≥ 0.85 |
+| `immune_purity` | 0.996 | ≥ 0.95 |
+| `max_nerve_cluster_endothelial_fraction` | 0.000 | ≤ 0.20 |
+| + 4 size/shape gates | | |
+
+Rendered in `notebooks/06_census_compartment_audit.py`. **Read that notebook before trusting any result here** — it also shows that 5 of 23 nerve clusters in the full arm sit below the 0.80 neural bar despite the aggregate passing, which the aggregate figure alone would hide.
+
+The TCGA reference carries no author annotation, so none of this can be computed for it. That asymmetry is why it was archived rather than rebuilt.
 
 ---
 
-## Project Structure
+## Quick start
 
-```
-Nerve_Analysis_TCGA_GBM/
-│
-├── CLAUDE.md                        # Project constitution — rules for all agentic work
-├── README.md                        # This file
-├── execution_instructions.md        # Step-by-step pipeline execution guide
-├── CHANGELOG.md                     # Persistent lab notebook (all decisions logged here)
-│
-├── Snakefile                        # Pipeline entry point — defines rule all + imports
-├── config/
-│   └── config.yaml                  # All parameters, paths, hardware settings (no hardcoding)
-│
-├── workflow/
-│   ├── rules/
-│   │   ├── common.smk               # Path helper p(), BASELINE_PINNED, pinned_target()
-│   │   ├── fair.smk                 # FAIR validation, report, provenance + reference freezes
-│   │   ├── ingest.smk               # loom_to_h5ad (per-sample) + gdc_clinical_fetch
-│   │   ├── qc.smk                   # scrna_qc (per-sample) + scrna_qc_report
-│   │   ├── integration.smk          # scrna_integration (scVI VAE) + scrna_velocity
-│   │   ├── annotation.smk           # scrna_annotate + scrna_malignancy (CNV scoring)
-│   │   ├── nerve_cells.smk          # Nerve subset, heterogeneity, batch QC, scANVI-v2 retrain
-│   │   ├── immune.smk               # Immune subset, subtype annotation, 3-way interaction
-│   │   ├── datasets.smk             # Cohort-namespaced ds_* replication chain (Stage A→D)
-│   │   ├── proteomics.smk           # AlphaPept MS rules (optional)
-│   │   └── notebooks.smk            # Marimo notebook batch export
-│   │
-│   ├── scripts/                     # One module per biological operation (see below)
-│   │   ├── fair_utils.py            # FAIR provenance utilities (UUID, SHA256, stamping)
-│   │   ├── counts_utils.py          # Scale detection + log1p→counts recovery guards
-│   │   ├── ingest_dataset.py        # Multi-source cohort loader (loom | h5ad | mtx | census)
-│   │   ├── scrna_integration.py     # scVI VAE training (MPS-accelerated)
-│   │   ├── scrna_malignancy.py      # CNV sliding-window scoring → is_malignant label
-│   │   ├── nerve_cell_subset.py     # Filter + re-cluster nerve cells; join clinical metadata
-│   │   ├── nerve_scanvi_retrain.py  # scANVI-v2 label-anchored latent space
-│   │   ├── immune_cell_subset.py    # Immune compartment subset + re-clustering
-│   │   ├── immune_cluster_annotations.py   # Microglia/TAM/T/NK/DC subtype calling
-│   │   ├── nerve_tumor_interaction.py      # Two-way tumor→nerve LIANA scoring
-│   │   ├── nerve_tumor_immune_interaction.py  # Three-way tumor→immune→nerve LIANA scoring
-│   │   ├── cohort_concordance.py    # Reference vs replication agreement scoring
-│   │   ├── freeze_pinned_reference.py / verify_pinned_reference.py   # v1.3.0 pin enforcement
-│   │   └── …                        # QC, annotation, enrichment, velocity, proteomics
-│   │
-│   └── envs/
-│       ├── scrna.yaml               # scRNA-seq conda env (scanpy, scvi-tools, infercnvpy, gseapy)
-│       ├── notebooks.yaml           # Marimo/DuckDB env (isolated from scrna)
-│       ├── proteomics.yaml          # AlphaPept env (isolated from bio)
-│       └── base.yaml                # Minimal env for utility rules
-│
-├── scripts/                         # Out-of-band helpers (not pipeline rules)
-│   ├── gbm_cellxgene_census_pull.py     # Census → cellxgene_data/gbm_10x_raw.h5ad
-│   └── derive_dataset_sample_sheet.py   # Auto-derive per-cohort samples.txt
-│
-├── data/
-│   ├── raw/gdc_extract/             # 17 GDC loom files ({UUID}/{file}.seurat.1000x1000.loom)
-│   ├── processed/                   # Snakemake-produced AnnData files (h5ad)
-│   └── external/                    # gdc_clinical.tsv (fetched from GDC API)
-├── cellxgene_data/                  # Census replication cohort (raw UMI h5ad)
-│
-├── results/
-│   ├── figures/                     # PNG + exported notebook HTML
-│   │   └── {cohort}/                # Cohort-namespaced replication outputs
-│   ├── tables/                      # CSV/JSON outputs (markers, enrichment, LR, concordance)
-│   │   └── {cohort}/
-│   └── models/scvi_model/           # Saved scVI / scANVI checkpoints
-│
-├── notebooks/                       # Marimo reactive explorers (01–05)
-├── markdowns/                       # Plans, assessments, blocker write-ups
-├── provenance/                      # FAIR provenance JSON per rule output
-├── logs/                            # Snakemake rule logs
-│
-├── claude_science/                  # Python 3.12 virtual environment
-└── requirements.txt                 # Top-level package list (pinned versions in envs/*.yaml)
+> **Always invoke through `scripts/run_snakemake.sh`.** A bare `snakemake` — or `claude_science/bin/python3 -m snakemake` — inherits an active venv from the calling shell, which shadows the conda environments and silently un-enforces every pin in `workflow/envs/*.yaml`. `--use-conda` is also **not optional**: without it Snakemake's unquoted interpreter path splits on the space in "Biomedical Data Science" and the run dies with an empty log and no traceback.
+
+```bash
+# 1. Dry run — confirm the DAG resolves and nothing unintended is scheduled
+scripts/run_snakemake.sh --use-conda --cores 8 -n
+
+# 2. Everything
+scripts/run_snakemake.sh --use-conda --cores all
+
+# 3. One arm, end to end (targets go FIRST — see below)
+scripts/run_snakemake.sh \
+  results/tables/gbm_cellxgene_56c4912d_full/compartment_audit_gates.csv \
+  results/figures/gbm_cellxgene_56c4912d_full/05_census_nerve_immune_explorer.html \
+  --use-conda --cores all --rerun-triggers mtime
+
+# 4. Explore interactively
+claude_science/bin/python3 -m marimo edit notebooks/06_census_compartment_audit.py
 ```
 
-### Marimo explorers
+**Targets go first.** `--allowed-rules`, `--forcerun` and `--quiet` all take `nargs='+'` and will swallow any target placed after them.
+
+For a long run: `tmux new -s gbmfull` and prefix with `caffeinate -ims`. macOS idle-sleep keys off user input rather than CPU load, so an overnight run gets suspended without it.
+
+Full step-by-step instructions and troubleshooting: [`execution_instructions.md`](execution_instructions.md).
+
+---
+
+## Notebooks
+
+Four marimo explorers, each built per arm (set `GBM_DATASET` to switch):
 
 | Notebook | Scope |
 |---|---|
-| `01_explore_gbm_data.py` | QC explorer + nerve-cell viewer |
-| `02_nerve_enrichment_explorer.py` | Nerve cluster DE / GSEA results |
-| `03_nerve_tumor_immune_explorer.py` | Three-way interaction results |
-| `04_tme_nerve_immune_explorer.py` | Full TME view across compartments |
-| `05_census_nerve_immune_explorer.py` | Replication-cohort equivalent (per cohort) |
+| `01_census_cohort_qc.py` | Cohort scale, per-donor QC, filtering funnel, composition, marker detectability |
+| `02_census_nerve_enrichment.py` | Nerve-cluster GSEA, shared-profile overlap, marker genes |
+| `05_census_nerve_immune_explorer.py` | Three-way LR browser, interface matrix, **cross-arm lead axes** |
+| `06_census_compartment_audit.py` | **The Test Oracle** — 10 gates, composition vs oracle, malignancy confusion, per-cluster purity |
+
+`notebooks/archive/` holds the five superseded reference-cohort notebooks. They carry a `SUPERSEDED` banner, have no Snakemake rules, and are **not built** — their nerve-side numbers are void and cannot be corrected. Kept because the code becomes reusable if a v1.4.0 baseline is ever built through the corrected pipeline.
 
 ---
 
-## Environment Setup
+## Key outputs
 
-### Prerequisites
-
-- macOS with Apple Silicon (M4 Max recommended; MPS GPU backend required for scVI training)
-- [Conda/Mamba](https://github.com/conda-forge/miniforge) for environment management
-- Python 3.12 virtual environment at `claude_science/`
-
-### Activate the virtual environment
-
-```bash
-source claude_science/bin/activate
-```
-
-### Install top-level dependencies (first time only)
-
-```bash
-pip install -r requirements.txt
-```
-
-Conda environments for each Snakemake rule are built automatically on first run via `--use-conda`. This includes:
-
-| Environment | Key packages |
-|---|---|
-| `scrna.yaml` | scanpy 1.12.1, scvi-tools 1.4.2, infercnvpy 0.4.3, gseapy 1.1.3, cellxgene-census 1.17.0 |
-| `notebooks.yaml` | marimo 0.23.1, duckdb 1.5.2, scanpy 1.10.4 |
-| `proteomics.yaml` | alphapept 0.5.3, numba |
-
----
-
-## Running the Analysis
-
-> Full step-by-step instructions with troubleshooting are in [`execution_instructions.md`](execution_instructions.md).
-
-> ⚠️ **The v1.3.0 reference cohort is structurally pinned** (`baseline.pinned: true` in
-> `config/config.yaml`). The 10 rules that would rewrite reference artifacts are *not defined*
-> at parse time, so they cannot be scheduled by any invocation — see
-> [Pinned reference](#pinned-reference-v130) before running anything that touches the
-> reference cohort.
-
-### 1. Validate the pipeline (dry run)
-
-```bash
-claude_science/bin/python3 -m snakemake --use-conda --cores 8 -n
-```
-
-Job count depends on which cohorts are enabled in `config.yaml` (`samples:` and `datasets:`) and
-on which pinned artifacts are already present on disk. Confirm the DAG resolves with no errors
-and that no rule you did not intend to re-run appears in the plan.
-
-### 2. Single-sample smoke test
-
-```bash
-claude_science/bin/python3 -m snakemake --use-conda --cores 4 \
-  data/processed/06820e2c-9eb7-4e71-a1c3-976d561e659d_qc.h5ad
-```
-
-Inspect the gene presence report before running the full pipeline:
-
-```bash
-cat results/tables/06820e2c-9eb7-4e71-a1c3-976d561e659d_gene_presence.csv
-```
-
-### 3. Full pipeline
-
-```bash
-claude_science/bin/python3 -m snakemake --use-conda --cores all
-```
-
-### 4. Replication cohort only
-
-The replication chain is cohort-namespaced under `ds_*` rules; its terminal target pulls the
-whole Stage A→D chain for one cohort without touching reference outputs:
-
-```bash
-claude_science/bin/python3 -m snakemake --use-conda --cores all \
-  results/tables/gbm_cellxgene_56c4912d/cohort_concordance_summary.json
-```
-
-### 5. Interactive exploration
-
-```bash
-claude_science/bin/python3 -m marimo edit notebooks/01_explore_gbm_data.py
-```
-
----
-
-## Pipeline Overview
-
-```
-GDC loom files (17 samples)                    Census h5ad (replication cohort)
-        │                                                    │
-        ▼                                                    ▼
-  loom_to_h5ad ───────────── gdc_clinical_fetch       ds_ingest_dataset
-  (per sample)                (GDC REST API)          (+ gene map, clinical stub)
-        │                            │                       │
-        ▼                            │                       ▼
-   scrna_qc                          │                  ds_scrna_qc
-  (per sample)                       │                       │
-        │                            │                       ▼
-        ▼                            │              ds_scrna_integration
- scrna_integration                   │                       │
- (scVI VAE, MPS)                     │                       ▼
-        │                            │                ds_scrna_annotate
-        ▼                            │                       │
- scrna_annotate                      │                       ▼
- (Leiden + marker scoring)           │               ds_scrna_malignancy
-        │                            │                       │
-        ▼                            │                       │
- scrna_malignancy ◄──────────────────┘                       │
- (CNV sliding-window → is_malignant)                         │
-        │                                                    │
-        ├──────────────────┬─────────────────┐               │
-        ▼                  ▼                 │               │
- nerve_cell_subset   immune_cell_subset      │               │
- (non-malignant       (immune blob →         │               │
-  neural/glial)        re-cluster)           │               │
-        │                  │                 │               │
-        ▼                  ▼                 │               │
- nerve_cell_          immune_cluster_        │               │
- heterogeneity        annotations            │               │
- (DE·GSEA·dotplot)    (microglia/TAM/T/…)    │               │
-        │                  │                 │               │
-        └────────┬─────────┘                 │               │
-                 ▼                           ▼               │
-   nerve_tumor_immune_interaction    nerve_tumor_interaction  │
-   (three-way LIANA LR scoring)      (two-way tumor→nerve)    │
-                 │                           │               │
-                 └─────────┬─────────────────┘               │
-                           ▼                                 │
-                  annotate_cluster_qc                        │
-                  (*_with_qc.csv tables)                     │
-                           │                                 │
-                           └──────────► ds_cohort_concordance ◄┘
-                                        (reference vs replication)
-```
-
-A parallel **scANVI-v2 branch** (`nerve_celltype_labels` → `nerve_scanvi_retrain` →
-`nerve_batch_qc_v2`) re-anchors the nerve latent space on marker-derived cell-type labels to
-disentangle patient identity from cell-type biology. It runs for both cohorts and is not pulled
-by the concordance target.
-
----
-
-## Key Outputs
+**Per arm**, under `results/tables/{arm}/` and `results/figures/{arm}/`:
 
 | File | Description |
 |---|---|
-| `data/external/gdc_clinical.tsv` | GDC clinical metadata per sample (primary diagnosis, tissue type, demographics) |
-| `results/tables/annotation_summary.csv` | Cell-type counts and annotation confidence per cluster |
-| `results/figures/cnv_heatmap.png` | CNV sliding-window heatmap — malignant/normal boundary |
-| ~~`data/processed/nerve_cells.h5ad`~~ | Non-malignant nerve-cell AnnData — **lost 2026-07-21, not reproducible** for the reference cohort; exists per replication cohort under `data/processed/{cohort}/` |
-| ~~`results/figures/nerve_cells_umap.png`~~ | Nerve-subspace UMAP — **lost with the above**; exists under `results/figures/{cohort}/` |
-| `results/tables/nerve_cluster_markers.csv` | Wilcoxon DE markers per nerve-cell cluster (padj < 0.05) |
-| `results/tables/nerve_enrichment.csv` | GO Biological Process / Molecular Function enrichment per cluster |
-| `results/figures/nerve_dotplot.png` | Canonical marker expression dot plot across clusters |
-| `results/figures/nerve_abundance_heatmap.png` | Per-sample cluster proportion heatmap |
+| `compartment_audit_gates.csv` | The 10 enforcing gates and their verdicts |
+| `compartment_audit.csv` | Compartment composition vs the Census oracle |
+| `malignancy_confusion.csv` | CNV caller confusion matrix + false-positive breakdown by cell type |
+| `nerve_compartment_cluster_audit.csv` | Per-cluster neural purity |
+| `nerve_tumor_immune_interactions_with_qc.csv` | Three-way LR pairs, joined to cluster QC flags — **use the `_with_qc` tables** |
+| `nerve_enrichment_with_qc.csv` | GO BP/MF enrichment per nerve cluster |
+| `nerve_cluster_sample_purity{,_v2}.csv` | Donor purity, Leiden and scANVI-v2 |
+| `05_census_nerve_immune_explorer.html` + 3 more | Rendered notebooks |
 
-**Immune compartment and crosstalk**
-
-| File | Description |
-|---|---|
-| `results/figures/immune_cells_umap.png` | UMAP of the immune subspace by cluster and subtype |
-| `results/tables/immune_cluster_annotations.csv` | Microglia / TAM / T / NK / dendritic subtype calls per cluster |
-| `results/tables/nerve_tumor_interactions.csv` | Two-way tumor→nerve ligand–receptor pairs (LIANA) |
-| `results/tables/nerve_tumor_immune_interactions.csv` | Three-way tumor→immune→nerve ligand–receptor pairs |
-| `results/tables/*_with_qc.csv` | The above, joined to cluster-QC flags — **use these for interpretation** |
-| `results/tables/nerve_tumor_immune_top_pairs_with_qc.csv` | Ranked top interaction pairs after QC filtering |
-
-**Replication and reproducibility**
+**Cross-arm**, at `results/tables/` root:
 
 | File | Description |
 |---|---|
-| `results/tables/{cohort}/cohort_concordance_summary.json` | Reference vs replication agreement verdict |
-| `results/tables/nerve_cluster_sample_purity_v2.csv` | Per-cluster donor purity after scANVI-v2 retrain |
-| `results/figures/nerve_scanvi_training_curves.png` | scANVI train/val loss curves |
-| `results/snakemake_report.html` | Full reproducibility report with DAG, rule stats, and provenance |
-| `provenance/*.json` | FAIR provenance record for every rule output (artifact ID, SHA256, parameters) |
+| `nerve_immune_lead_axes_postfix.csv` | **183 rows / 144 axes** that clear significance in *both* arms, tiered by druggability (34 with an available approved agent, 18 withdrawn-only, 57 clinical-stage, 57 target-no-agent, 17 no target) |
 
-Replication-cohort outputs mirror the reference paths under a cohort namespace —
-`results/tables/gbm_cellxgene_56c4912d/…` and `results/figures/gbm_cellxgene_56c4912d/…`.
+**Committed reference data** (`reference/drug_annotation/`) — the one input that is not a computed artifact:
+
+| File | Description |
+|---|---|
+| `nerve_immune_axis_drug_annotation_refreshed_2026-08-19.csv` | **ACTIVE** — re-derived from ChEMBL_37 + ClinicalTrials.gov v2 |
+| `..._2026-08-07.csv`, `..._2026-08-19.csv` | Superseded snapshots, kept as audit records |
+| `MANIFEST.json` | Provenance, drift table, and what the annotation can and cannot support |
+
+---
+
+## Project structure
+
+```
+Nerve_Analysis_TCGA_GBM/
+├── CLAUDE.md                     # Project constitution — rules for all agentic work
+├── CHANGELOG.md                  # Persistent lab notebook — every decision logged
+├── execution_instructions.md     # Step-by-step execution guide
+├── Snakefile                     # rule all + includes
+├── config/config.yaml            # All parameters and paths (nothing hardcoded elsewhere)
+│
+├── workflow/
+│   ├── rules/
+│   │   ├── common.smk            # p(), BASELINE_PINNED, pinned_target()
+│   │   ├── datasets.smk          # 22 cohort-namespaced ds_* rules (Stage A→D)
+│   │   ├── leads.smk             # nerve_immune_lead_axes, derive_withdrawn_agents,
+│   │   │                         #   refresh_drug_annotation
+│   │   ├── notebooks.smk         # Marimo batch export (4 Census notebooks)
+│   │   ├── nerve_cells.smk       # Reference-cohort nerve chain (pinned; mostly inactive)
+│   │   ├── immune.smk, qc.smk, integration.smk, annotation.smk, ingest.smk
+│   │   ├── fair.smk              # FAIR validation, provenance freezes, reference pin
+│   │   └── proteomics.smk        # AlphaPept (optional)
+│   ├── scripts/                  # One module per biological operation
+│   │   ├── fair_utils.py         # Provenance (UUID5, SHA256, stamping), nerve_group_key
+│   │   ├── compartment_audit.py  # The Test Oracle — 10 gates
+│   │   ├── nerve_cell_subset.py  # Compartment mask (exact match) + re-cluster
+│   │   ├── scrna_malignancy.py   # CNV chr7−chr10 contrast → is_malignant
+│   │   ├── nerve_immune_lead_axes.py     # Cross-arm shortlist
+│   │   ├── refresh_drug_annotation.py    # ChEMBL + ClinicalTrials.gov re-query
+│   │   └── …
+│   └── envs/                     # scrna / notebooks / proteomics / base conda envs
+│
+├── scripts/
+│   ├── run_snakemake.sh          # ← THE entry point (see Quick start)
+│   └── gbm_cellxgene_census_pull.py
+│
+├── reference/drug_annotation/    # Committed, version-pinned drug annotation + MANIFEST
+├── notebooks/                    # 4 Census explorers
+│   └── archive/                  # 5 superseded reference notebooks (not built)
+├── results/{tables,figures}/{arm}/    # Outputs (gitignored)
+├── provenance/                   # FAIR provenance JSON per rule output
+├── markdowns/                    # Plans, assessments, blocker write-ups
+└── claude_science/               # Python 3.12 venv (gitignored)
+```
+
+---
+
+## Pipeline overview
+
+```mermaid
+flowchart TD
+    I["ds_ingest_dataset ×170"] --> Q["ds_scrna_qc ×170"]
+    Q --> INT["ds_scrna_integration<br/>scVI on MPS"]
+    INT --> ANN["ds_scrna_annotate<br/>Leiden + marker scoring"]
+    ANN --> MAL["ds_scrna_malignancy<br/>CNV, chr7−chr10 contrast"]
+    MAL --> NRV["ds_nerve_cell_subset"]
+    MAL --> IMM["ds_immune_cell_subset"]
+    IMM --> IMA["ds_immune_cluster_annotations"]
+    NRV --> AUD["ds_compartment_audit<br/>10 gates, ENFORCING"]
+    IMA --> AUD
+    MAL --> AUD
+    NRV --> LR["ds_nerve_tumor_immune_interaction<br/>LIANA consensus"]
+    IMA --> LR
+    MAL --> LR
+    LR --> QC2["ds_annotate_cluster_qc"]
+    QC2 --> LA["nerve_immune_lead_axes<br/>un-wildcarded: BOTH arms"]
+    DRUG[("reference/drug_annotation<br/>committed snapshot")] --> LA
+    LA --> NB["4 marimo notebooks → HTML"]
+    QC2 --> NB
+    AUD --> NB
+    AUD -.->|"fails ⇒ blocks"| QC2
+    RF["refresh_drug_annotation<br/>opt-in, network"] -.->|"new dated snapshot"| DRUG
+```
+
+Every rule declares its own conda env, `resources` and `threads`, and writes a `provenance/{arm}/{rule}_provenance.json` carrying a UUID5, input/output SHA-256s, tool versions and every parameter.
+
+`nerve_immune_lead_axes` is deliberately **not** cohort-scoped — it intersects the two arms, so its output belongs to neither namespace and sits at the `results/tables/` root.
 
 ---
 
 ## Configuration
 
-All analysis parameters live in `config/config.yaml`. Key sections:
+All parameters live in `config/config.yaml`.
 
-| Section | What it controls |
+| Section | Controls |
 |---|---|
-| `scrna` | QC thresholds, HVG count, scVI latent dims, batch key, random seed |
-| `hardware` | MPS device, float32 precision, memory watermark ratio |
-| `nerve_cells` | Leiden resolution, cell-type scope, canonical marker gene lists, batch-QC thresholds |
-| `immune_cells` | Immune Leiden resolution, source label, subtype marker panels, QC exclusions |
-| `nerve_scanvi` | scANVI-v2 batch/label keys, epoch budgets, per-label batch balance |
-| `datasets` | Replication cohorts — source type, raw file, filters, sample key, per-donor cap |
-| `baseline` | Semver of the citable result set + the v1.3.0 structural pin and its artifact list |
-| `msigdb` | Gene-set libraries used for enrichment |
-| `databases` | CELLxGENE Census version, Ensembl release |
-| `gdc_api` | GDC REST API base URL and clinical fields to fetch |
-| `dirs` | All input/output directory paths (no hardcoding elsewhere) |
+| `datasets` | The two Census arms — source, filters, sample key, per-donor cap |
+| `scrna` | QC thresholds (`min_genes` 200, `max_genes` 6000, `max_pct_mito` 20), HVGs, scVI latent dims, seed |
+| `nerve_cells` / `immune_cells` | Compartment definitions, Leiden resolution, marker panels, batch-QC thresholds |
+| `compartment_audit` | The 10 gates and their thresholds |
+| `lead_axes` | Significance filters, arm keys, and the **active drug-annotation snapshot** |
+| `baseline` | v1.3.0 structural pin and its 37 pinned artifacts |
+| `hardware` | MPS device, float32, memory watermark |
+| `dirs` | All I/O paths |
 
-To adjust the nerve-cell subclustering resolution:
-```yaml
-nerve_cells:
-  leiden_resolution: 1.5   # increase for finer clusters
-```
-
-Then force re-run:
-```bash
-claude_science/bin/python3 -m snakemake --use-conda --cores all --forcerun nerve_cell_subset
-```
+Compartment membership is read from config **at runtime** by every consumer, never hardcoded — the definitions moved three times during the integrity fix, and a hardcoded copy would have overstated nerve 5× while looking plausible.
 
 ---
 
-## Pinned reference (v1.3.0)
+## FAIR compliance
 
-`data/processed/nerve_cells.h5ad` was destroyed by a failed `nerve_cell_subset` job on
-2026-07-21 and **cannot be reproduced** — a retrained latent space re-clusters, so the frozen
-`cl15` split no longer maps back to a single source cluster. The researcher decision was to pin
-the surviving tables and never regenerate them.
+- **Findable** — UUID5 identifier and SHA-256 for every artifact in `provenance/*.json`
+- **Accessible** — data via standard APIs (CELLxGENE Census SOMA, ChEMBL, ClinicalTrials.gov); no hardcoded absolute paths
+- **Interoperable** — AnnData `.h5ad` with Ensembl IDs and EDAM operation codes
+- **Reusable** — every transformation logged with tool versions and parameters
 
-That decision is enforced structurally, not by convention:
-
-- `baseline.pinned: true` in `config/config.yaml`
-- `workflow/rules/common.smk` exposes `BASELINE_PINNED`; the 10 affected rules sit behind
-  `if not BASELINE_PINNED:` guards in `nerve_cells.smk` and `immune.smk`
-- **A rule that is not defined cannot be scheduled** — so the pin holds for every invocation,
-  including a bare `snakemake`, with no need to remember a command-line flag
-- `pinned_target()` requests a frozen artifact only if it still exists on disk, so `rule all`
-  never demands an output that was lost
-- `freeze_pinned_reference` / `verify_pinned_reference` (in `fair.smk`) record and re-check the
-  SHA256 of every pinned artifact
-
-The scANVI-v2 chain is deliberately **not** pinned. To restore full reproducibility of the
-reference cohort from scratch, set `baseline.pinned: false` — and accept that the resulting
-clusters will differ from the published v1.3.0 labels.
+`rule fair_validate_metadata` scans `provenance/` and is the first entry of `rule all`, so a new artifact without a provenance sidecar is flagged immediately.
 
 ---
 
-## FAIR Compliance
+## Hardware notes (Apple M4 Max)
 
-This project implements FAIR (Findable, Accessible, Interoperable, Reusable) principles for all outputs:
-
-- **Findable** — every artifact has a UUID5 persistent identifier and SHA256 hash in its `provenance/*.json`
-- **Accessible** — all data accessed via standard APIs (GDC REST, CELLxGENE Census); no hardcoded local paths
-- **Interoperable** — all matrices stored as AnnData (`.h5ad`) with Ensembl gene IDs and EDAM ontology operation codes
-- **Reusable** — all transformations logged with tool versions and parameters; reproducible via `snakemake --report`
-
----
-
-## Hardware Notes (Apple M4 Max)
-
-- scVI training uses the **MPS backend** (`accelerator="mps", devices=1`) — do not change to CUDA or CPU unless MPS is unavailable
-- Use **float32** (not float16) — MPS float16 is often slower on Apple Silicon
-- Set `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0` for long training runs (configured automatically in `scrna_integration.py`)
-- If an MPS operation silently falls back to CPU, a `[MPS-ALERT]` warning is written to the rule log
+- scVI/scANVI use the **MPS backend** (`accelerator="mps", devices=1`); **float32**, not float16 — MPS float16 is often slower on Apple Silicon
+- **36 GB unified memory**, budget against ~30 GB usable. Snakemake's `resources: mem_mb` is a **scheduler gate, not a memory cap** — it cannot bound a single process on a local run. Only in-script chunking (`scrna.cnv_chunk_size`) actually bounds memory
+- `NUMBA_THREADING_LAYER=workqueue` must be set **before** importing scanpy — numba's OpenMP pool collides with torch's libomp and `sc.pp.neighbors` SIGSEGVs after MPS init
 
 ---
 
 ## Caveats
 
-1. **Subsampled reference data** — GDC distributes `seurat.1000x1000.loom` files (~1000 cells × 1000 genes per sample). Rare nerve cell populations may be under-represented. Check `*_gene_presence.csv` files after the smoke test.
-2. **Malignancy classification** — uses sliding-window CNV scoring with T cells and endothelial cells as a reference. Confidence is proportional to the number of reference cells available per sample.
-3. **GDC clinical metadata** — IDH and MGMT status are not consistently curated in TCGA-GBM. Expect `NA` values; all plots include an "unknown" category.
-4. **GSEA** — requires internet access to query the Enrichr API. If offline, enrichment CSV will be empty but the pipeline continues without error.
-5. **The reference cohort cannot be regenerated** — see [Pinned reference](#pinned-reference-v130). Reference nerve artifacts are frozen tables, not reproducible outputs.
-6. **Matrix scale differs between cohorts** — the reference `.X` is SCT log1p (counts recovered for scVI via `counts_from_log1p`); the Census cohort is genuine raw UMIs. LIANA consumers normalize per-cohort via the `normalize_counts` parameter and hard-fail if the matrix is off-scale. Do not assume a shared scale when adding a new consumer — check `counts_utils.is_log1p_scale()`.
-7. **Replication cohort is scoped, not complete** — only the single largest Census study (`56c4912d`) is run, capped at 5,000 cells per donor. Concordance is therefore a test against one independent study, not against all 174 donors.
-8. **A substantial minority of clusters fail purity QC** — in the scANVI-v2 purity tables, the reference cohort passes 16 of 26 nerve clusters and the replication cohort 24 of 33. Failures are predominantly small, patient-dominated clusters. Always interpret from the `*_with_qc.csv` tables rather than the raw interaction tables.
+1. **Masked labels are a decision, not a finding.** `astrocyte`, `opc`, generic `neuron` and `ependymal` are excluded from the nerve compartment by configuration. OPCs in particular (21,460 cells) sit at the best-characterised neuron–glioma interface in the literature; their absence from the interaction tables is a masking choice, not a negative result.
+2. **Neuron-side axes are substantially one patient's biology.** The pooled neuron group is 4,275 cells from 7 contributing donors, dominant-sample fraction 0.5032. No pipeline correction lifts that ceiling. The glial side is well-powered by contrast (33,670 cells, 95.8 % neural).
+3. **Batch QC flags, it does not clean.** Failing groups are retained with a `batch_qc_pass` boolean — the dominance test cannot separate real biology preserved in one donor's tissue from a patient-driven artifact, so dropping automatically would discard signal.
+4. **`cellphone_pvals = 0` does not mean p = 0.** It is an empirical permutation p-value at `n_perms = 1000`, so the floor is p < 0.001. 59.9 % of rows sit at exactly 0, and 98.3 % under default filters — the column cannot rank anything. Use `magnitude_rank` and `lrscore`.
+5. **The drug annotation is a snapshot, not a live query.** Re-derived from ChEMBL_37 and adopted 2026-08-19; every value traces to a recorded release. But glioma-trial coverage is bounded by a hand-curated 20-agent list, so an empty cell means *no named trial for a listed agent*, not that no trial exists. See `reference/drug_annotation/MANIFEST.json`.
+6. **The compartment aggregate can hide contaminated clusters.** 5 of 23 nerve clusters in the full arm are below 0.80 neural (4.4 % of cells, three majority-malignant) while the compartment averages 95.4 %. `batch_qc_pass` does **not** cover this — it is donor dominance, not cell identity. Cross-reference the `nerve_cluster` column before reporting an axis that rests on them.
+7. **No clinical metadata.** The Census cohort's `gdc_clinical.tsv` is a generated stub. Clinical association was possible only for the archived TCGA cohort and is genuinely lost with it.
+8. **The TCGA reference cannot be regenerated** — see [Read this first](#read-this-first).
