@@ -185,10 +185,19 @@ flowchart TD
     end
     subgraph D["Stage D — deliverables"]
         QC2 --> CON["ds_cohort_concordance"]
-        QC2 --> NB["ds_census_nerve_immune_notebook<br/>05_*.py → HTML"]
+        QC2 --> LA["nerve_immune_lead_axes<br/>un-wildcarded: both arms"]
+        DRUG[("reference/drug_annotation<br/>committed snapshot")] --> LA
+        LA --> NB["ds_census_nerve_immune_notebook<br/>05_*.py → HTML"]
+        QC2 --> NB
     end
     AUD -.->|"fails ⇒ blocks"| QC2
+    RF["refresh_drug_annotation<br/>opt-in, network"] -.->|"mints a new<br/>dated snapshot"| DRUG
 ```
+
+`nerve_immune_lead_axes` is the one rule that is deliberately **not** cohort-scoped:
+it intersects the two arms, so its output belongs to neither namespace and sits at
+the `results/tables/` root. It is also the only rule with a committed data file as
+an input rather than a computed artifact — see §8.
 
 Each rule declares its own conda environment, `resources`, and `threads`, and
 writes a `provenance/<dataset>/<rule>_provenance.json` carrying a UUID5, input and
@@ -406,9 +415,11 @@ rule (`ds_census_nerve_immune_notebook`) that exports a self-contained HTML.
 
 Before any panel renders, the notebook does two things most notebooks don't.
 
-It **resolves every input path from `config.yaml`** and hard-stops with a build
-command if anything is missing — including a distinct `[FAIR-ALERT]` branch for
-the one input no rule produces (§8). And it **re-verifies the data at read time**:
+It **resolves every input path from `config.yaml`** and hard-stops with the exact
+build command if anything is missing. (Until 2026-08-19 that check carried a
+separate `[FAIR-ALERT]` branch for the lead-axes shortlist, which no rule produced
+and which therefore could not be rebuilt; that branch is gone because the rule now
+exists — see §8.) And it **re-verifies the data at read time**:
 
 ```python
 _spec_missing = int(interactions_df["specificity_rank"].isna().sum())
@@ -449,11 +460,32 @@ their own row counts. The callout is careful to say these are **counts, not effe
 sizes** — a cell type spread over more clusters accumulates more pairs — and lists
 any cluster whose dominant cell type disagrees with its marker-score argmax.
 
-**Panel E — lead axes, curated against live.** The shortlist (§8) alongside the
-same quantities recomputed from this cohort's live LR table, so any disagreement
-is visible rather than assumed away. The key is `(axis, nerve_side)` and not
-`axis` — 144 distinct axes over 183 rows, 39 ranked separately on both nerve
-sides — and the notebook raises rather than silently collapsing them.
+**Panel E — lead axes, verified against live.** The shortlist (§8) alongside the
+same quantities recomputed here independently from this cohort's LR table. The key
+is `(axis, nerve_side)` and not `axis` — 144 distinct axes over 183 rows, 39 ranked
+separately on both nerve sides — and the notebook raises rather than silently
+collapsing them.
+
+This panel used to exist because the shortlist could not be trusted: its generator
+was missing, and the recomputation was a caveat printed next to numbers that did
+not fully reproduce. Now that a rule produces the table, the same machinery is a
+**regression check** — the recomputation is expected to agree on every row, and it
+does: **183/183 on magnitude and 183/183 on row counts, in both arms.** A `False`
+in `mag_agrees` or `n_rows_agrees` no longer means "the generator used a different
+rule"; it means the rule and the notebook have drifted apart, so the panel turns
+red and prints a REGRESSION banner.
+
+Getting that to 183/183 required the oracle to stop being wrong in two ways. It had
+been applying the oligodendrocyte selection rule to every row, which would have
+marked all 55 neuron-side axes as disagreements — the neuron half is built *without*
+the batch-QC filter and restricted to the pooled `nerve_neuron` group, so the panel
+now branches on `compartment_side` exactly as the rule does. And it had been
+restricting matches to each axis's own `interfaces`, which the rule *derives* from
+the matched rows rather than filters on; since each half's value is computed on one
+arm while the recomputation runs on both, that quietly undercounted `n_rows` by
+5/183 on the capped arm. The check is deliberately a second implementation of the
+selection rule — an oracle that shares code with the thing it checks cannot catch
+anything — which is a maintenance cost stated in the cell itself.
 
 **Panel F — concordance with the pinned v1.3.0 reference.** Jaccard 0.439,
 Spearman ρ 0.6182 over 1,724 shared pairs. The panel is titled *a diagnostic, not
@@ -485,10 +517,28 @@ each tiered by druggability:
 | `4_no_chembl_target` | 17 |
 
 **`rule nerve_immune_lead_axes` produces this table** (`workflow/rules/leads.smk`).
-It was originally generated out of band using **Claude Science**, and that
-generator has since been reimplemented as a pipeline rule which reproduces the
-original artifact byte-for-byte — that exact match is what establishes the
-reimplementation is faithful rather than merely plausible.
+It was originally generated out of band using **Claude Science**, with no producing
+rule and no generating script in the repository — and since `results/` is
+gitignored, it could be neither rebuilt nor restored from git. It was the only
+input on this page in that condition.
+
+The reimplementation was validated the only way available: on first run it
+reproduced the original artifact **byte-for-byte**, same SHA-256. That exact match
+is what establishes the rule is faithful to the generator rather than merely
+plausible. Every defect found along the way was deliberately carried forward
+unchanged so the reproduction could be proven first, then fixed in separate,
+reviewable commits. So the current file is *not* byte-identical to the 2026-08-07
+original — three changes were made on purpose after that proof:
+
+1. **`withdrawn` was empty in all 183 rows.** A generator bug, not a property of
+   the data: it was read from ChEMBL's bulk `chembl_id` lookup, which does not carry
+   withdrawal status, while the corrected values came from a later by-name sweep that
+   was never written back. The information survived inline as `[WITHDRAWN]` tags in
+   `agents_flagged`, and `rule derive_withdrawn_agents` recovers it — 13 axes, three
+   agents (benziodarone, prenylamine, probucol), matching the generator's own report
+   text verbatim.
+2. **`best_mag` and `n_rows` were arm-inconsistent** — see the next paragraph.
+3. **The drug annotation was re-derived and adopted** — see below.
 
 The table is two independently-built halves concatenated, and they do not share a
 selection rule. The oligodendrocyte side is aggregated over batch-QC-passing rows
@@ -496,13 +546,24 @@ from all nerve clusters in the **full** arm; the neuron side over rows from the
 pooled `nerve_neuron` group in the **capped** arm, deliberately **without** the QC
 filter, because that group fails donor QC in the full arm and filtering would
 empty the neuron side rather than caveat it. An axis appears only if it clears the
-bar in both arms. Magnitudes and row counts are reported per arm
-(`full_best_mag` / `capped_best_mag`, `full_n_rows` / `capped_n_rows`) so no cell's
-meaning depends on which half its row sits in — but they remain comparable
-*within* a compartment side, not across the two, because the underlying filters
-differ. Panel E re-derives every value independently from the LR tables and
-currently agrees on 183/183 in both arms; a disagreement there is a regression,
-not a caveat.
+bar in both arms.
+
+That structure produced the second defect. The generator emitted `best_mag` and
+`n_rows` straight off whichever arm each half was built from, so a single column
+meant "full arm, QC-passing" for 128 rows and "capped arm, no QC, neuron-only" for
+the other 55 — with nothing in the row to say which. It is what made the old Panel E
+reproduce `capped_best_mag` on 128/128 axes but `best_mag` on only 128/167. Both
+columns are now replaced by arm-labelled ones — `full_best_mag`, `capped_best_mag`,
+`full_n_rows`, `capped_n_rows` — each fully populated on all 183 rows, since every
+axis in either half is already a cross-arm intersection and so always has a
+counterpart in the other arm.
+
+What that does **not** fix, and should not be read as fixing: the *selection rule*
+still differs between the halves. The arm is now explicit; the filter is not.
+Comparing a `full_best_mag` across the two compartment sides is still comparing a
+QC-passing all-cluster aggregate against an unfiltered pooled-neuron one. The
+`compartment_side` column is what tells them apart, and no amount of column naming
+makes them commensurable.
 
 **The drug annotation is now re-derived, not inherited.** `tier_v2`,
 `agents_flagged`, `glioma_trials` and `withdrawn` originally came from queries whose
@@ -524,12 +585,35 @@ targets the original full-text search missed. Tiering is unchanged on 150 of 183
 rows. A shortlist that looks slightly less druggable but whose every value is
 traceable is the better instrument.
 
+One check is worth recording, because it is the strongest evidence in this section.
+The `withdrawn` column re-queried straight from ChEMBL's `withdrawn_flag` is
+character-identical, on **13/13 axes**, to the column recovered days earlier by
+parsing `[WITHDRAWN]` tags out of `agents_flagged`. Two derivations sharing no code
+and no data path, agreeing exactly. Adoption changed that column on 0 of 183 rows.
+
+**Running the refresh rule is also what proved it works** — and it did not work
+first time. Two bugs surfaced only on execution, neither visible to review. ChEMBL's
+`/target/search` rejects `target_type`/`organism` filters with an HTTP 400 and 400s
+outright on short symbols (`q=C3` fails even bare); it was replaced with an exact
+gene-symbol match on the non-search `/target` endpoint, which is also more precise —
+one human target per gene instead of a fuzzy ranked list. More seriously, ChEMBL_37
+serialises `max_phase` as the **string** `'4.0'`, so `phase == 4` was never true and
+every approved drug fell through to `3_chembl_target_no_agent`. That run exited 0
+and wrote a clean-looking 144-axis snapshot asserting **zero approved or clinical
+agents across all 156 genes** — including CXCR4, whose plerixafor record had been
+verified by hand minutes before. Not a crash: a plausible table making a false
+scientific claim. The rule now carries a plausibility guard that refuses to write
+any snapshot where no axis reaches an approved or clinical tier, and aborts with
+`[FAIR-ALERT]` rather than emitting a partial file — because an unresolved gene
+silently becomes `4_no_chembl_target`, which reads downstream as "this target has no
+chemistry" when it actually means "the network failed".
+
 Two limits remain, and `reference/drug_annotation/MANIFEST.json` states both:
 glioma-trial coverage is bounded by a hand-curated 20-agent list, so an empty cell
 means *no named trial for a listed agent*, not that no trial exists; and the
 original 2026-08-07 annotation can never be reproduced, because its ChEMBL release
 was never recorded and its fallback artifact is gone. Both earlier snapshots stay
-committed as audit records.
+committed as audit records, marked do-not-edit — each is what was true at its date.
 
 ---
 
@@ -585,6 +669,26 @@ scripts/run_snakemake.sh \
   2>&1 | tee logs/full_cohort_run_$(date +%Y%m%d_%H%M%S).log
 ```
 
+The notebook target pulls the lead-axes shortlist automatically — `rule
+ds_census_nerve_immune_notebook` declares
+`results/tables/nerve_immune_lead_axes_postfix.csv` as an input, so rebuilding the
+shortlist re-renders the notebook. That dependency was missing until 2026-08-19 (the
+rule declared only the *withdrawn* predecessor `nerve_crosstalk_lead_targets.csv`),
+which meant a stale render could have hidden exactly the regression Panel E exists
+to catch.
+
+Refreshing the drug annotation is deliberately **not** part of this run. It needs
+network access and is opt-in:
+
+```bash
+scripts/run_snakemake.sh \
+  reference/drug_annotation/nerve_immune_axis_drug_annotation_refreshed_$(date +%F).csv \
+  --use-conda --cores 1 --allowed-rules refresh_drug_annotation
+```
+
+It writes a *new* dated snapshot and never touches the pinned one; adopting the
+result means pointing `config.lead_axes.drug_annotation` at it after a diff.
+
 Four non-obvious pieces:
 
 - **Launch through `scripts/run_snakemake.sh`.** A bare `snakemake` inherits an
@@ -622,6 +726,24 @@ its QC failures with a boolean rather than filtering them out, and the notebook
 reports masking decisions as decisions. It makes the output longer and harder to
 skim, and it is the only way a reader can tell the difference between "we found no
 signal" and "we removed the cells that would have carried it."
+
+**Reproduce before you fix.** The lead-axes generator arrived as REPL transcripts
+with an arm-inconsistent magnitude column, an empty column that should not have been
+empty, and an off-by-one in the docs. The temptation is to fix all three while
+porting it. Reproducing the original byte-for-byte *first* is what made the port
+trustworthy — after that, every change is a change you chose, against a known
+baseline, in a commit that can be reverted alone. Fixing during a port leaves you
+unable to tell a correction from a mistake.
+
+**A green run is not a correct run.** The worst failure in this whole effort exited
+0. The refresh rule resolved every gene, wrote a well-formed 144-row table, and
+claimed no approved drug exists for any of 156 genes — because ChEMBL returns
+`max_phase` as `'4.0'` and `'4.0' == 4` is `False`. Nothing crashed and nothing
+looked wrong. The guard that now catches it is not a type check; it is a
+*plausibility* check on the scientific content: if no axis in the shortlist reaches
+an approved or clinical tier, something is broken, whatever the exit code says.
+Pipelines need assertions about what the output should look like, not just whether
+it was produced.
 
 ---
 
