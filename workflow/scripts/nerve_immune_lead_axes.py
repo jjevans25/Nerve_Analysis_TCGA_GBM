@@ -24,13 +24,23 @@ they do NOT share a selection rule:
   all nerve clusters                nerve_cluster == 'nerve_neuron' only
   sorted ['best_mag','min_pval']    sorted ['best_mag'] only
   rank_full  dense 1..128           rank_capped dense 1..55
-  capped_best_mag populated         capped_best_mag never created -> NaN
 
-Consequence, preserved here on purpose: the column named ``best_mag`` means
-"full arm, QC-passing" for 128 rows and "capped arm, no QC, neuron-only" for 55,
-and ``n_rows`` is arm-inconsistent the same way. Notebook 05 Panel E reports this
-as the 128/128-vs-128/167 discrepancy. Changing it is a separate, reviewable
-change -- this script's contract is exact reproduction.
+The generator emitted ``best_mag`` and ``n_rows`` straight off whichever arm each
+half was built from, so a single column meant "full arm, QC-passing" for 128 rows
+and "capped arm, no QC, neuron-only" for the other 55 -- with nothing in the row
+to say which. Notebook 05 Panel E surfaced this as the 128/128-vs-128/167
+discrepancy. Both columns are now replaced by arm-labelled ones --
+``full_best_mag``, ``capped_best_mag``, ``full_n_rows``, ``capped_n_rows`` -- each
+fully populated, because every axis in either half is a cross-arm intersection and
+so always has a counterpart in the other arm.
+
+WHAT THIS DOES NOT FIX, and must not be read as fixing: the *selection rule* still
+differs between the halves. The oligodendrocyte side's numbers come from a
+QC-passing, all-cluster aggregation and the neuron side's from a no-QC,
+pooled-neuron-only one. That difference is what defines the two halves, it is
+labelled by ``compartment_side``, and it is inherent rather than incidental.
+Comparing ``full_best_mag`` across the two halves is still comparing two different
+filters -- the arm is now explicit, the filter is not.
 
 The four drug-annotation columns (tier_v2, agents_flagged, glioma_trials,
 withdrawn) cannot be recomputed: they came from ChEMBL and ClinicalTrials.gov
@@ -79,12 +89,16 @@ BOOL_MAP = {True: True, "True": True, False: False, "False": False}
 
 DRUG_COLS = ["tier_v2", "agents_flagged", "glioma_trials", "withdrawn"]
 
-# Column order of the emitted file. `qc_pass` is listed by the generator but
-# exists in neither half, so the `if c in df.columns` filter below drops it and
-# the file carries 15 columns, not 16. Kept here so the lineage stays legible.
+# Column order of the emitted file.
+#
+# The generator emitted `best_mag` and `n_rows`, which were arm-inconsistent: full-arm
+# for the oligodendrocyte half and capped-arm for the neuron half, with nothing in the
+# row saying which. Both are replaced by arm-labelled columns, all four fully populated
+# (every axis in each half is a cross-arm intersection, so its counterpart always
+# exists). The generator's `qc_pass` is dropped — it existed in neither half.
 COLS = ["rank_full", "rank_capped", "axis", "tier_v2", "interfaces", "nerve_side",
-        "immune", "best_mag", "capped_best_mag", "min_pval", "n_rows", "qc_pass",
-        "agents_flagged", "glioma_trials", "withdrawn"]
+        "immune", "full_best_mag", "capped_best_mag", "full_n_rows", "capped_n_rows",
+        "min_pval", "agents_flagged", "glioma_trials", "withdrawn"]
 
 
 def _prep(df: pd.DataFrame, ann: pd.DataFrame) -> pd.DataFrame:
@@ -203,14 +217,26 @@ capped_by_axis = ax["capped"].set_index("axis")
 lead = ax["full"][ax["full"].axis.isin(shared)].copy().reset_index(drop=True)
 lead["rank_full"] = lead.index + 1
 lead["rank_capped"] = lead.axis.map({a: i + 1 for i, a in enumerate(ax["capped"].axis)})
+# Rows come from the full arm, so its aggregates are already on the frame; the capped
+# arm's are mapped across. Every shared axis is present in both by construction.
+lead["full_best_mag"] = lead["best_mag"]
+lead["full_n_rows"] = lead["n_rows"]
 lead["capped_best_mag"] = lead.axis.map(capped_by_axis.best_mag)
+lead["capped_n_rows"] = lead.axis.map(capped_by_axis.n_rows)
 lead["nerve_side"] = lead.nerve_types.replace("", "—")
 
 # --- Neuron half: cross-arm shared, rows from the CAPPED arm -------------------
 neuron_shared = set(pn["full"].axis) & set(pn["capped"].axis)
+full_neuron_by_axis = pn["full"].set_index("axis")
 neu = pn["capped"][pn["capped"].axis.isin(neuron_shared)].copy().reset_index(drop=True)
 neu["rank_capped"] = neu.index + 1
 neu["rank_full"] = neu.axis.map({a: i + 1 for i, a in enumerate(pn["full"].axis)})
+# Mirror image of the oligodendrocyte half: rows come from the CAPPED arm here, so it
+# is the full arm's aggregates that are mapped across.
+neu["capped_best_mag"] = neu["best_mag"]
+neu["capped_n_rows"] = neu["n_rows"]
+neu["full_best_mag"] = neu.axis.map(full_neuron_by_axis.best_mag)
+neu["full_n_rows"] = neu.axis.map(full_neuron_by_axis.n_rows)
 neu["nerve_side"] = "neuron(pooled)"
 
 # --- Pinned drug annotation ---------------------------------------------------
@@ -238,12 +264,13 @@ summary = {
     "neuron_group": NEURON_GROUP,
     "tier_v2_counts": {str(k): int(v) for k, v in tier_counts.items()},
     "drug_annotation_snapshot": str(snakemake.input.drug),  # type: ignore[name-defined]
-    "best_mag_is_arm_inconsistent": True,
-    "best_mag_note": (
-        "best_mag/n_rows are full-arm QC-passing for the oligodendrocyte side and "
-        "capped-arm non-QC pooled-neuron for the neuron side; capped_best_mag is "
-        "populated on the oligodendrocyte side only. Reproduced from the 2026-08-07 "
-        "generator on purpose."
+    "magnitude_columns_are_arm_labelled": True,
+    "magnitude_columns_note": (
+        "full_best_mag/capped_best_mag/full_n_rows/capped_n_rows replace the "
+        "generator's arm-inconsistent best_mag/n_rows and are fully populated. The "
+        "SELECTION RULE still differs by compartment_side (oligodendrocyte = "
+        "QC-passing all-cluster; neuron = no-QC pooled-neuron), so these columns are "
+        "comparable within a compartment side, not across the two."
     ),
 }
 log_transformation(log, RULE,

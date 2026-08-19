@@ -109,43 +109,29 @@ def _load_config(Path, mo, os, yaml):
         "shared_pairs": ds_tables / "cohort_concordance_shared_pairs.csv",
         "lr_provenance": ds_prov / "nerve_tumor_immune_interaction_provenance.json",
         # Root-level, NOT ds_tables: this shortlist carries both Census arms in one
-        # table (rank_full/best_mag and rank_capped/capped_best_mag), so it belongs
-        # to neither arm's namespace. Panel E reads it.
+        # table (rank_full/full_best_mag and rank_capped/capped_best_mag), so it
+        # belongs to neither arm's namespace. Panel E reads it. Produced by
+        # `rule nerve_immune_lead_axes` (workflow/rules/leads.smk).
         "lead_axes_postfix": tables_dir / "nerve_immune_lead_axes_postfix.csv",
     }
 
-    # `lead_axes_postfix` is the one input NO Snakemake rule produces — it was
-    # generated outside this repository, and `results/` is gitignored, so it is
-    # neither reproducible nor version-controlled. Telling a reader to run Snakemake
-    # for it would send them after a rule that does not exist.
-    _unbuildable = {"lead_axes_postfix"}
     _missing = {k: p for k, p in paths.items() if not p.exists()}
     if _missing:
-        _pipeline = [p for k, p in _missing.items() if k not in _unbuildable]
-        _manual = [p for k, p in _missing.items() if k in _unbuildable]
         _msg = (
             f"Required artifacts not found for cohort `{dataset}`:\n\n"
             + "\n".join(f"- `{p}`" for p in _missing.values())
         )
-        if _pipeline:
-            # Targets go FIRST: --allowed-rules/--forcerun/--quiet all take
-            # nargs='+' and swallow anything placed after them. And always via
-            # run_snakemake.sh — a bare `snakemake` reverts to the venv's packages
-            # and the workflow/envs pins go unenforced.
-            _msg += (
-                "\n\nBuild the pipeline artifacts with:\n\n```\nscripts/run_snakemake.sh \\\n"
-                f"  results/tables/{dataset}/nerve_cluster_annotations.csv \\\n"
-                f"  results/tables/{dataset}/cohort_concordance_summary.json \\\n"
-                "  --use-conda --cores all --rerun-triggers mtime\n```"
-            )
-        if _manual:
-            _msg += (
-                "\n\n**[FAIR-ALERT]** `nerve_immune_lead_axes_postfix.csv` has **no "
-                "producing rule and no generating script in this repository**, and "
-                "`results/` is gitignored — it cannot be rebuilt or restored from git. "
-                "Obtain it from the researcher, and see Panel E on why committing its "
-                "generator matters."
-            )
+        # Targets go FIRST: --allowed-rules/--forcerun/--quiet all take nargs='+'
+        # and swallow anything placed after them. And always via run_snakemake.sh —
+        # a bare `snakemake` reverts to the venv's packages and the workflow/envs
+        # pins go unenforced.
+        _msg += (
+            "\n\nBuild them with:\n\n```\nscripts/run_snakemake.sh \\\n"
+            f"  results/tables/{dataset}/nerve_cluster_annotations.csv \\\n"
+            f"  results/tables/{dataset}/cohort_concordance_summary.json \\\n"
+            "  results/tables/nerve_immune_lead_axes_postfix.csv \\\n"
+            "  --use-conda --cores all --rerun-triggers mtime\n```"
+        )
         mo.stop(True, mo.callout(mo.md(_msg), kind="danger"))
     return config, dataset, ds_tables, paths
 
@@ -763,10 +749,11 @@ def _celltype_interface_matrix(filtered_df, mo, plt, sns):
 def _lead_axes_header(mo):
     mo.md("""
     ---
-    ## Panel E — Post-fix lead axes, curated against live
-    The §2.1 re-derivation. Each axis carries the curated numbers from
-    `nerve_immune_lead_axes_postfix.csv` **and** the same quantities recomputed from
-    this cohort's live LR table, so a disagreement is visible rather than assumed away.
+    ## Panel E — Post-fix lead axes, verified against live
+    The §2.1 re-derivation. Each axis carries the numbers from
+    `nerve_immune_lead_axes_postfix.csv` — built by `rule nerve_immune_lead_axes` —
+    **and** the same quantities recomputed here independently from this cohort's LR
+    table. They are expected to agree on every row; a disagreement is a regression.
     """)
     return
 
@@ -776,10 +763,12 @@ def _lead_axes_compute(dataset, interactions_df, lead_axes_df, mo, np, pd):
     """Recompute each curated axis against the live table for the ACTIVE arm."""
     # Explicit map, never a `dataset.endswith("_full")` test — a suffix heuristic
     # would silently mislabel any future arm as "capped".
-    # (active_rank, active_mag, other_rank, other_arm_label)
+    # (active_rank, active_mag, active_n_rows, other_rank, other_arm_label)
     _ARM_COLUMNS = {
-        "gbm_cellxgene_56c4912d_full": ("rank_full", "best_mag", "rank_capped", "capped"),
-        "gbm_cellxgene_56c4912d": ("rank_capped", "capped_best_mag", "rank_full", "full"),
+        "gbm_cellxgene_56c4912d_full": (
+            "rank_full", "full_best_mag", "full_n_rows", "rank_capped", "capped"),
+        "gbm_cellxgene_56c4912d": (
+            "rank_capped", "capped_best_mag", "capped_n_rows", "rank_full", "full"),
     }
     mo.stop(
         dataset not in _ARM_COLUMNS,
@@ -795,7 +784,7 @@ def _lead_axes_compute(dataset, interactions_df, lead_axes_df, mo, np, pd):
     )
     # No leading underscore on names that leave the cell: marimo treats `_name` as
     # cell-local and will not expose it to downstream cells.
-    _rank_col, _mag_col, _other_rank_col, other_arm = _ARM_COLUMNS[dataset]
+    _rank_col, _mag_col, _n_rows_col, _other_rank_col, other_arm = _ARM_COLUMNS[dataset]
 
     # The key is (axis, nerve_side), NOT axis: 144 distinct axes over 183 rows, 39 of
     # them ranked separately on both nerve sides (APP|CD74 is rank 1 on each), and the
@@ -807,23 +796,38 @@ def _lead_axes_compute(dataset, interactions_df, lead_axes_df, mo, np, pd):
             f"nerve_immune_lead_axes_postfix.csv — the panel's key assumption is broken."
         )
 
-    # `n_rows` is a FULL-ARM count and the file has no capped counterpart. Measured:
-    # it agrees with the full arm on 118/183 axes under the filter below, but with the
-    # capped arm on only 47/183. Comparing it while the capped arm is active would
-    # render ~3/4 of the table as "disagreement" that is really just the wrong arm.
-    n_rows_is_active_arm = dataset == "gbm_cellxgene_56c4912d_full"
-
-    # Live recomputation. The generating script is not in the repo, so this states the
-    # selection rule explicitly (§2.1) rather than trusting the file's own numbers:
-    # QC-passing rows, magnitude_rank <= 0.05, restricted to the axis's own interfaces.
-    # Under it `capped_best_mag` reproduces exactly (128/128) while `best_mag` reaches
-    # 128/167 — the file's two magnitude columns were not built the same way.
+    # Independent recomputation, kept as a REGRESSION CHECK rather than a caveat.
+    #
+    # `rule nerve_immune_lead_axes` now produces this file, and both magnitude and
+    # row-count columns are arm-labelled and fully populated, so the active arm's
+    # curated numbers and the numbers recomputed here should agree on every row.
+    # A disagreement is no longer "the generator used a different rule" — it means
+    # the rule and this notebook have drifted apart, and it is a bug to chase.
+    #
+    # The cost of keeping this: the selection rule below duplicates the one in
+    # workflow/scripts/nerve_immune_lead_axes.py, so the two must be edited together.
+    # That duplication is the point — an oracle that shares an implementation with the
+    # thing it checks cannot catch anything (CLAUDE.md, Test Oracle).
+    #
+    # The rule: cellphone_pvals <= 0.05 and magnitude_rank <= 0.05, restricted to the
+    # axis's own interfaces, plus a per-compartment-side clause (see below).
     live_mag_max = 0.05
+    live_pval_max = 0.05
+    neuron_group = "nerve_neuron"
     _lig = interactions_df["ligand_complex"].astype(str).to_numpy()
     _rec = interactions_df["receptor_complex"].astype(str).to_numpy()
     _cp = interactions_df["compartment_pair"].astype(str).to_numpy()
     _mag = interactions_df["magnitude_rank"].to_numpy()
+    _pv = interactions_df["cellphone_pvals"].to_numpy()
     _qc = interactions_df["batch_qc_pass"].astype(bool).to_numpy()
+    _nerve_cluster = interactions_df["nerve_cluster"].fillna("").astype(str).to_numpy()
+
+    # The two compartment sides are aggregated under DIFFERENT rules, so the oracle
+    # has to branch the same way the rule does. Applying the oligodendrocyte rule to a
+    # neuron row would "disagree" on every one of the 55 — the neuron half is built
+    # WITHOUT the batch-QC filter (the pooled group fails donor QC in the full arm)
+    # and restricted to the pooled `nerve_neuron` group.
+    _NEURON_SIDE = "neuron (pooled; donor-caveated)"
 
     _rows = []
     for _r in lead_axes_df.itertuples(index=False):
@@ -832,8 +836,16 @@ def _lead_axes_compute(dataset, interactions_df, lead_axes_df, mo, np, pd):
         # Either orientation: the file records an unordered axis, and measured across
         # the 183 rows 109 are ligand-first and 70 receptor-first.
         _m = ((_lig == _a) & (_rec == _b)) | ((_lig == _b) & (_rec == _a))
-        _m &= _qc & (_mag <= live_mag_max)
-        _m &= np.isin(_cp, [s.strip() for s in str(_r.interfaces).split(",")])
+        _m &= (_pv <= live_pval_max) & (_mag <= live_mag_max)
+        if str(_r.compartment_side) == _NEURON_SIDE:
+            _m &= _nerve_cluster == neuron_group
+        else:
+            _m &= _qc
+        # Deliberately NO restriction to the row's own `interfaces`. The rule derives
+        # that column FROM these rows rather than filtering on it, so imposing it here
+        # would not mirror the rule — and it silently undercounts, because each half's
+        # `interfaces` is computed on one arm while this recomputation runs on both
+        # (it cost 5/183 on the capped arm and 1/183 on the full one).
         _rows.append({
             "axis": _r.axis,
             "nerve_side": _r.nerve_side,
@@ -842,26 +854,21 @@ def _lead_axes_compute(dataset, interactions_df, lead_axes_df, mo, np, pd):
             f"rank_{other_arm}": getattr(_r, _other_rank_col),
             "curated_best_mag": getattr(_r, _mag_col),
             "live_best_mag": float(_mag[_m].min()) if _m.any() else np.nan,
-            "curated_n_rows_full": int(_r.n_rows),
+            "curated_n_rows": int(getattr(_r, _n_rows_col)),
             "live_n_rows": int(_m.sum()),
             "interfaces": _r.interfaces,
             "immune": _r.immune,
             "compartment_side": _r.compartment_side,
             "agents_flagged": _r.agents_flagged,
             "glioma_trials": _r.glioma_trials,
+            "withdrawn": _r.withdrawn,
         })
     lead_live_df = pd.DataFrame(_rows)
 
-    # An axis scored in the inactive arm but not this one is a cross-arm signal, not
-    # missing data: 55 axes cleared the bar in the full arm and not the capped one.
-    lead_live_df["cross_arm"] = np.where(
-        lead_live_df["curated_best_mag"].isna(), f"{other_arm}-arm only", "both arms"
-    )
-    # Only a like-for-like comparison on the arm `n_rows` was computed for.
+    # Both magnitude columns are now populated on every row, so every row is
+    # comparable in both arms — there is no "other-arm only" class left to flag.
     lead_live_df["n_rows_agrees"] = (
-        (lead_live_df["curated_n_rows_full"] == lead_live_df["live_n_rows"])
-        if n_rows_is_active_arm else pd.NA
-    )
+        lead_live_df["curated_n_rows"] == lead_live_df["live_n_rows"])
     lead_live_df["mag_agrees"] = np.isclose(
         lead_live_df["curated_best_mag"].astype(float),
         lead_live_df["live_best_mag"].astype(float),
@@ -869,7 +876,7 @@ def _lead_axes_compute(dataset, interactions_df, lead_axes_df, mo, np, pd):
     )
     lead_live_df = lead_live_df.sort_values(
         ["rank_active", "nerve_side"]).reset_index(drop=True)
-    return lead_live_df, live_mag_max, n_rows_is_active_arm, other_arm
+    return lead_live_df, live_mag_max, other_arm
 
 
 @app.cell
@@ -887,32 +894,21 @@ def _lead_axes_filters(lead_live_df, mo):
 @app.cell
 def _lead_axes_view(
     dataset, disagree_only, lead_axes_df, lead_live_df, live_mag_max, mo,
-    n_rows_is_active_arm, other_arm, side_select, tier_select,
+    other_arm, side_select, tier_select,
 ):
-    """Render the shortlist with its provenance and its disagreements stated."""
+    """Render the shortlist and assert it against an independent recomputation."""
     _df = lead_live_df[
         lead_live_df["tier_v2"].astype(str).isin(tier_select.value or [])
         & lead_live_df["nerve_side"].astype(str).isin(side_select.value or [])
     ]
     if disagree_only.value:
-        # n_rows_agrees is NA off the full arm, so magnitude is the only comparison
-        # available there. fillna(True) keeps NA out of the "disagreeing" set.
-        _bad = ~lead_live_df["mag_agrees"]
-        if n_rows_is_active_arm:
-            _bad = _bad | ~lead_live_df["n_rows_agrees"].fillna(True).astype(bool)
+        _bad = ~lead_live_df["mag_agrees"] | ~lead_live_df["n_rows_agrees"]
         _df = _df[_bad.reindex(_df.index, fill_value=False)]
 
     _n = len(lead_live_df)
-    _n_rows_ok = (
-        int(lead_live_df["n_rows_agrees"].fillna(False).astype(bool).sum())
-        if n_rows_is_active_arm else None
-    )
-    _mag_comparable = int(
-        (lead_live_df["curated_best_mag"].notna()
-         & lead_live_df["live_best_mag"].notna()).sum()
-    )
+    _n_rows_ok = int(lead_live_df["n_rows_agrees"].sum())
     _mag_ok = int(lead_live_df["mag_agrees"].sum())
-    _n_other_only = int((lead_live_df["cross_arm"] != "both arms").sum())
+    _regression = _mag_ok < _n or _n_rows_ok < _n
     _n_neuron = int(lead_live_df["compartment_side"].astype(str)
                     .str.contains("donor-caveated").sum())
     _n_cxcr4 = int(lead_axes_df["axis"].str.contains("CXCR4", na=False).sum())
@@ -920,25 +916,11 @@ def _lead_axes_view(
     _n_s1pr1 = int(lead_axes_df["axis"].str.contains("S1PR1", na=False).sum())
 
     _cols = [
-        "rank_active", f"rank_{other_arm}", "cross_arm", "axis", "nerve_side",
-        "tier_v2", "curated_best_mag", "live_best_mag", "mag_agrees",
-        "curated_n_rows_full", "live_n_rows",
+        "rank_active", f"rank_{other_arm}", "axis", "nerve_side", "tier_v2",
+        "curated_best_mag", "live_best_mag", "mag_agrees",
+        "curated_n_rows", "live_n_rows", "n_rows_agrees",
+        "interfaces", "immune", "agents_flagged", "glioma_trials", "withdrawn",
     ]
-    if n_rows_is_active_arm:
-        _cols.append("n_rows_agrees")
-    _cols += ["interfaces", "immune", "agents_flagged", "glioma_trials"]
-
-    _n_rows_line = (
-        f" and `n_rows` for **{_n_rows_ok}/{_n}**" if n_rows_is_active_arm
-        else ""
-    )
-    _n_rows_note = (
-        "" if n_rows_is_active_arm else
-        "\n\n**`curated_n_rows_full` is a full-arm count and the file has no capped "
-        "counterpart**, so it is shown for reference and *not* compared here — it "
-        "agrees with the full arm on 118/183 axes but with this one on 47/183, which "
-        "would render as disagreement that is really just the wrong arm."
-    )
 
     mo.vstack([
         mo.hstack([tier_select, side_select, disagree_only], gap=2),
@@ -954,29 +936,31 @@ def _lead_axes_view(
                 f"this notebook on 2026-08-07 because it was reference-derived (34 of its "
                 f"40 magnitudes reproduced against that unaudited cohort, 0 against this "
                 f"one).\n\n"
-                f"**Curated numbers are shown next to live ones because they do not fully "
-                f"reproduce.** The generating script is not in this repository. The rule "
-                f"stated here — QC-passing rows, `magnitude_rank ≤ {live_mag_max}`, "
-                f"restricted to each axis's own interfaces — recovers the active arm's "
-                f"magnitude for **{_mag_ok}/{_mag_comparable}** comparable axes"
-                f"{_n_rows_line}. Treat a `False` in `mag_agrees` as *the selection logic "
-                f"differed*, not as a finding. Committing the generating script would "
-                f"close this gap permanently.\n\n"
-                f"*The file's two magnitude columns were not built the same way:* "
-                f"`capped_best_mag` reproduces **exactly** under this rule (128/128) "
-                f"while `best_mag` reaches 128/167. Worth resolving at the source."
-                f"{_n_rows_note}\n\n"
-                f"**[FAIR-ALERT] This shortlist has no producing Snakemake rule and its "
-                f"generating script is not in this repository**, and `results/` is "
-                f"gitignored — so unlike every other input on this page it can be neither "
-                f"rebuilt nor restored from git. That is the same condition §2.1 flagged "
-                f"about its predecessor. A rule under `workflow/rules/` that emits it "
-                f"would fix the reproducibility, the versioning and the curated/live gap "
-                f"in one move.\n\n"
-                f"**{_n_other_only} axes are `{other_arm}-arm only`** — scored in the "
-                f"other arm but not this one. That is the cross-arm reproducibility "
-                f"signal §2.5(c) asks for, and it is stronger evidence than agreement "
-                f"with the pinned reference in Panel F.\n\n"
+                f"**The live columns are a regression check, not a caveat.** "
+                f"`rule nerve_immune_lead_axes` produces this table, and the recomputation "
+                f"here re-derives it independently from `{dataset}`'s LR table: "
+                f"`cellphone_pvals ≤ {live_mag_max}` and `magnitude_rank ≤ {live_mag_max}`, "
+                f"batch-QC-passing on the oligodendrocyte side, restricted to the pooled "
+                f"`nerve_neuron` group and **without** the QC filter on the neuron side — "
+                f"because those are the two rules the shortlist is actually built under. "
+                f"Magnitude agrees on **{_mag_ok}/{_n}** and row counts on "
+                f"**{_n_rows_ok}/{_n}**. Both should read {_n}/{_n}: a `False` in "
+                f"`mag_agrees` or `n_rows_agrees` now means **the rule and this notebook "
+                f"have drifted apart**, and is a bug to chase rather than a caveat to read "
+                f"past.\n\n"
+                + (
+                    f"**⚠️ REGRESSION: {_n - _mag_ok} magnitude and {_n - _n_rows_ok} "
+                    f"row-count mismatches.** Tick *Only axes where curated ≠ live* to "
+                    f"isolate them, then reconcile "
+                    f"`workflow/scripts/nerve_immune_lead_axes.py` against this cell.\n\n"
+                    if _regression else ""
+                )
+                + f"**The two compartment sides are not comparable to each other.** "
+                f"`full_best_mag` / `capped_best_mag` now say which arm they came from, "
+                f"but the oligodendrocyte side is aggregated over QC-passing rows from all "
+                f"nerve clusters and the neuron side over unfiltered rows from the pooled "
+                f"neuron group alone. The arm is explicit; the selection rule still differs "
+                f"by `compartment_side`, and no column can paper over that.\n\n"
                 f"**{_n_neuron} axes sit on the pooled neuron group**, marked "
                 f"`neuron (pooled; donor-caveated)`. One donor supplies roughly half of "
                 f"all ~4.3k neurons, so those axes are substantially one patient's "
@@ -986,15 +970,14 @@ def _lead_axes_view(
                 f"**{_n_s1pr1}**. The corrected tables contain zero S1PR1 rows at all — it "
                 f"did not move compartments, it failed to reach significance anywhere once "
                 f"the compartments were clean.\n\n"
-                f"*Two columns of the source file are deliberately not rendered.* "
-                f"`withdrawn` is empty in all {_n} rows even though `tier_v2` marks 14 "
-                f"axes `1b_approved_withdrawn_only` and `agents_flagged` carries "
-                f"`[WITHDRAWN]` tags inline — it looks like a bug in the generating "
-                f"script. `min_pval` is `0.0` in every row (the permutation floor at "
-                f"`n_perms=1000`), so it cannot discriminate. A column that is entirely "
-                f"null or entirely constant invites a reader to infer meaning from it."
+                f"*`min_pval` is deliberately not rendered.* It is `0.0` in every row (the "
+                f"permutation floor at `n_perms=1000`), so it cannot discriminate, and a "
+                f"column that is entirely constant invites a reader to infer meaning from "
+                f"it. `withdrawn` **is** now rendered — it was empty in all {_n} rows until "
+                f"the 2026-08-19 annotation snapshot recovered it from the `[WITHDRAWN]` "
+                f"tags inside `agents_flagged`."
             ),
-            kind="info",
+            kind="danger" if _regression else "info",
         ),
     ])
     return

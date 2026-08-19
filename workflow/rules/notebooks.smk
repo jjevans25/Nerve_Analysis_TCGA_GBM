@@ -89,6 +89,10 @@ rule ds_census_nerve_immune_notebook:
         # Reference-cohort input: the curated shortlist has no per-cohort twin, and
         # Panel E exists precisely to test it against this cohort.
         lead_targets       = os.path.join(config["dirs"]["tables"], "nerve_crosstalk_lead_targets.csv"),
+        # Panel E's actual source. Un-wildcarded: it spans both Census arms. Declared
+        # so rebuilding the shortlist re-renders the notebook — Panel E asserts the
+        # table against a live recomputation, so a stale render hides a regression.
+        lead_axes_postfix  = os.path.join(config["dirs"]["tables"], "nerve_immune_lead_axes_postfix.csv"),
     output:
         html       = os.path.join(config["dirs"]["figures"],    "{dataset}", "05_census_nerve_immune_explorer.html"),
         provenance = os.path.join(config["dirs"]["provenance"], "{dataset}", "census_nerve_immune_notebook_provenance.json"),

@@ -2496,3 +2496,64 @@ corrected in the item-2 commit, which is where the notebook is touched.
 **FAIR Notes:** The correction is itself a provenance-stamped Snakemake rule, not a manual edit,
 so the fix is as reproducible as the artifact it fixes. No network access — this recovers
 misplaced data, it does not introduce new data, so nothing here depends on ChEMBL's current state.
+
+---
+
+### [2026-08-19] | Phase: Lead-axes open items (2/3) — arm-explicit magnitudes | Status: COMPLETE
+
+**Action:** Fix open item 2 — `best_mag` and `n_rows` were arm-inconsistent: full-arm
+QC-passing for the 128 oligodendrocyte rows, capped-arm non-QC pooled-neuron for the 55
+neuron rows, with nothing in the row saying which.
+
+**Outcome:** Both replaced by four arm-labelled columns — `full_best_mag`,
+`capped_best_mag`, `full_n_rows`, `capped_n_rows` — **all 183/183 populated**. No NaNs,
+because each half is already a cross-arm intersection, so every axis has a counterpart in
+the other arm. The 55 `capped_best_mag` NaNs disappear as a side effect. Table is now
+183×16; sha256 `62e66e0d…` → `9869b698…`.
+
+Verified as a pure relabelling, not a recomputation: the oligodendrocyte half's
+`full_best_mag`/`full_n_rows` equal the old `best_mag`/`n_rows` exactly, and the neuron
+half's `capped_best_mag`/`capped_n_rows` equal its old `best_mag`/`n_rows` exactly. Ranks
+still dense 1..128 and 1..55; tier counts unchanged at 46/14/50/38/35.
+
+**What this does NOT fix, stated in the script docstring, the rule docstring, Panel E and
+§8:** the *selection rule* still differs between halves — oligodendrocyte is QC-passing
+all-cluster, neuron is no-QC pooled-neuron-only. That is what defines the two halves and
+is labelled by `compartment_side`. The arm is now explicit; the filter is not. Comparing
+a `full_best_mag` across the two sides is still comparing two different filters.
+
+**Panel E reframed from caveat to regression check.** Two corrections were needed to make
+the oracle actually correct, both found by testing rather than assumed:
+1. It applied the oligodendrocyte rule to every row. The neuron half is built without the
+   QC filter and restricted to `nerve_neuron`, so all 55 neuron rows would have read as
+   disagreements. The oracle now branches on `compartment_side`, as the rule does.
+2. It restricted matches to each axis's own `interfaces`. The rule *derives* that column
+   from the matched rows rather than filtering on it, and each half's value is computed on
+   one arm while the recomputation runs on both — so the restriction silently undercut
+   `n_rows` by 5/183 on the capped arm and 1/183 on the full one. Removed.
+
+With both fixed the recomputation agrees **183/183 on magnitude and 183/183 on row counts
+in both arms** — confirmed in the rendered HTML, not just in a harness. Panel E now turns
+the callout red and prints a REGRESSION banner if either falls below 183.
+
+**Also fixed:** `rule ds_census_nerve_immune_notebook` declared the *withdrawn predecessor*
+`nerve_crosstalk_lead_targets.csv` as an input but never `nerve_immune_lead_axes_postfix.csv`,
+the file Panel E actually reads — so rebuilding the shortlist did not re-render the notebook
+and a stale render could hide a regression. Now declared.
+
+**Artifacts:** `workflow/scripts/nerve_immune_lead_axes.py`, `workflow/rules/notebooks.smk`,
+`notebooks/05_census_nerve_immune_explorer.py` (Panel E compute + view cells, the
+`_unbuildable`/FAIR-ALERT machinery removed from the loader),
+`markdowns/GBM_TME_Crosstalk_Analysis.md` §8 (now tracked in git for the first time).
+
+**Verification:** 183 rows / 16 cols; four arm columns 183/183 non-null; `best_mag` and
+`n_rows` absent; relabelling equalities all True; notebook rendered for both arms with zero
+tracebacks and 183/183 agreement; `flake8` clean.
+
+**Open Issues:** §8 of the markdown carried a pre-existing arithmetic error — "125 on the
+oligodendrocyte side and 55 on the pooled-neuron side" sums to 180, not 183. The real split
+is 128 + 55. Corrected. Item 3 (`refresh_drug_annotation`) remains open.
+
+**FAIR Notes:** The notebook's oracle deliberately duplicates the rule's selection logic —
+an oracle sharing an implementation with the thing it checks cannot catch anything. The cost
+is that the two must be edited together; that is stated in the cell so the next editor knows.
