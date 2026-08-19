@@ -11,11 +11,37 @@
 # =============================================================
 
 _LEAD = config["lead_axes"]
+_DRUG_DIR = "reference/drug_annotation"
 
 
 def _arm_table(arm_key, filename):
     """Path to a per-arm cohort-namespaced table."""
     return os.path.join(config["dirs"]["tables"], _LEAD[arm_key], filename)
+
+
+rule derive_withdrawn_agents:
+    """Recover the `withdrawn` column, empty in the 2026-08-07 snapshot due to a
+    generator bug (it was read from ChEMBL's bulk chembl_id lookup, which does not
+    carry withdrawal status).
+
+    Pure data correction over committed data — parses the inline [WITHDRAWN] tags
+    already present in `agents_flagged`. No network access. Writes a NEW dated
+    snapshot; the 2026-08-07 file is never modified.
+    """
+    input:
+        snapshot = os.path.join(_DRUG_DIR, "nerve_immune_axis_drug_annotation_2026-08-07.csv"),
+    output:
+        snapshot   = os.path.join(_DRUG_DIR, "nerve_immune_axis_drug_annotation_2026-08-19.csv"),
+        provenance = os.path.join(config["dirs"]["provenance"], "derive_withdrawn_agents_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "derive_withdrawn_agents.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = 2000,
+        threads = 1,
+    script:
+        "../scripts/derive_withdrawn_agents.py"
 
 
 rule nerve_immune_lead_axes:

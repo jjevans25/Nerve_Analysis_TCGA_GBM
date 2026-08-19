@@ -2449,3 +2449,50 @@ from committed inputs, with a provenance sidecar. The *recomputability* gap is N
 be: `reference/drug_annotation/MANIFEST.json` states this plainly rather than implying otherwise,
 including that the ChEMBL release behind the snapshot was never recorded and that glioma-trial
 coverage is bounded by a hand-curated 20-agent list (absence of a trial ≠ no trial exists).
+
+---
+
+### [2026-08-19] | Phase: Lead-axes open items (1/3) — `withdrawn` recovered | Status: COMPLETE
+
+**Action:** Fix open item 1 from the entry above — `withdrawn` was empty in all 183 rows of
+`nerve_immune_lead_axes_postfix.csv`, a generator bug rather than a property of the data.
+
+**Outcome:** New `rule derive_withdrawn_agents` recovers the column offline from the inline
+`[WITHDRAWN]` tags that `agents_flagged` already carried, writing a new dated snapshot
+`reference/drug_annotation/nerve_immune_axis_drug_annotation_2026-08-19.csv` (sha256
+`eed0995c…`). The 2026-08-07 file is kept untouched as the audit record — rewriting a dated
+artifact would falsify what it contained on that date.
+
+**13 of 144 axes** populated, covering **3 agents: BENZIODARONE, PRENYLAMINE, PROBUCOL** —
+matching the generator's own report text verbatim. In the 183-row table that is 20 rows (some
+axes appear on both nerve sides), 14 of them tier `1b_approved_withdrawn_only`. Zero 1b axes
+were left empty, so tier and agent tags now corroborate each other instead of contradicting.
+
+Three of the 13 are tiered `1_approved_available`, not 1b — `CALM1|INSR`, `CALM1|PDE1A`,
+`CALM1|PDE1C`. That is correct, not a leak: axis tier is the *best* tier among constituent
+genes, so a withdrawn CALM1 agent does not demote an axis whose partner gene has a clean
+approved one. These are exactly the "CALM1 axes are a trap" cases the generator's report calls
+out — the agent a reader would reach for is withdrawn even though the axis reads tier 1.
+
+**Verification:** the rebuilt table differs from the previous build in **exactly one column**
+(`withdrawn`) — every other column compared equal, and the rule carries its own guards that
+raise `[FAIR-ALERT]` if any passthrough column moves, if the row count changes, if the parsed
+count disagrees with the tag count, or if a 1b axis ends up empty. Table sha256 moves
+`f30d33ed…` → `62e66e0d…`. `flake8` clean.
+
+**Artifacts:** `workflow/scripts/derive_withdrawn_agents.py` (new), `rule derive_withdrawn_agents`
+in `workflow/rules/leads.smk`, the 2026-08-19 snapshot,
+`provenance/derive_withdrawn_agents_provenance.json`, `config/config.yaml` (repointed),
+`reference/drug_annotation/MANIFEST.json` (`corrections` section added; the `withdrawn` defect
+moved to RESOLVED).
+
+**Tool Versions:** pandas 2.3.3 (`workflow/envs/scrna.yaml`)
+
+**Open Issues:** items 2 (arm-inconsistent `best_mag`/`n_rows`) and 3 (`refresh_drug_annotation`)
+still open — next two commits. Notebook 05 Panel E still says `withdrawn` "is empty in all 183
+rows … looks like a bug in the generating script"; that text goes stale with this commit and is
+corrected in the item-2 commit, which is where the notebook is touched.
+
+**FAIR Notes:** The correction is itself a provenance-stamped Snakemake rule, not a manual edit,
+so the fix is as reproducible as the artifact it fixes. No network access — this recovers
+misplaced data, it does not introduce new data, so nothing here depends on ChEMBL's current state.

@@ -625,7 +625,11 @@ lead_axes:
   full_arm:           "gbm_cellxgene_56c4912d_full"
   capped_arm:         "gbm_cellxgene_56c4912d"
   neuron_group:       "nerve_neuron"
-  drug_annotation:    "reference/drug_annotation/nerve_immune_axis_drug_annotation_2026-08-07.csv"
+  # 2026-08-19 supersedes 2026-08-07: identical except the `withdrawn` column, which
+  # was empty in all 144 axes due to a generator bug and is recovered by
+  # `rule derive_withdrawn_agents` from the inline [WITHDRAWN] tags in agents_flagged.
+  # The 2026-08-07 file stays committed as the audit record — do not delete it.
+  drug_annotation:    "reference/drug_annotation/nerve_immune_axis_drug_annotation_2026-08-19.csv"
   compartment_side_oligo:  "oligodendrocyte (QC-passing)"
   compartment_side_neuron: "neuron (pooled; donor-caveated)"
 

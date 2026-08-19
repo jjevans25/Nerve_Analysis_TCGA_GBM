@@ -1,12 +1,43 @@
 {
-  "artifact": "nerve_immune_axis_drug_annotation_2026-08-07.csv",
-  "sha256": "a80b1de3c98bd0ed5191df2101315c05f4fd8e2e72d6b3b6021fd4b615781acc",
+  "_active_snapshot": "nerve_immune_axis_drug_annotation_2026-08-19.csv",
+
+  "snapshots": [
+    {
+      "artifact": "nerve_immune_axis_drug_annotation_2026-08-07.csv",
+      "sha256": "a80b1de3c98bd0ed5191df2101315c05f4fd8e2e72d6b3b6021fd4b615781acc",
+      "status": "superseded — kept as the audit record, do not delete or edit",
+      "note": "What the out-of-band generator actually produced on 2026-08-07, including the empty `withdrawn` column."
+    },
+    {
+      "artifact": "nerve_immune_axis_drug_annotation_2026-08-19.csv",
+      "sha256": "eed0995c8b141ae3563da30f357206b77d423004b2e80bbae0f101000190e8be",
+      "status": "ACTIVE — referenced by config.lead_axes.drug_annotation",
+      "produced_by": "rule derive_withdrawn_agents",
+      "differs_from_2026-08-07_only_in": "withdrawn",
+      "note": "Identical to the 2026-08-07 snapshot except the recovered `withdrawn` column; verified column-by-column by the rule's own guards."
+    }
+  ],
+
+  "artifact": "nerve_immune_axis_drug_annotation_2026-08-19.csv",
   "snapshot_date": "2026-08-07",
   "vendored_on": "2026-08-19",
   "n_axes": 144,
   "n_genes": 156,
   "columns": ["axis", "tier_v2", "agents_flagged", "glioma_trials", "withdrawn"],
   "consumed_by": "rule nerve_immune_lead_axes (workflow/rules/leads.smk), joined on `axis`",
+
+  "corrections": [
+    {
+      "date": "2026-08-19",
+      "column": "withdrawn",
+      "was": "empty in all 144 axes",
+      "now": "populated on 13 axes, covering 3 agents: BENZIODARONE, PRENYLAMINE, PROBUCOL",
+      "cause": "Generator bug. axis_drug (02_chembl_druggability_pipeline.py:182) read it from DRUG.withdrawn_agents, populated by ChEMBL's bulk chembl_id lookup, which per the export's own README does not carry withdrawal status. The corrected set came from a later by-name compound_search sweep and was never written back.",
+      "method": "Derived offline from the inline [WITHDRAWN] tags in agents_flagged, which the by-name sweep did write. No ChEMBL re-query — this is a recovery of misplaced data, not new data.",
+      "corroboration": "The 3 agents match the generator's own report text verbatim ('Withdrawn: benziodarone, prenylamine, probucol'). All 10 axes tiered 1b_approved_withdrawn_only are covered, with zero 1b axes left empty.",
+      "why_3_axes_are_tier_1": "CALM1|INSR, CALM1|PDE1A and CALM1|PDE1C carry a withdrawn CALM1 agent but are tiered 1_approved_available because the PARTNER gene has a clean approved agent. Tier is the best tier among constituent genes, so a withdrawn agent on one end does not demote the axis."
+    }
+  ],
 
   "what_this_is": [
     "A CURATED SNAPSHOT, NOT A COMPUTED ARTIFACT. Nothing in this repository can",
@@ -37,13 +68,7 @@
 
   "known_defects": {
     "withdrawn_column_is_empty": {
-      "severity": "bug, carried forward deliberately",
-      "n_populated": 0,
-      "n_expected_nonempty": "at least the 10 axes tiered 1b_approved_withdrawn_only",
-      "cause": "The generator sourced `withdrawn` from DRUG.withdrawn_agents, populated by the bulk chembl_id lookup, which does not carry withdrawal status. The corrected set came from a later by-name compound_search sweep and was never written back into that column.",
-      "recoverable": true,
-      "recovery": "The information survives inline in agents_flagged as ' [WITHDRAWN]' tags, and in tier_v2 == '1b_approved_withdrawn_only'.",
-      "status": "Not fixed in this snapshot. Fixing it changes the table, so it is scoped to a separate commit; tracked in CHANGELOG 2026-08-07."
+      "status": "RESOLVED 2026-08-19 in the active snapshot — see `corrections`. Still present, by design, in the superseded 2026-08-07 file."
     }
   },
 
