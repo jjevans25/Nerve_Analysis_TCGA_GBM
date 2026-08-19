@@ -28,6 +28,7 @@ include: "workflow/rules/immune.smk"
 include: "workflow/rules/proteomics.smk"
 include: "workflow/rules/notebooks.smk"
 include: "workflow/rules/datasets.smk"
+include: "workflow/rules/leads.smk"
 
 # Ensure required directories exist before any rule runs
 from pathlib import Path
@@ -98,6 +99,12 @@ rule all:
         *[p(config["dirs"]["figures"], d, "nerve_scanvi_training_curves.png")    for d in DATASETS],
         # Replication-cohort explorer (pulls ds_nerve_cluster_annotations too).
         *[p(config["dirs"]["figures"], d, "05_census_nerve_immune_explorer.html") for d in DATASETS],
+        # Cross-arm lead shortlist. Un-wildcarded: spans both census arms, so it
+        # sits at the tables root rather than in either arm's namespace. Gated on
+        # both arms being configured, since it intersects them.
+        *([p(config["dirs"]["tables"], "nerve_immune_lead_axes_postfix.csv")]
+          if {config["lead_axes"]["full_arm"], config["lead_axes"]["capped_arm"]} <= set(DATASETS)
+          else []),
 
 
 # -------------------------------------------------------------

@@ -1,0 +1,48 @@
+{
+  "_comment": [
+    "Hand-curated literals lifted verbatim from the out-of-band generator",
+    "claude_science/code_export/02_chembl_druggability_pipeline.py (AGENTS at lines",
+    "226-228, AG2GENE at lines 250-253). They are manual curation, not derived data:",
+    "no script produces them and nothing validates them against ChEMBL.",
+    "`rule refresh_drug_annotation` consumes them to decide which agents to query",
+    "ClinicalTrials.gov for and how to map hits back onto genes.",
+    "Consequence worth stating: glioma-trial coverage is bounded by this list. An",
+    "axis shows no trial if its agent is absent here, which is not the same as no",
+    "trial existing."
+  ],
+  "source": "claude_science/code_export/02_chembl_druggability_pipeline.py",
+  "curated_on": "2026-08-07",
+  "agents": [
+    "natalizumab", "plerixafor", "mavorixafor", "aducanumab", "donanemab",
+    "lecanemab", "avacopan", "dipyridamole", "pentoxifylline", "pemigatinib",
+    "regorafenib", "afatinib", "depatuxizumab", "refanezumab", "milatuzumab",
+    "ocriplasmin", "repotrectinib", "neratinib", "amantadine", "memantine"
+  ],
+  "agent_to_gene": {
+    "natalizumab": "ITGA4/ITGB1",
+    "plerixafor": "CXCR4",
+    "mavorixafor": "CXCR4",
+    "aducanumab": "APP",
+    "donanemab": "APP",
+    "lecanemab": "APP",
+    "avacopan": "C5AR1",
+    "dipyridamole": "PDE1A",
+    "pentoxifylline": "PDE1A",
+    "pemigatinib": "FGFR2",
+    "regorafenib": "FGFR2",
+    "afatinib": "EGFR/ERBB4",
+    "depatuxizumab": "EGFR",
+    "refanezumab": "MAG",
+    "milatuzumab": "CD74",
+    "ocriplasmin": "FN1",
+    "repotrectinib": "NTRK3",
+    "neratinib": "ERBB4",
+    "amantadine": "GRIN2A(probe)",
+    "memantine": "GRIN2A(probe)"
+  },
+  "notes": {
+    "probe_suffix": "'(probe)' marks agents queried as controls for a gene NOT in the shortlist (GRIN2A); strip before mapping.",
+    "multi_gene": "'/' separates genes an agent maps to (e.g. natalizumab -> ITGA4 and ITGB1); split before mapping.",
+    "trial_cell_format": "glioma_trials cells read '<agent> (<n>: <first three NCT ids>)' — a truncated summary, not the full trial list."
+  }
+}

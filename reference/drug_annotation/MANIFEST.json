@@ -1,0 +1,79 @@
+{
+  "artifact": "nerve_immune_axis_drug_annotation_2026-08-07.csv",
+  "sha256": "a80b1de3c98bd0ed5191df2101315c05f4fd8e2e72d6b3b6021fd4b615781acc",
+  "snapshot_date": "2026-08-07",
+  "vendored_on": "2026-08-19",
+  "n_axes": 144,
+  "n_genes": 156,
+  "columns": ["axis", "tier_v2", "agents_flagged", "glioma_trials", "withdrawn"],
+  "consumed_by": "rule nerve_immune_lead_axes (workflow/rules/leads.smk), joined on `axis`",
+
+  "what_this_is": [
+    "A CURATED SNAPSHOT, NOT A COMPUTED ARTIFACT. Nothing in this repository can",
+    "regenerate it. It is committed so the pipeline has a version-controlled input",
+    "for the four drug columns of nerve_immune_lead_axes_postfix.csv, which would",
+    "otherwise be unreproducible."
+  ],
+
+  "provenance": {
+    "generated_by": "Claude Science session, exported to claude_science/code_export/02_chembl_druggability_pipeline.py",
+    "sources": [
+      "ChEMBL via host.mcp('chembl', ...) — target_search, get_mechanism, compound_search",
+      "ClinicalTrials.gov via host.mcp('clinical-trials', 'search_trials', condition=, intervention=)"
+    ],
+    "extracted_from": "results/tables/nerve_immune_lead_axes_postfix.csv (2026-08-07, sha256 f30d33ed71c8038f8cc989a3d29d48ade873ad2837e47570d1d067bbe00f6286)",
+    "extraction_method": "df[['axis','tier_v2','agents_flagged','glioma_trials','withdrawn']].drop_duplicates('axis').sort_values('axis')",
+    "extraction_is_lossless": true,
+    "extraction_lossless_evidence": "All four columns are a pure function of the axis string: across the 39 axes appearing on both nerve sides, zero disagreement. Re-joining these 144 rows onto the 183-row table reproduces all four columns exactly."
+  },
+
+  "reproducibility_limits": [
+    "CHEMBL RELEASE IS UNKNOWN. The generator recorded no version. The tiers cannot be tied to a specific ChEMBL release, so even an identical re-query cannot be proven equivalent.",
+    "CLINICALTRIALS.GOV SNAPSHOT DATE IS THE ONLY PIN. Trial counts drift continuously.",
+    "ONE INPUT IS PERMANENTLY LOST. Genes with no ChEMBL mechanism record inherited approved/clinical agents from a prior-session artifact addressed only as UUID 34d720d0-5c16-46bb-92e6-d8d6b6a02ec3 (evidence_source == 'prior_reference_pass'). That file is not in this repo and cannot be recovered; those genes' tiers are not re-derivable even with network access.",
+    "THE MCP RESPONSE CACHES DID NOT SURVIVE. The generator's handoff/*.json files (chembl_targets, chembl_mechanisms, chembl_molecules, chembl_neuro_extra, agent_safety, glioma_trials) do not exist anywhere in the project.",
+    "GLIOMA-TRIAL COVERAGE IS BOUNDED BY A HAND-CURATED 20-AGENT LIST (see curated_agent_map_2026-08-07.json). An empty glioma_trials cell means no NAMED trial for a LISTED agent — not that no trial exists."
+  ],
+
+  "known_defects": {
+    "withdrawn_column_is_empty": {
+      "severity": "bug, carried forward deliberately",
+      "n_populated": 0,
+      "n_expected_nonempty": "at least the 10 axes tiered 1b_approved_withdrawn_only",
+      "cause": "The generator sourced `withdrawn` from DRUG.withdrawn_agents, populated by the bulk chembl_id lookup, which does not carry withdrawal status. The corrected set came from a later by-name compound_search sweep and was never written back into that column.",
+      "recoverable": true,
+      "recovery": "The information survives inline in agents_flagged as ' [WITHDRAWN]' tags, and in tier_v2 == '1b_approved_withdrawn_only'.",
+      "status": "Not fixed in this snapshot. Fixing it changes the table, so it is scoped to a separate commit; tracked in CHANGELOG 2026-08-07."
+    }
+  },
+
+  "column_semantics": {
+    "tier_v2": "Axis tier = best (lowest-ordinal) tier among constituent genes, ordered {'1_':1,'1b':1.5,'2_':2,'3_':3,'4_':4}. Genes are obtained by splitting the axis on '|' then each end on '_' to expand LIANA subunit complexes.",
+    "agents_flagged": "'GENE: AGENT (phase) [tag]; ...' joined by ' | '. '[WITHDRAWN]' takes precedence over '[black-box]'. '[clinical]' marks a gene with no approved agent.",
+    "glioma_trials": "'<agent> (<n>: <first three NCT ids>)' joined by ' | '. Truncated summary.",
+    "withdrawn": "Intended as per-gene withdrawn agents; empty in every row (see known_defects)."
+  },
+
+  "tier_v2_counts_per_distinct_axis": {
+    "2_clinical": 40,
+    "1_approved_available": 38,
+    "3_chembl_target_no_agent": 33,
+    "4_no_chembl_target": 23,
+    "1b_approved_withdrawn_only": 10
+  },
+  "column_coverage": {
+    "agents_flagged_non_empty": 88,
+    "glioma_trials_non_empty": 16,
+    "withdrawn_non_empty": 0
+  },
+
+  "refreshing": {
+    "rule": "refresh_drug_annotation",
+    "behaviour": "Writes a NEW dated file; never overwrites this snapshot.",
+    "adoption": "Bump config.lead_axes.drug_annotation deliberately, after diffing.",
+    "expect_drift": "Output WILL differ from this snapshot — both databases have moved since 2026-08-07, and the lost prior-pass artifact cannot be reconstructed.",
+    "must_record": "The refreshed manifest must capture the ChEMBL release, which is the pin missing here."
+  },
+
+  "license": "CC-BY 4.0 (project default for data artifacts). Underlying data: ChEMBL (CC BY-SA 3.0), ClinicalTrials.gov (public domain)."
+}

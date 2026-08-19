@@ -2374,3 +2374,78 @@ special-cases it rather than sending the reader after a Snakemake rule that does
 Panel E carries the same alert. **A rule under `workflow/rules/` that emits this table would close
 the reproducibility gap, the versioning gap and the curated/live gap together** — recommended as the
 next step, and it is also what CLAUDE.md's "never run one-off scripts for analysis steps" requires.
+
+---
+
+### [2026-08-19] | Phase: Lead-axes generator brought into the pipeline | Status: COMPLETE
+
+**Action:** Close the reproducibility gap flagged in the 2026-08-07 entry above — give
+`results/tables/nerve_immune_lead_axes_postfix.csv` a producing Snakemake rule. The generator
+arrived as four Claude Science REPL transcripts in `claude_science/code_export/` (gitignored, since
+`claude_science/` is a venv).
+
+**Outcome:** New `rule nerve_immune_lead_axes` reproduces the 2026-08-07 artifact **byte-for-byte**
+— sha256 `f30d33ed71c8038f8cc989a3d29d48ade873ad2837e47570d1d067bbe00f6286` before and after. That
+exact match is the proof the reimplementation is faithful; it was the acceptance gate for the work.
+
+Root cause of the `best_mag` discrepancy Panel E reports, now understood and documented: the CSV is
+a `pd.concat` of **two halves built by different rules**, not one table.
+
+| | oligodendrocyte (128 rows) | neuron (55 rows) |
+|---|---|---|
+| source arm | full | capped |
+| batch QC | required | **not applied** |
+| clusters | all | `nerve_neuron` only |
+| sort key | `['best_mag','min_pval']` | `['best_mag']` only |
+| dense rank | `rank_full` 1..128 | `rank_capped` 1..55 |
+| `capped_best_mag` | populated | **column never created → NaN** |
+
+So `best_mag` means "full arm, QC-passing" for 128 rows and "capped arm, no QC, neuron-only" for 55,
+and `n_rows` is arm-inconsistent the same way. That is why a single-arm live recomputation reproduces
+`capped_best_mag` 128/128 but `best_mag` only 128/167. **Reproduced deliberately, not fixed** — the
+fix changes the science and is scoped to a separate commit so it can be reviewed and reverted alone.
+
+**The four drug columns cannot be recomputed and are now vendored.** `tier_v2`, `agents_flagged`,
+`glioma_trials`, `withdrawn` came from ChEMBL and ClinicalTrials.gov via a Claude Science MCP
+connector. None of the generator's `handoff/*.json` response caches survived, and one input is
+permanently lost: a prior-session artifact addressed only as UUID
+`34d720d0-5c16-46bb-92e6-d8d6b6a02ec3`, which supplied fallback agents for genes with no ChEMBL
+mechanism record. Vendoring is lossless because all four columns are a pure function of the `axis`
+string — verified: zero disagreement across the 39 axes appearing on both nerve sides — so a 144-row
+axis-keyed snapshot reproduces all 183 rows.
+
+**Artifacts:**
+- `workflow/rules/leads.smk` (new), `workflow/scripts/nerve_immune_lead_axes.py` (new)
+- `reference/drug_annotation/` (new tracked dir — `data/` and `results/` are both gitignored, so
+  neither could host a committed input): pinned snapshot `..._2026-08-07.csv` (144 axes, sha256
+  `a80b1de3c98bd0ed5191df2101315c05f4fd8e2e72d6b3b6021fd4b615781acc`), `curated_agent_map_2026-08-07.json`,
+  `MANIFEST.json`
+- `config/config.yaml`: new `lead_axes:` block; `Snakefile`: include + `rule all` target
+- `provenance/nerve_immune_lead_axes_provenance.json` (new; FAIR validation now 68 records)
+
+**Tool Versions:** pandas 2.3.3 (`workflow/envs/scrna.yaml`), Snakemake 9.x
+
+**Verification:** dry run schedules exactly 1 job (no upstream LIANA rebuild); byte-identity gate
+passed; 183 rows / 15 columns; 128 + 55 split; `capped_best_mag` non-null on exactly the oligo rows;
+oligo `rank_full` == 1..128; neuron `rank_capped` == 1..55; tier counts match §8 of
+`markdowns/GBM_TME_Crosstalk_Analysis.md` (46/14/50/38/35); `fair_validate_metadata` passes;
+`flake8` clean. Notebook 05 was **not** re-rendered — its input is byte-identical, so Panel E cannot
+have changed.
+
+**Open Issues:**
+1. **`withdrawn` is empty in all 183 rows — a real bug, carried forward on purpose.** The generator
+   sourced it from `DRUG.withdrawn_agents`, populated by the bulk chembl_id lookup, which per the
+   export's own README does not carry withdrawal status; the corrected set came from a later by-name
+   sweep and was never written back. Recoverable — the data survives inline as `[WITHDRAWN]` tags in
+   `agents_flagged` and as the 14 axes tiered `1b_approved_withdrawn_only`.
+2. Arm-inconsistent `best_mag` / `n_rows` (see table above) — fix alongside notebook 05 Panel E and
+   §8 of the crosstalk markdown, whose 128/128 and 128/167 counts go stale the moment it changes.
+3. `rule refresh_drug_annotation` (opt-in ChEMBL + ClinicalTrials.gov REST re-query, writing a NEW
+   dated snapshot) is **specified but not yet implemented**. Until it exists the drug annotation is
+   frozen, not refreshable.
+
+**FAIR Notes:** The provenance and versioning gaps are closed — the table is now rebuildable offline
+from committed inputs, with a provenance sidecar. The *recomputability* gap is NOT closed and cannot
+be: `reference/drug_annotation/MANIFEST.json` states this plainly rather than implying otherwise,
+including that the ChEMBL release behind the snapshot was never recorded and that glioma-trial
+coverage is bounded by a hand-curated 20-agent list (absence of a trial ≠ no trial exists).

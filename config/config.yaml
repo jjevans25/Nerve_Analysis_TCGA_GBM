@@ -604,6 +604,32 @@ liana:
   max_cells_per_group: 0
 
 # -------------------------------------------------------------
+# Nerve-immune lead axes (post-compartment-fix shortlist)
+#
+# Cross-arm reproducible LR axes: an axis is a lead only if it clears the
+# significance filters in BOTH census arms. Cross-arm agreement replaces the
+# reference-cohort comparison, which is unusable post-fix (the reference nerve
+# compartment was built by the logic the fix removed).
+#
+# `drug_annotation` is a COMMITTED, VERSION-PINNED snapshot, not a computed
+# artifact. tier_v2 / agents_flagged / glioma_trials / withdrawn came from ChEMBL
+# and ClinicalTrials.gov through a Claude Science MCP connector whose response
+# caches did not survive, so they cannot be recomputed from anything in this repo.
+# `rule refresh_drug_annotation` mints a NEW dated snapshot from the public REST
+# APIs; adopting it means bumping the path below deliberately, after a diff.
+# See reference/drug_annotation/MANIFEST.json for limits.
+# -------------------------------------------------------------
+lead_axes:
+  pval_max:           0.05
+  magnitude_rank_max: 0.05
+  full_arm:           "gbm_cellxgene_56c4912d_full"
+  capped_arm:         "gbm_cellxgene_56c4912d"
+  neuron_group:       "nerve_neuron"
+  drug_annotation:    "reference/drug_annotation/nerve_immune_axis_drug_annotation_2026-08-07.csv"
+  compartment_side_oligo:  "oligodendrocyte (QC-passing)"
+  compartment_side_neuron: "neuron (pooled; donor-caveated)"
+
+# -------------------------------------------------------------
 # Compartment integrity audit (the Test Oracle)
 #
 # Cross-tabulates every compartment mask (nerve / tumor / immune) against the
