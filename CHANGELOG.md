@@ -2821,3 +2821,78 @@ that cohort — so it was left alone.
 comment explaining why the targets are absent and how to render them anyway, the notebook
 docstrings, and the rendered banner. Removing the targets silently would have looked like
 an oversight and invited someone to add them back.
+
+---
+
+### [2026-08-19] | Phase: Census notebook set replaces the archived reference set | Status: COMPLETE
+
+**Action:** Archive the five reference-cohort notebooks and replace them, where the data
+supports it, with Census-cohort notebooks.
+
+**Outcome:** `notebooks/` now holds four Census notebooks, all built by `rule all` for
+both arms. The five reference notebooks moved to `notebooks/archive/` with their rules
+deleted (see the previous entry).
+
+| archived | replacement | reason |
+|---|---|---|
+| `01_explore_gbm_data` | `01_census_cohort_qc` | 170 donors vs 17 |
+| `02_nerve_enrichment_explorer` | `02_census_nerve_enrichment` | compartment now 95.4% neural, was 11% |
+| `nerve_tumor_exploration` | — | declined; overlaps Panels C/D of notebook 05 |
+| `03_nerve_tumor_immune_explorer` | — | notebook 05 already *is* its Census equivalent |
+| `04_tme_nerve_immune_explorer` | — | same |
+| — | `06_census_compartment_audit` | **new, no ancestor possible** |
+
+**Notebook 06 is the one that could not have existed for the reference cohort** and is
+the reason the asymmetry matters: it cross-tabulates every compartment against the
+CELLxGENE author annotation, and the TCGA reference carries no author annotation at all.
+Five panels — the 10 enforcing gates with margin-to-threshold, compartment composition
+against the oracle, the malignancy confusion matrix with its false-positive breakdown,
+per-cluster nerve purity, and donor purity v1 vs scANVI-v2.
+
+**[FINDING] It immediately surfaced something no existing artifact shows.** The nerve
+compartment passes at 95.4% neural in aggregate, but **5 of 23 clusters in the full arm
+sit below the 0.80 bar** — `c12` (1,314 cells, 16% neural / 83% malignant), `c19`, `c21`,
+`c17`, `c18` — together 1,677 of 37,945 cells (4.4%), three of them majority-malignant.
+The capped arm shows 4 of 25, 1,042 of 28,936 (3.6%). This is not a regression and does
+not contradict the gate: it is the residue the mask could not separate, small enough that
+the aggregate stays well clear. But it is exactly the failure mode a per-cluster view
+exists to catch, and `batch_qc_pass` does **not** cover it — that flag is donor
+dominance, not cell identity. The panel names the clusters and says to cross-reference
+the interaction table's `nerve_cluster` column before reporting an axis resting on them.
+
+**Second finding, from notebook 01:** the capped arm needs **63 of 170 donors** to reach
+half its cells against **35 of 170** in the full arm — direct evidence that
+`subsample_per_donor` did what it was designed to do, measured rather than assumed.
+
+**Deliberately not built:** a nerve↔tumour LR notebook. `ds_nerve_tumor_interaction`
+output exists, but Panels C and D of notebook 05 already browse the three-way table that
+subsumes it; a fourth notebook would have duplicated it.
+
+**Not portable, and stated rather than faked:** `nerve_clinical_association` and
+`nerve_leiden_resolution_sweep` have no `ds_` twin, and the Census `gdc_clinical.tsv` is a
+generated stub. Clinical association is genuinely lost with the reference cohort.
+
+**Fixed while building:** `nerve_cluster_sample_purity.csv` writes `cluster` as str while
+the v2 table writes int64, so the join raised. Normalised to str and kept the join outer —
+v1 has 24 clusters and v2 20, and a cluster in only one is a real difference between
+clusterings, not missing data. The panel now says the two are different partitions so the
+scatter is not misread as paired measurements.
+
+**Verification:** all four notebooks parse, `flake8 --select=F` clean, and render for both
+arms with **0 cell errors**. Full `rule all` DAG resolves with no cyclic or missing-rule
+errors. Notebook 01 reports 170 donors / 1,020,902 cells (full) and 624,688 (capped);
+notebook 02 reports 160/460 and 180/500 enrichment rows from donor-dominated clusters;
+notebook 06 reports 10/10 gates on both arms.
+
+**Artifacts:** `notebooks/01_census_cohort_qc.py`, `notebooks/02_census_nerve_enrichment.py`,
+`notebooks/06_census_compartment_audit.py`, three new rules in `workflow/rules/notebooks.smk`,
+`Snakefile` (`rule all` now lists four Census notebooks per arm).
+
+**Open Issues:** The 5 sub-0.80-neural nerve clusters are now visible but not acted on. Whether
+to exclude them from LR aggregation, or flag axes that depend on them, is a scientific
+decision for the researcher.
+
+**FAIR Notes:** Notebook 01 globs the 170 per-donor QC files rather than declaring 340 inputs;
+`annotation_summary.csv` is the declared edge because `ds_scrna_annotate` sits downstream of
+`ds_scrna_qc` for every sample and so cannot exist before them. Stated in the rule docstring so
+the shortcut is visible rather than implicit.

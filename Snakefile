@@ -107,8 +107,12 @@ rule all:
         *[p(config["dirs"]["tables"],  d, "nerve_cluster_sample_purity_v2.csv") for d in DATASETS],
         *[p(config["dirs"]["tables"],  d, "nerve_celltype_label_summary.csv")   for d in DATASETS],
         *[p(config["dirs"]["figures"], d, "nerve_scanvi_training_curves.png")    for d in DATASETS],
-        # Replication-cohort explorer (pulls ds_nerve_cluster_annotations too).
+        # Replication-cohort explorers. These five (per arm) are the notebook set —
+        # the reference-cohort notebooks were archived on 2026-08-19, see above.
+        *[p(config["dirs"]["figures"], d, "01_census_cohort_qc.html")           for d in DATASETS],
+        *[p(config["dirs"]["figures"], d, "02_census_nerve_enrichment.html")    for d in DATASETS],
         *[p(config["dirs"]["figures"], d, "05_census_nerve_immune_explorer.html") for d in DATASETS],
+        *[p(config["dirs"]["figures"], d, "06_census_compartment_audit.html")   for d in DATASETS],
         # Cross-arm lead shortlist. Un-wildcarded: spans both census arms, so it
         # sits at the tables root rather than in either arm's namespace. Gated on
         # both arms being configured, since it intersects them.

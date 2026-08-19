@@ -22,6 +22,64 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+rule ds_census_cohort_qc_notebook:
+    """Export the cohort QC and composition explorer to HTML.
+
+    Census successor to the archived explore_gbm_notebook. The notebook globs the 170
+    per-donor `*_qc_metrics.csv` / `*_gene_presence.csv` files rather than declaring
+    them: naming 340 inputs would make the rule unreadable, and `directory()` on the
+    tables dir would make every unrelated table a rerun trigger.
+
+    `annotation_summary.csv` is the honest dependency edge — it is produced by
+    ds_scrna_annotate, which sits downstream of ds_scrna_qc for every sample, so it
+    cannot exist before the globbed files do.
+    """
+    input:
+        notebook   = "notebooks/01_census_cohort_qc.py",
+        annotation = os.path.join(config["dirs"]["tables"], "{dataset}", "annotation_summary.csv"),
+    output:
+        html       = os.path.join(config["dirs"]["figures"],    "{dataset}", "01_census_cohort_qc.html"),
+        provenance = os.path.join(config["dirs"]["provenance"], "{dataset}", "census_cohort_qc_notebook_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "{dataset}_census_cohort_qc_notebook.log"),
+    conda:
+        "../envs/notebooks.yaml",
+    resources:
+        mem_mb  = 8000,
+        threads = 1,
+    params:
+        env = lambda wc: {"GBM_DATASET": wc.dataset},
+    script:
+        "../scripts/run_notebook_export.py"
+
+
+rule ds_census_nerve_enrichment_notebook:
+    """Export the nerve-cluster GSEA enrichment explorer to HTML.
+
+    Census successor to the archived nerve_enrichment_notebook. Same question over a
+    compartment that is 95.4% neural rather than 11%.
+    """
+    input:
+        notebook    = "notebooks/02_census_nerve_enrichment.py",
+        enrichment  = os.path.join(config["dirs"]["tables"], "{dataset}", "nerve_enrichment_with_qc.csv"),
+        markers     = os.path.join(config["dirs"]["tables"], "{dataset}", "nerve_cluster_markers_with_qc.csv"),
+        annotations = os.path.join(config["dirs"]["tables"], "{dataset}", "nerve_cluster_annotations.csv"),
+    output:
+        html       = os.path.join(config["dirs"]["figures"],    "{dataset}", "02_census_nerve_enrichment.html"),
+        provenance = os.path.join(config["dirs"]["provenance"], "{dataset}", "census_nerve_enrichment_notebook_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "{dataset}_census_nerve_enrichment_notebook.log"),
+    conda:
+        "../envs/notebooks.yaml",
+    resources:
+        mem_mb  = 4000,
+        threads = 1,
+    params:
+        env = lambda wc: {"GBM_DATASET": wc.dataset},
+    script:
+        "../scripts/run_notebook_export.py"
+
+
 rule ds_census_compartment_audit_notebook:
     """Export the compartment integrity audit (Test Oracle) explorer to HTML.
 
