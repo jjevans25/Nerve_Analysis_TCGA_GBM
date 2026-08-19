@@ -2762,3 +2762,62 @@ resolves to exactly 1 job. HTML shrank ~964K→764K (full arm) and ~1.0M→804K 
 **FAIR Notes:** Removing a panel removes a claim from the record, so the notebook keeps an
 in-place comment explaining what Panel F showed, why it was withdrawn, and that the
 underlying rule still runs — future readers should not have to reconstruct that from git.
+
+---
+
+### [2026-08-19] | Phase: Demote the reference-cohort notebooks | Status: COMPLETE
+
+**Action:** Researcher asked whether the non-05 notebooks still make sense, given they
+read the pinned v1.3.0 reference. Investigated, then demoted all five.
+
+**Outcome:** `01_explore_gbm_data`, `02_nerve_enrichment_explorer`,
+`03_nerve_tumor_immune_explorer`, `04_tme_nerve_immune_explorer` and
+`nerve_tumor_exploration` are no longer built by `rule all`. Their rules remain in
+`workflow/rules/notebooks.smk` and can be invoked explicitly; the `.py` files stay.
+
+**The finding that made this urgent:** `rule all` was actively rebuilding all five. They
+are gated on `SAMPLES` (17 configured) and a dry run showed every one *pending*, so a
+plain pipeline run would regenerate five HTMLs into `results/figures/` alongside notebook
+05's, looking equally current — while every nerve-side number in them derives from the
+compartment `nerve_cell_subset.py` was fixed on 2026-08-06, which measured 59% malignant
+and 11% neural. This was not a dormant wart; it was a live source of void deliverables.
+
+Every existing render predated the fix (May 23 – Jul 26). They cannot be corrected:
+`data/processed/nerve_cells.h5ad` was deleted on 2026-07-21 and v1.3.0 is pinned and
+structurally unreproducible.
+
+**Demoted rather than deleted**, because the two things at issue are separable. The
+rendered HTMLs and the automatic rebuild were the hazard; the notebook *code* is not.
+If a v1.4.0 baseline is ever rebuilt through the corrected pipeline — which the removed
+Panel F callout explicitly contemplated — 02/03/04 become usable again immediately. The
+project already treats superseded artifacts this way: v1.3.0 stays pinned, the 2026-08-07
+annotation snapshot is kept as an audit record, feature branches are retained.
+
+**Banners added in two places per notebook**, because they serve different readers: the
+module docstring for anyone opening the `.py`, and a `kind="danger"` marimo cell placed
+second (right after imports) so it is the first thing in any rendered HTML. Both state
+what the defect was, that nerve-side claims are void, that it cannot be corrected, why the
+file is kept, and where the current analysis lives.
+
+**Stale HTMLs removed** — but only after verifying every one is re-renderable: all five
+rules had 100% of their declared inputs present on disk (2, 3, 3, 3 and 12 inputs
+respectively, 0 missing). Deleting an unreproducible record would have destroyed the only
+copy; deleting a reproducible one just removes a stale artifact.
+
+**Verification:** all six notebooks parse; `02` re-rendered end-to-end as a smoke test —
+0 tracebacks, banner present in the HTML, "59% malignant" text confirmed rendered; `rule
+all` dry run now schedules `ds_census_nerve_immune_notebook` (×2 arms) and **no** reference
+notebook rule; `results/figures/` root holds no notebook HTMLs, Census renders living
+under `results/figures/<dataset>/`.
+
+**Artifacts:** `Snakefile` (rule all block replaced with an explanatory comment carrying
+the explicit re-render command), the five notebook `.py` files.
+
+**Open Issues:** Notebook 05's docstring still names `notebooks/04_tme_nerve_immune_explorer.py`
+as the reference-cohort sibling. That remains accurate — 04 still exists and still covers
+that cohort — so it was left alone.
+
+**FAIR Notes:** Demotion is recorded in three places a reader might look: the `Snakefile`
+comment explaining why the targets are absent and how to render them anyway, the notebook
+docstrings, and the rendered banner. Removing the targets silently would have looked like
+an oversight and invited someone to add them back.
