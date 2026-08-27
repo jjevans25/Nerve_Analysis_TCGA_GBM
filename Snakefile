@@ -51,7 +51,14 @@ rule all:
     input:
         p(config["dirs"]["results"], "fair_validation_report.json"),
         *([p(config["dirs"]["tables"],         "qc_summary.csv")]                   if SAMPLES    else []),
-        *([p(config["dirs"]["data_processed"], "integrated_latent.h5ad")]           if SAMPLES    else []),
+        # `pinned_target`, not a bare path: this is a v1.3.0 reference artifact like the
+        # nerve_* targets below, and it was the one root-level `.h5ad` still demanded
+        # unconditionally. While `baseline.pinned` is true its producer (scrna_integration)
+        # IS still defined, so a missing file here schedules an ~11 h scVI retrain of the
+        # very cohort the pin exists to protect — and cascades back through scrna_qc to the
+        # GDC looms. Guarding it lets the 67 GB reference chain be reclaimed from disk
+        # without `rule all` trying to rebuild it. See CHANGELOG 2026-08-27.
+        *(pinned_target(config["dirs"]["data_processed"], "integrated_latent.h5ad")  if SAMPLES    else []),
         *([p(config["dirs"]["data_external"],  "gdc_clinical.tsv")]                 if SAMPLES    else []),
         *([p(config["dirs"]["tables"],         "annotation_summary.csv")]           if SAMPLES    else []),
         *([p(config["dirs"]["figures"],        "cnv_heatmap.png")]                  if SAMPLES    else []),

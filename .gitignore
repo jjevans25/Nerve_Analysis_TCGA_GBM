@@ -128,3 +128,6 @@ project_plan_orchestration.md
 markdowns/blocker_full_cohort_annotate_venv_conda_shadowing.md
 markdowns/status_full_cohort_run_20260802.md
 markdowns/task_conda_env_enforcement.md
+
+# ── Local reclamation archives (large; belong in the Zenodo deposit, not git) ──
+v1.3.0_reference_archive_*.tar.gz

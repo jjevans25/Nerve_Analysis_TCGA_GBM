@@ -155,24 +155,54 @@ gene_symbol_map:
   chunk_size:      1000              # MyGene recommends ≤1000 per POST
   request_timeout: 60                # seconds
 
-samples:
-  - 06820e2c-9eb7-4e71-a1c3-976d561e659d
-  - 08418175-0464-4b33-86e3-416c30189bd2
-  - 18d92af9-a7d0-47f2-84e2-6f4cc0dee298
-  - 20e86156-cdd7-4bea-8b17-2e630720df44
-  - 21521784-3a62-4989-bd29-0f920e1eaa2b
-  - 44dcf3b7-977a-410f-8901-412697377924
-  - 4a0d48cd-1c46-4d59-b4b0-ae842bf1323c
-  - 5212fe36-192c-44a3-88f4-4c6e696b583c
-  - 7eac574d-04fa-435d-8b4d-35da0100ecb9
-  - 8c0685b3-521e-45a6-9677-f8e3f186e09b
-  - 903b7af4-a936-4c0e-8cff-87085c3faa31
-  - 9079231e-6906-4548-9f4f-684a86ed9b16
-  - 9f0f5520-2bc4-47ba-9966-0831f11ae5fd
-  - ae4dc06f-fc6d-4557-9a22-ab81504c2953
-  - c8ea9c15-368d-460c-9775-5037a5f1790a
-  - da98ea54-62c1-4b95-acaa-1dcd98e53c12
-  - f8b54be7-f58e-4881-9147-40df9cef487b
+# -------------------------------------------------------------
+# Reference cohort (v1.3.0) — RETIRED FROM `rule all` 2026-08-27.
+#
+# Emptied, not deleted: every reference target in `rule all` is written
+# `... if SAMPLES else []`, so an empty list drops the whole reference block from
+# the default target. The 17 GDC accessions are preserved below as the record of
+# what the cohort was; restoring the list restores the old behaviour exactly.
+#
+# Why this had to happen:
+#   1. The cohort was ALREADY archived in substance — `baseline.pinned: true`, its
+#      producing rules are undefined, `data/processed/nerve_cells.h5ad` was destroyed
+#      2026-07-21, its notebooks are in `notebooks/archive/`, and the README states it
+#      is not a valid comparator. Only `rule all` still acted as though it were live.
+#   2. It was silently DIRTY. `data/external/ensembl/ensembl113_gene_positions.tsv` was
+#      rebuilt by the 2026-08-05/06 compartment fix (defect D4, coordinate-ordered
+#      genes) and is newer than `malignancy_labeled.h5ad`, so a bare
+#      `run_snakemake.sh --use-conda --cores all` would have re-run CNV on the pinned
+#      reference. Measured: 11 scheduled jobs with the list populated, 7 with it empty,
+#      the four disappearing rules being scrna_malignancy, scrna_qc_report,
+#      immune_cell_subset and immune_cluster_annotations.
+#   3. It let the 67 GB reference chain be reclaimed from disk without any target
+#      demanding a rebuild. See CHANGELOG 2026-08-27.
+#
+# The reference's surviving DELIVERABLES are untouched by this and remain on disk:
+# `results/tables/*.csv` (incl. the table `ds_cohort_concordance` reads), root figures,
+# `provenance/*.json`, and the 37 sha256-pinned artifacts. Archived to
+# `v1.3.0_reference_archive_2026-08-27.tar.gz` (163 files, verified 163/163).
+#
+# Restore with: replace `samples: []` with the commented list below.
+# -------------------------------------------------------------
+samples: []
+#  - 06820e2c-9eb7-4e71-a1c3-976d561e659d
+#  - 08418175-0464-4b33-86e3-416c30189bd2
+#  - 18d92af9-a7d0-47f2-84e2-6f4cc0dee298
+#  - 20e86156-cdd7-4bea-8b17-2e630720df44
+#  - 21521784-3a62-4989-bd29-0f920e1eaa2b
+#  - 44dcf3b7-977a-410f-8901-412697377924
+#  - 4a0d48cd-1c46-4d59-b4b0-ae842bf1323c
+#  - 5212fe36-192c-44a3-88f4-4c6e696b583c
+#  - 7eac574d-04fa-435d-8b4d-35da0100ecb9
+#  - 8c0685b3-521e-45a6-9677-f8e3f186e09b
+#  - 903b7af4-a936-4c0e-8cff-87085c3faa31
+#  - 9079231e-6906-4548-9f4f-684a86ed9b16
+#  - 9f0f5520-2bc4-47ba-9966-0831f11ae5fd
+#  - ae4dc06f-fc6d-4557-9a22-ab81504c2953
+#  - c8ea9c15-368d-460c-9775-5037a5f1790a
+#  - da98ea54-62c1-4b95-acaa-1dcd98e53c12
+#  - f8b54be7-f58e-4881-9147-40df9cef487b
 
 # -------------------------------------------------------------
 # Replication cohorts (cohort-namespaced parallel track)
