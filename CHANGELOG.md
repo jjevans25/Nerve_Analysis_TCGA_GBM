@@ -2958,3 +2958,274 @@ six re-rendered HTMLs.
 **FAIR Notes:** The QC thresholds used for the funnel are read from `config.scrna` rather
 than hardcoded — if they change and the notebook is not re-run, the funnel would otherwise
 silently describe a filter that no longer exists.
+
+---
+
+## [2026-08-27] Disk reclamation Tier 1 — git garbage pack + SCP393 cohort removed
+
+**Phase:** Housekeeping ahead of public release. No analytical artifact touched; no rule re-run.
+
+**Trigger:** The project directory measured **176 GB**, crowding out other work on the machine.
+`data/` accounts for 154 GB of it. This entry covers only Tier 1 — items carrying zero
+scientific risk. Tiers 2 and 3 are proposed but **NOT executed**, pending researcher approval.
+
+### Removed 1 — `.git/objects/pack/tmp_pack_xP24MQ` (2.5 GB)
+
+A leftover temporary pack from a `git repack`/`gc` interrupted on 2026-04-18. Git itself
+classified it as unreachable garbage, not as a pack in use:
+
+    before:  count: 1071  size: 70396 KB  in-pack: 0  packs: 0  size-pack: 0
+             garbage: 1   size-garbage: 2599654 KB
+
+Every reachable object in the repository was loose (~70 MB); the 2.5 GB file was referenced
+by nothing.
+
+**Verification before deletion (goal-backward):** full `git fsck --no-progress` reported only
+`dangling` entries — no missing or broken objects. The file was then *renamed out of*
+`.git/objects/` rather than deleted outright, and the repository was re-verified in that state:
+`git fsck` clean, `git count-objects -v` reporting `garbage: 0`, `HEAD` resolving to `c08aa4c`,
+`git log` and `git status` normal, and **all five branches resolving** (`main`, plus the four
+feature branches, which are retained as audit trail and were not touched). Only after that did
+the quarantined copy get deleted.
+
+    after `git gc --prune=now`:  count: 0  in-pack: 1055  packs: 1  size-pack: 12.78 MiB
+
+`.git/` is now **13 MB**, down from 2.5 GB. No history, ref, or branch was altered.
+
+### Removed 2 — `broad_data/SCP393/` (1.3 GB, 13 files)
+
+The Neftel et al. IDHwt-GBM replication cohort, triaged 2026-07-16 and **superseded that same
+day** by the CELLxGENE Census pull (`cellxgene_data/gbm_10x_raw.h5ad`, 1.29M cells), which was
+assessed HIGH suitability where SCP393's nerve arm was too thin. See
+`markdowns/assessment_cellxgene_gbm_cohort.md`.
+
+**Verification before deletion:** untracked by git (`git ls-files broad_data/` → 0), and
+unreferenced across `workflow/`, `config/`, `scripts/`, `Snakefile`, and `notebooks/` by a
+recursive grep for `broad_data` and `SCP393` over all `.py`/`.smk`/`.yaml`/`.yml`/`.sh` files.
+No file had been modified since the 2026-07-17 triage.
+
+**Manifest of removed files** (re-downloadable from the Broad Single Cell Portal, accession
+SCP393 — this is published third-party data, not a project-generated artifact):
+
+    569M  other/IDHwtGBM.processed.SS2.CNA.txt
+    416M  expression/5e16df92771a5b0eb30ca010/IDHwtGBM.processed.10X.counts.mtx
+    296M  expression/IDHwtGBM.processed.SS2.logTPM.txt.gz
+     26M  expression/5e16dae3771a5b0eb30c9ff8/IDHwtGBM.processed.10X.counts.2.mtx
+    1.4M  metadata/IDHwt.GBM.Metadata.SS2.txt
+    plus 8 files under 1 MB (genes/cells TSVs, cluster, documentation, supplemental info)
+
+### Outcome
+
+**3.8 GB reclaimed. 176 GB → 172 GB.** No analytical artifact, provenance record, or pinned
+reference was affected; `results/`, `provenance/`, `data/`, and `.snakemake/conda/` untouched.
+
+**Open Issues:**
+
+- **Tier 2 (~69 GB, awaiting researcher go-ahead).** The archived TCGA reference cohort:
+  67 GB of root-level `data/processed/*.h5ad` (17 sample pairs at 42 GB + its scVI chain at
+  24 GB) plus `data/raw/gdc_extract/` at 2.3 GB. `ds_cohort_concordance` reads only
+  `results/tables/nerve_tumor_immune_interactions_with_qc.csv`, so no `.h5ad` is required by
+  any surviving deliverable.
+  **BLOCKER — must be fixed first:** `Snakefile:54` requests
+  `data/processed/integrated_latent.h5ad` whenever `samples:` is non-empty and is **not**
+  wrapped in `pinned_target()`, unlike the ~15 lines below it. Deleting the h5ads without
+  first setting `samples: []` or adding that guard would schedule an ~11 h scVI retrain of
+  the very cohort `baseline.pinned` exists to protect. Same exposure on `qc_summary.csv`,
+  `annotation_summary.csv`, `cnv_heatmap.png`, and the `immune_*` root targets.
+- **Tier 3 (~37 GB, not scheduled).** The 680 per-donor `{donor}.h5ad` / `{donor}_qc.h5ad`
+  files across both live Census arms — deterministic derivatives of the 7.1 GB Census pull via
+  `ds_ingest_dataset` → `ds_scrna_qc`, no scVI involved. Verify with a dry run before and
+  after; sequence after Tier 2 so two changes are never in flight at once.
+
+**FAIR Notes:** Both removals are of **non-project-generated** data — one a git internal
+temp file, one a published third-party cohort retrievable from its original accession. No
+project-generated intermediate artifact was deleted, so no provenance record was orphaned.
+The SCP393 manifest is recorded above so the removal is auditable and the cohort is
+re-obtainable at its stated accession.
+
+---
+
+## [2026-08-27] Disk reclamation Tier 2, Step 0 — v1.3.0 reference archived; a pinned artifact found inside the proposed deletion set
+
+**Phase:** Housekeeping. Step 0 of the Tier 2 plan (see previous entry). **No deletion performed.**
+
+### Why this step existed
+
+The surviving v1.3.0 reference output is explicitly unreproducible (`baseline.pinned: true`, the
+producing rules are not defined, `data/processed/nerve_cells.h5ad` destroyed 2026-07-21). It lives
+under `results/` and `provenance/*`, both of which are **gitignored** — so it existed in exactly one
+place on one disk, with 65 GB of deletions about to happen around it.
+
+### FINDING — a pinned artifact was inside the Wave B deletion set
+
+`provenance/pinned_reference_v1.3.0.json` defines the reference as **37 artifacts** under sha256
+drift detection. Reading it rather than trusting the directory layout revealed that
+
+    data/processed/nerve_cells_counts.h5ad   1,544,544,351 bytes
+
+is artifact #1 of those 37 — and it sits in the root `data/processed/` chain that the Tier 2 plan
+proposed deleting in Wave B. Deleting it would have flipped
+`results/pinned_reference_verification.json` from `pass: true, n_missing: 0` to a failing state and
+destroyed a pinned, unreproducible artifact.
+
+**Correction to the Tier 2 plan: `data/processed/nerve_cells_counts.h5ad` is now EXCLUDED from
+deletion.** It is the only root-level `.h5ad` appearing in the pinned manifest; the 17 sample pairs,
+`integrated_latent`, `annotated`, `malignancy_labeled`, `immune_cells{,_labeled}`, `nerve_cells_v2`
+and `nerve_cells_counts_labeled` are **not** in it and remain in scope.
+
+### Integrity verified before and after
+
+All 37 pinned artifacts re-hashed against the 2026-07-29 freeze: **37/37 byte-identical, zero
+drift**, both before archiving and again afterwards. The reference has not moved since it was frozen.
+
+### Archive created
+
+`v1.3.0_reference_archive_2026-08-27.tar.gz` — 83 MB raw, **26 MB compressed**, 163 files:
+
+- all root-level `results/tables/*.csv|json` (64 files, incl. the 19 MB
+  `nerve_tumor_immune_interactions_with_qc.csv` that `ds_cohort_concordance` reads)
+- all root-level `results/figures/*.png`
+- all 70 `provenance/*.json`, including `pinned_reference_v1.3.0.json` itself
+- `results/{fair_validation_report,conda_env_smoke_test,pinned_reference_verification}.json`
+  and `snakemake_report.html`
+- `data/raw/gdc_extract/MANIFEST.txt` — ids + md5s for all 17 GDC looms, which is what makes the
+  2.3 GB of raw loom data re-downloadable rather than lost
+- `SHA256SUMS.txt` covering all 163
+
+**Deliberately excluded:** `data/processed/nerve_cells_counts.h5ad` (1.54 GB). It is no longer being
+deleted, so it needs no deletion-protection, and including it would have bloated a 26 MB archive to
+1.6 GB for no gain. It remains single-copy on disk — see Open Issues.
+
+**Verification (goal-backward, not assumed):** the tarball was extracted to a clean directory and
+every file checked against its recorded hash — **163/163 OK, 0 failed**. An unverified archive is
+not a backup.
+
+    sha256(v1.3.0_reference_archive_2026-08-27.tar.gz)
+      = f5f788d6f79a88bcf52db7b0c0be762ec83bd78c377ec4b611ee9f733557cfc7
+
+**Open Issues:**
+
+- **The archive is still on the same disk it protects against.** It guards the deletion operation,
+  not drive failure. 26 MB — it should go to the Zenodo deposit already needed for the public
+  notebook release, or any off-machine backup.
+- **`data/processed/nerve_cells_counts.h5ad` (1.54 GB) remains single-copy and unreproducible.**
+  Not at risk from Tier 2 any more, but it belongs in a real off-machine backup alongside the
+  archive.
+- Tier 2 Steps 1-7 remain **not started**, pending researcher go-ahead. Revised recovery:
+  ~63 GB (Wave A 42 GB + Wave B 20.9 GB), down from the 65 GB estimated before this finding.
+
+**FAIR Notes:** The archive scope was derived from `pinned_reference_v1.3.0.json` — the project's
+own declaration of what the reference *is* — rather than from directory structure. That is what
+surfaced the misplaced 1.54 GB artifact; a scope guessed from `du` output would have deleted it.
+
+### Addendum — Steps 1-2 (guard + dry run). Two further findings; HOLDING before any deletion.
+
+**Step 1 applied:** `Snakefile:54` now wraps `integrated_latent.h5ad` in `pinned_target()`, matching
+the ~15 pinned targets below it. Confirmed **inert while the file exists** — `pinned_target` returns
+the path unchanged, and the dry run still lists it in `rule all: input:`. It only takes effect once
+the file is gone.
+
+**FINDING A — the reference cohort is ALREADY dirty, independent of this cleanup.** A dry run at
+the project's canonical invocation (`--use-conda --rerun-triggers mtime`) schedules **11 jobs**, four
+of which are reference-cohort rules:
+
+| rule | why | consequence |
+|---|---|---|
+| `scrna_malignancy` | `data/external/ensembl/ensembl113_gene_positions.tsv` is newer than `malignancy_labeled.h5ad` | would **re-run reference CNV** |
+| `scrna_qc_report` | 4 of 17 `_qc_metrics.csv` newer than `qc_summary.csv` (2026-05-24) | rebuilds `qc_summary.csv` |
+| `immune_cell_subset`, `immune_cluster_annotations` | downstream of the above | rebuild immune artifacts |
+
+The gene-positions file was rebuilt by the 2026-08-05/06 fix (defect D4, coordinate-ordered genes).
+So **a bare `scripts/run_snakemake.sh --use-conda --cores all` today would already attempt to re-run
+CNV on the pinned reference** — a pre-existing landmine, not something this cleanup introduced.
+(A bare dry run *without* `--rerun-triggers mtime` schedules **778** jobs on code/env/param triggers,
+which is why every documented invocation in this project pins that flag.)
+
+**FINDING B — the one-line guard from Step 1 is NOT sufficient for Wave B.** Because
+`scrna_malignancy` is already scheduled, deleting its input `annotated.h5ad` makes it unsatisfiable
+and it schedules `scrna_annotate` -> `scrna_integration` (~11 h scVI) -> `scrna_qc` x17 -> the GDC
+looms. `pinned_target` only suppresses a *missing* file that `rule all` requests directly; it cannot
+suppress a dirty rule whose other outputs (`cnv_heatmap.png`, `annotation_summary.csv`) are still
+demanded unguarded and still exist.
+
+**Measured fix — `samples: []`.** Re-running the dry run with `--config 'samples=[]'` collapses every
+`if SAMPLES else []` guard and drops the reference from `rule all` entirely:
+
+    default (samples populated):  11 jobs  — incl. scrna_malignancy, scrna_qc_report,
+                                             immune_cell_subset, immune_cluster_annotations
+    with samples=[]:               7 jobs  — all four reference rules GONE; the remaining 7 are
+                                             Census-arm/cross-arm work unrelated to this cleanup
+
+**Revised Step 1: set `samples: []` in `config/config.yaml`** (the `pinned_target` guard is retained
+as correct-by-symmetry, and protects the case where `samples:` is ever restored). This both unblocks
+Wave B and defuses Finding A. It is a config change only, fully reversible, and matches the fact
+that the reference is already retired per README and `baseline.pinned`.
+
+**Status: HOLDING.** Steps 0-2 complete, nothing deleted. Steps 3+ (Wave A, 42 GB) await researcher
+go-ahead on the revised Step 1.
+
+---
+
+## [2026-08-27] Disk reclamation Tier 2, Steps 1-3 — reference retired from `rule all`; Wave A executed
+
+**Phase:** Housekeeping. Revised Step 1 + Step 3 (Wave A). Wave B **not** executed.
+
+### Step 1 — `samples: []` in `config/config.yaml`
+
+The 17 GDC accessions are **commented out in place, not deleted**, with a restore note; every
+reference target in `rule all` is written `... if SAMPLES else []`, so an empty list drops the whole
+reference block from the default target and restoring the list restores prior behaviour exactly.
+
+Rationale recorded inline in `config.yaml`: the cohort was already archived in substance
+(`baseline.pinned: true`, producing rules undefined, `nerve_cells.h5ad` destroyed 2026-07-21,
+notebooks in `notebooks/archive/`, README calls it not a valid comparator) — only `rule all` still
+treated it as live — **and** it was silently dirty against post-fix gene positions.
+
+`Snakefile:54`'s `pinned_target()` guard from the previous entry is retained as correct-by-symmetry;
+it becomes the active protection if `samples:` is ever restored.
+
+**Verified:** config parses, `samples == []`, both Census datasets present, `baseline.pinned` still
+`True`. Dry run **11 jobs -> 7 jobs**, with `scrna_malignancy`, `scrna_qc_report`,
+`immune_cell_subset` and `immune_cluster_annotations` gone. The 7 remaining are Census-arm and
+cross-arm jobs that were already pending and are unrelated to this cleanup.
+
+### Step 3 — Wave A: 17 reference sample pairs deleted (45.5 GB)
+
+**Deletion set built programmatically from the captured accession list, not from a shell glob**, and
+gated on four assertions that all had to pass before any `rm`:
+
+1. exactly 34 files (17 accessions x `{,_qc}.h5ad`)
+2. **none present in `pinned_reference_v1.3.0.json`** — the check that caught `nerve_cells_counts.h5ad`
+   in Step 0
+3. all 34 exist
+4. every path is root-level `data/processed/` — structurally cannot touch a namespaced Census arm
+
+    data/processed: 151G -> 109G     34/34 removed, none remaining
+
+### Post-deletion verification (goal-backward)
+
+| check | result |
+|---|---|
+| pinned reference re-hashed | **37/37 unchanged**, 0 drifted, 0 missing |
+| dry run job count | **7 — identical to pre-deletion** |
+| `scrna_qc` / `scrna_integration` scheduled? | **no** — no cascade, the ~11 h scVI retrain did not arm |
+| Census arms | untouched, both still resolve |
+
+**Outcome: 45.5 GB reclaimed. Project 172 GB -> 130 GB** (176 GB at session start).
+
+**Open Issues:**
+
+- **Wave B not executed** (~20.9 GB), pending researcher go-ahead. Remaining root `data/processed`:
+  `malignancy_labeled` 5.7G, `annotated` 5.7G, `integrated_latent` 5.6G, `immune_cells_labeled` 1.6G,
+  `immune_cells` 1.6G — plus `data/raw/gdc_extract/` 2.3 GB (keep `MANIFEST.txt`).
+  **Excluded from Wave B by decision:** `nerve_cells_counts.h5ad` (1.4G, sha256-pinned) and, held
+  back as higher-risk, `nerve_cells_v2.h5ad` (1.5G) + `nerve_cells_counts_labeled.h5ad` (1.4G) — the
+  scANVI-v2 branch is deliberately NOT pinned, so its rules exist and could schedule against the
+  already-destroyed `nerve_cells.h5ad`.
+- The 26 MB archive still sits on the disk it protects; it belongs off-machine.
+- `CHANGELOG.md`, `Snakefile`, `config/config.yaml` modified and uncommitted.
+
+**FAIR Notes:** No pinned artifact, provenance record, or `results/` deliverable was touched. The
+reference's citable output survives intact on disk *and* in the verified archive; what was removed
+was per-sample intermediate input, regenerable in principle from the GDC looms via the retained
+`MANIFEST.txt` md5s.
