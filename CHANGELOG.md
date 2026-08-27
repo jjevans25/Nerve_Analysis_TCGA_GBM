@@ -3296,3 +3296,78 @@ first proving the manifest matched would have made the loss silent and permanent
 input carrying a verified md5 in a retained manifest. No pinned artifact, no `provenance/` record,
 no `results/` deliverable, and no Census-arm file was touched. The reference's citable output
 survives on disk and in a checksum-verified archive.
+
+---
+
+## [2026-08-27] Disk reclamation Tier 3 — per-donor Census intermediates removed. 176 GB -> 71 GB.
+
+**Phase:** Housekeeping, final tier. Both **live** Census arms — a different risk class from Tier 2.
+
+### Why this needed a different method
+
+Tier 2 operated on a retired cohort whose producing rules are undefined (`baseline.pinned`). Tier 3
+touches the two **active** arms, whose `ds_ingest_dataset` and `ds_scrna_qc` rules exist and are
+reachable from `rule all`. A missing declared output normally schedules its producer, so the danger
+was cascading into `ds_scrna_integration` — an ~11 h scVI train, twice.
+
+**Files were therefore MOVED to a staging directory on the same filesystem, not deleted**, and the
+DAG was interrogated in that state before anything became irreversible. An instant rename is a free
+experiment; a deletion is not.
+
+    stage capped arm (340 files)   -> dry run: 7 jobs, unchanged
+    stage full arm too (340 files) -> dry run: 7 jobs, unchanged
+    => no ds_scrna_qc, no ds_ingest_dataset, no ds_scrna_integration scheduled
+    => only then: rm -rf staging
+
+Snakemake does not regenerate an input whose downstream output is already up to date, so the arms
+remain satisfied from their chain artifacts alone. This was **verified, not assumed** — the reasoning
+above is exactly the kind that is right in principle and wrong in practice often enough to test.
+
+### Removed (680 files, 37 GB)
+
+Per-donor `{donor}.h5ad` and `{donor}_qc.h5ad` for all 170 donors in each arm:
+
+    gbm_cellxgene_56c4912d        340 files, 26.1 GB
+    gbm_cellxgene_56c4912d_full   340 files, 13.6 GB
+    data/  89G -> 52G
+
+Both arms retain their full chain — `integrated_latent`, `annotated`, `malignancy_labeled`,
+`immune_cells{,_labeled}`, `nerve_cells{,_v2,_counts,_counts_labeled}` — plus `gene_symbol_map.tsv`.
+
+**Regenerable:** these are deterministic derivatives of `cellxgene_data/gbm_10x_raw.h5ad` (7.1 GB,
+retained) via `ds_ingest_dataset` -> `ds_scrna_qc`. No scVI, no MPS training.
+
+### Verification
+
+| check | result |
+|---|---|
+| dry run | **7 jobs — unchanged across all three tiers** |
+| pinned reference | **37/37 unchanged**, 0 drifted, 0 missing |
+| arm chains | 22 GB + 26 GB, complete |
+| notebook inputs | 170 `_qc_metrics.csv` + 170 `_gene_presence.csv` per arm, all present |
+| `results/tables/{arm}/` | 48 MB + 57 MB, intact |
+
+### Session outcome — all tiers
+
+    176 GB -> 71 GB      105 GB reclaimed (60%)
+
+    Tier 1  git garbage pack + SCP393            3.8 GB
+    Tier 2  Wave A, 17 reference sample pairs   45.5 GB
+    Tier 2  Wave B, reference chain + looms     24.1 GB
+    Tier 3  680 per-donor Census intermediates  37.0 GB
+
+Remaining 71 GB: `data/` 52 GB (both live arm chains), `.snakemake/conda/` 8.2 GB (path-keyed,
+never rebuild), `cellxgene_data/` 7.1 GB (the Census source), `claude_science/` 2.3 GB,
+`results/` 1.1 GB.
+
+**Open Issues:**
+
+- **Nothing further is safe to delete without losing something expensive or unreproducible.** The
+  remaining `data/` is scVI output; `.snakemake/conda/` is explicitly protected by CLAUDE.md.
+- **Off-machine backup is now the outstanding risk, not disk space.** Single-copy and unreproducible:
+  `v1.3.0_reference_archive_2026-08-27.tar.gz` (26 MB) and `data/processed/nerve_cells_counts.h5ad`
+  (1.4 GB, sha256-pinned). Both belong in the Zenodo deposit required for the public notebook release.
+
+**FAIR Notes:** No pinned artifact, provenance record, `results/` deliverable, or arm chain artifact
+was touched in any tier. Everything removed was a regenerable intermediate or raw input with a
+retained, verified checksum manifest.
