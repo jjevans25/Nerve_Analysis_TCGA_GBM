@@ -3229,3 +3229,70 @@ gated on four assertions that all had to pass before any `rm`:
 reference's citable output survives intact on disk *and* in the verified archive; what was removed
 was per-sample intermediate input, regenerable in principle from the GDC looms via the retained
 `MANIFEST.txt` md5s.
+
+---
+
+## [2026-08-27] Disk reclamation Tier 2, Step 5 — Wave B executed. Tier 2 complete.
+
+**Phase:** Housekeeping, final Tier 2 step. 176 GB -> **107 GB** across the session.
+
+### Removed (22 files, 24.1 GB)
+
+Five root-level reference chain artifacts — `malignancy_labeled.h5ad`, `annotated.h5ad`,
+`integrated_latent.h5ad`, `immune_cells.h5ad`, `immune_cells_labeled.h5ad` — plus the 17 GDC
+`.seurat.1000x1000.loom` files under `data/raw/gdc_extract/`.
+
+**Held back by decision (4.3 GB), as planned:**
+
+| file | reason |
+|---|---|
+| `nerve_cells_counts.h5ad` | sha256-pinned artifact #1 of the 37 |
+| `nerve_cells_v2.h5ad` | scANVI-v2 branch, deliberately NOT pinned — its rules exist |
+| `nerve_cells_counts_labeled.h5ad` | same branch |
+
+### The looms are recoverable, and that was verified rather than assumed
+
+`data/raw/gdc_extract/MANIFEST.txt` was **kept** (and is inside the archive). Before deleting, all
+17 looms were hashed against it: **17/17 md5 and byte-size identical to their GDC records**, so the
+2.3 GB is re-downloadable with `gdc-client download -m MANIFEST.txt`. Deleting the looms without
+first proving the manifest matched would have made the loss silent and permanent.
+
+    data/  111G -> 89G          22/22 removed, MANIFEST.txt retained
+
+### Post-deletion verification
+
+| check | result |
+|---|---|
+| pinned reference re-hashed | **37/37 unchanged**, 0 drifted, 0 missing |
+| dry run | **7 jobs — unchanged from before Wave A** |
+| `scrna_*` cascade armed? | **no** |
+| Census arms | 46 GB + 38 GB, both intact |
+| reference deliverables | 64 root `results/tables` files, 70 `provenance/*.json`, and the 19 MB table `ds_cohort_concordance` reads — all present |
+| held-back files | all 3 present |
+
+### Session outcome
+
+    176 GB -> 107 GB      69 GB reclaimed
+
+    Tier 1  git garbage pack + SCP393            3.8 GB
+    Wave A  17 reference sample pairs           45.5 GB
+    Wave B  reference chain + GDC looms         24.1 GB
+
+`data/` is now 89 GB, of which 84 GB is the two live Census arms — legitimate working data.
+
+**Open Issues:**
+
+- **Tier 3 (~37 GB) remains available and unstarted** — the 680 per-donor `{donor}{,_qc}.h5ad`
+  files across both Census arms, deterministic derivatives of the 7.1 GB Census pull via
+  `ds_ingest_dataset` -> `ds_scrna_qc`, no scVI involved. Would land the project near 70 GB.
+- **The 26 MB archive is still on the disk it protects.** It guards against the deletions performed
+  here, not drive failure. `nerve_cells_counts.h5ad` (1.4 GB, pinned, unreproducible) is likewise
+  single-copy. Both belong in the Zenodo deposit needed for the public notebook release.
+- The reference cohort is now **retired in fact as well as in documentation**. Anything that wants
+  to rebuild it needs the GDC looms re-downloaded and `samples:` restored — and per
+  `markdowns/plan_pin_v1_3_0_reference.md` it still would not reproduce v1.3.0.
+
+**FAIR Notes:** Every removed byte was either (a) a per-sample or chain *intermediate*, or (b) raw
+input carrying a verified md5 in a retained manifest. No pinned artifact, no `provenance/` record,
+no `results/` deliverable, and no Census-arm file was touched. The reference's citable output
+survives on disk and in a checksum-verified archive.
