@@ -394,8 +394,11 @@ The full-arm run modelled:
 | nerve | 37,945 | 21 |
 | immune | 593,264 | 5 subtypes |
 
-producing **44,139 LR rows, 2,673 significant** at `magnitude_rank ≤ 0.05` —
-30,622 immune–nerve, 11,280 nerve–tumor, 2,237 immune–tumor. Immune subtypes are
+producing **44,139 LR rows, 2,673 significant** at `magnitude_rank ≤ 0.05`. By
+interface those 44,139 split 30,622 immune–nerve / 11,280 nerve–tumor / 2,237
+immune–tumor; the 2,673 significant ones split 2,118 / 459 / 96, so the immune–nerve
+interface both dominates the tested space and survives it at the highest rate.
+Immune subtypes are
 `microglia`, `tam`, `t_cell`, `nk_cell`, `dendritic`. Runtime for the three-way
 call on ~952k labelled cells × 24,135 genes: roughly ten minutes.
 
@@ -630,8 +633,10 @@ committed as audit records, marked do-not-edit — each is what was true at its 
 
 ## 9. Reading the output honestly
 
-Four caveats travel with every result above, and all four are surfaced in the
-notebook itself rather than buried here.
+Five caveats travel with every result above. Four are surfaced in the notebook
+itself rather than buried here; the fifth — the per-cluster purity tail — is
+currently visible only in `nerve_compartment_cluster_audit.csv` and notebook 06,
+not on the interaction rows it affects.
 
 **Masked labels are a decision, not a finding.** `astrocyte`, `opc`, generic
 `neuron` and `ependymal` are absent from the interaction tables because they were
@@ -648,11 +653,37 @@ should either state this plainly or be restricted to axes surviving a
 leave-that-donor-out check. The glial side is well-powered by contrast: 33,670
 cells at **95.8 % neural** against the Census oracle.
 
-**Batch QC flags, it does not clean.** 9 of 24 nerve groups fail the
-dominant-sample test, and 15,504 LR rows carry `batch_qc_pass = False`. They are
+**Batch QC flags, it does not clean.** 8 of the full arm's 20 nerve groups fail the
+dominant-sample test, and 15,504 of its 44,139 LR rows carry `batch_qc_pass = False`
+(the capped arm: 7 of 21 groups, 18,602 of 50,777 rows). They are
 retained deliberately — the dominance test cannot distinguish "real biology
 preserved in one donor's tissue" from "patient-driven artifact", so dropping them
 automatically would discard real signal.
+
+**And the dominance test is not a purity test — one cluster shows why.** The 95.4 %
+aggregate is an average over 23 nerve clusters, and five of them sit below the 0.80
+neural bar that the compartment gate applies to the compartment as a whole: **cl12**
+(1,314 cells, **83.5 % malignant** against the Census oracle), cl19 (106, 91.5 %
+malignant), cl21 (19, 84.2 % malignant), cl17 (125, 71.2 % plasma cell) and cl18
+(113, 38.9 % vascular) — 1,677 cells, 4.4 % of the compartment. These are the
+residual of a malignancy call with recall 0.894: the errors do not spread evenly,
+they pool into particular clusters.
+
+Four of the five reach the interaction tables, carrying 5,665 rows (12.8 %) and 332
+of the 2,673 significant ones (12.4 %). Three are caught by `batch_qc_pass` — but
+incidentally, for donor dominance, not for impurity. **cl12, the worst of them,
+passes**: 7 contributing donors at a dominant-sample fraction of 0.4368 is a
+perfectly healthy donor spread. Purity and donor diversity are independent failure
+modes and only one of them has a flag.
+
+The headline shortlist is mostly robust to this, and the exact exposure is worth
+stating rather than waving at: 27 of the 144 cross-arm axes draw *some* significant
+support from a purity-failing cluster, but only **three rest on one entirely** —
+`APOE|SCARB1`, `BCAN|EGFR` and `IGSF11|VSIR`, all from cl12 alone. `BCAN|EGFR` is
+the one to look at hardest: it sits at rank 68 in tier 1 (`approved_available`, on
+EGFR's long agent list) on the strength of a **single** LR row. A reader filtering the
+dashboard to tier 1 will find it, and nothing currently on the row says its only
+support is a cluster the oracle calls malignant.
 
 **`cellphone_pvals = 0` does not mean p = 0.** It is an empirical permutation
 p-value at `n_perms = 1000`, so the smallest resolvable value is 0.001 and `0.000`
