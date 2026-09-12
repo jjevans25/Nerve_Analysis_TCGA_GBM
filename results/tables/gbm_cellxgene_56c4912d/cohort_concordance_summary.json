@@ -1,0 +1,19 @@
+{
+  "dataset": "gbm_cellxgene_56c4912d",
+  "reference_table": "results/tables/nerve_tumor_immune_interactions_with_qc.csv",
+  "dataset_table": "results/tables/gbm_cellxgene_56c4912d/nerve_tumor_immune_interactions_with_qc.csv",
+  "pval_max": 0.05,
+  "pair_key_columns": [
+    "source_compartment",
+    "target_compartment",
+    "ligand_complex",
+    "receptor_complex"
+  ],
+  "n_reference_significant_pairs": 3368,
+  "n_dataset_significant_pairs": 2585,
+  "n_shared_pairs": 1914,
+  "n_union_pairs": 4039,
+  "jaccard_overlap": 0.4739,
+  "spearman_rho_shared": 0.662,
+  "spearman_pvalue_shared": 0.0
+}

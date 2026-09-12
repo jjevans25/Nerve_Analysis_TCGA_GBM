@@ -1,0 +1,95 @@
+{
+  "checked_at_utc": "2026-08-05T22:04:26.806751+00:00",
+  "sys_executable": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/.snakemake/conda/e1881780665e0334f6bb5b23104092bb_/bin/python3.12",
+  "conda_prefix": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/.snakemake/conda/e1881780665e0334f6bb5b23104092bb_",
+  "virtual_env": "",
+  "pass": true,
+  "n_checks": 14,
+  "n_failed": 0,
+  "checks": [
+    {
+      "check": "interpreter_is_conda_env",
+      "observed": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/.snakemake/conda/e1881780665e0334f6bb5b23104092bb_/bin/python3.12",
+      "pass": true,
+      "detail": "sys.executable must be $CONDA_ENV/bin/python, not the claude_science venv"
+    },
+    {
+      "check": "virtual_env_unset",
+      "observed": "<unset>",
+      "pass": true,
+      "detail": "an exported VIRTUAL_ENV re-shadows conda activation for every child"
+    },
+    {
+      "check": "site_packages_in_env",
+      "observed": "['/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/.snakemake/conda/e1881780665e0334f6bb5b23104092bb_/lib/python3.12/site-packages']",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "version::igraph",
+      "observed": "0.11.8",
+      "pass": true,
+      "detail": "declared pin 0.11.8"
+    },
+    {
+      "check": "version::torch",
+      "observed": "2.12.0",
+      "pass": true,
+      "detail": "declared pin 2.12.0"
+    },
+    {
+      "check": "version::scanpy",
+      "observed": "1.12.1",
+      "pass": true,
+      "detail": "declared pin 1.12.1"
+    },
+    {
+      "check": "version::anndata",
+      "observed": "0.12.10",
+      "pass": true,
+      "detail": "declared pin 0.12.10"
+    },
+    {
+      "check": "version::liana",
+      "observed": "1.7.1",
+      "pass": true,
+      "detail": "declared pin 1.7.1"
+    },
+    {
+      "check": "version::infercnvpy",
+      "observed": "0.4.3",
+      "pass": true,
+      "detail": "declared pin 0.4.3"
+    },
+    {
+      "check": "import_location::igraph",
+      "observed": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/.snakemake/conda/e1881780665e0334f6bb5b23104092bb_/lib/python3.12/site-packages/igraph/__init__.py",
+      "pass": true,
+      "detail": "must load from the conda env, not the venv or anaconda base"
+    },
+    {
+      "check": "import_location::scanpy",
+      "observed": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/.snakemake/conda/e1881780665e0334f6bb5b23104092bb_/lib/python3.12/site-packages/scanpy/__init__.py",
+      "pass": true,
+      "detail": "must load from the conda env, not the venv or anaconda base"
+    },
+    {
+      "check": "import_location::anndata",
+      "observed": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/.snakemake/conda/e1881780665e0334f6bb5b23104092bb_/lib/python3.12/site-packages/anndata/__init__.py",
+      "pass": true,
+      "detail": "must load from the conda env, not the venv or anaconda base"
+    },
+    {
+      "check": "import_location::torch",
+      "observed": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/.snakemake/conda/e1881780665e0334f6bb5b23104092bb_/lib/python3.12/site-packages/torch/__init__.py",
+      "pass": true,
+      "detail": "must load from the conda env, not the venv or anaconda base"
+    },
+    {
+      "check": "import_location::liana",
+      "observed": "/Users/jarrettevans/Documents/Biomedical Data Science/Projects/Nerve_Analysis_TCGA_GBM/.snakemake/conda/e1881780665e0334f6bb5b23104092bb_/lib/python3.12/site-packages/liana/__init__.py",
+      "pass": true,
+      "detail": "must load from the conda env, not the venv or anaconda base"
+    }
+  ]
+}

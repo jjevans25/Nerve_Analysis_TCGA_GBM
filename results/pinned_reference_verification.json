@@ -1,0 +1,15 @@
+{
+  "checked_at_utc": "2026-08-05T23:50:36.865494+00:00",
+  "manifest": "provenance/pinned_reference_v1.3.0.json",
+  "baseline_version": "v1.3.0",
+  "manifest_frozen_at_utc": "2026-07-29T00:02:53.297183+00:00",
+  "pass": true,
+  "n_checked": 37,
+  "n_unchanged": 37,
+  "n_modified": 0,
+  "n_missing": 0,
+  "n_configured_but_unmanifested": 0,
+  "modified": [],
+  "missing": [],
+  "configured_but_unmanifested": []
+}

@@ -1,0 +1,4 @@
+cell_type_marker_label,n_cells,fraction,n_markers_used,n_markers_missing
+oligodendrocyte,22271,0.7697,3,1
+Unknown,5787,0.2,0,0
+neuron,878,0.0303,6,0

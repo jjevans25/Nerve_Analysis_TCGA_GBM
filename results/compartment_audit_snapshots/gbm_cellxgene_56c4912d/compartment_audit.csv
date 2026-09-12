@@ -1,0 +1,118 @@
+arm,compartment,level,key,n_cells,share_of_compartment
+gbm_cellxgene_56c4912d,cohort,class,myeloid,276631,0.4498423451624601
+gbm_cellxgene_56c4912d,cohort,class,malignant,222075,0.3611263336428431
+gbm_cellxgene_56c4912d,cohort,class,lymphoid,66608,0.10831432097841942
+gbm_cellxgene_56c4912d,cohort,class,neural,43857,0.07131787735933431
+gbm_cellxgene_56c4912d,cohort,class,vascular,5780,0.009399122856943073
+gbm_cellxgene_56c4912d,cohort,cell_type,malignant cell,222075,0.3611263336428431
+gbm_cellxgene_56c4912d,cohort,cell_type,macrophage,143298,0.2330234441443302
+gbm_cellxgene_56c4912d,cohort,cell_type,microglial cell,107051,0.17408053649802993
+gbm_cellxgene_56c4912d,cohort,cell_type,mature T cell,62768,0.10206992101809738
+gbm_cellxgene_56c4912d,cohort,cell_type,oligodendrocyte,24868,0.04043899432637722
+gbm_cellxgene_56c4912d,cohort,cell_type,monocyte,19526,0.031752123339908386
+gbm_cellxgene_56c4912d,cohort,cell_type,oligodendrocyte precursor cell,12613,0.020510577265505706
+gbm_cellxgene_56c4912d,cohort,cell_type,dendritic cell,5076,0.0082543161975507
+gbm_cellxgene_56c4912d,cohort,cell_type,radial glial cell,3072,0.004995519968257633
+gbm_cellxgene_56c4912d,cohort,cell_type,mural cell,2999,0.004876811323178595
+gbm_cellxgene_56c4912d,cohort,cell_type,neuron,2992,0.004865428302417591
+gbm_cellxgene_56c4912d,cohort,cell_type,endothelial cell,2781,0.004522311533764479
+gbm_cellxgene_56c4912d,cohort,cell_type,B cell,1592,0.0025888241502168468
+gbm_cellxgene_56c4912d,cohort,cell_type,natural killer cell,1402,0.0022798564438467456
+gbm_cellxgene_56c4912d,cohort,cell_type,neutrophil,1168,0.001899338321264621
+gbm_cellxgene_56c4912d,cohort,cell_type,plasma cell,846,0.0013757193662584499
+gbm_cellxgene_56c4912d,cohort,cell_type,mast cell,512,0.0008325866613762723
+gbm_cellxgene_56c4912d,cohort,cell_type,astrocyte,312,0.0005073574967761659
+gbm_cellxgene_56c4912d,cohort,total,n_cells,614951,1.0
+gbm_cellxgene_56c4912d,nerve,class,neural,27420,0.9476085153442079
+gbm_cellxgene_56c4912d,nerve,class,malignant,1318,0.04554879734586674
+gbm_cellxgene_56c4912d,nerve,class,lymphoid,102,0.0035250207354160907
+gbm_cellxgene_56c4912d,nerve,class,myeloid,49,0.0016933923140724358
+gbm_cellxgene_56c4912d,nerve,class,vascular,47,0.0016242742604368262
+gbm_cellxgene_56c4912d,nerve,cell_type,oligodendrocyte,23514,0.8126209565938624
+gbm_cellxgene_56c4912d,nerve,cell_type,oligodendrocyte precursor cell,2195,0.07585706386508156
+gbm_cellxgene_56c4912d,nerve,cell_type,neuron,1710,0.059095935858446226
+gbm_cellxgene_56c4912d,nerve,cell_type,malignant cell,1318,0.04554879734586674
+gbm_cellxgene_56c4912d,nerve,cell_type,plasma cell,99,0.0034213436549626764
+gbm_cellxgene_56c4912d,nerve,cell_type,mural cell,47,0.0016242742604368262
+gbm_cellxgene_56c4912d,nerve,cell_type,macrophage,29,0.0010022117777163395
+gbm_cellxgene_56c4912d,nerve,cell_type,microglial cell,15,0.0005183854022670722
+gbm_cellxgene_56c4912d,nerve,cell_type,monocyte,4,0.00013823610727121925
+gbm_cellxgene_56c4912d,nerve,cell_type,B cell,2,6.911805363560962e-05
+gbm_cellxgene_56c4912d,nerve,cell_type,dendritic cell,1,3.455902681780481e-05
+gbm_cellxgene_56c4912d,nerve,cell_type,astrocyte,1,3.455902681780481e-05
+gbm_cellxgene_56c4912d,nerve,cell_type,mature T cell,1,3.455902681780481e-05
+gbm_cellxgene_56c4912d,nerve,total,n_cells,28936,1.0
+gbm_cellxgene_56c4912d,tumor,class,malignant,194311,0.934749248346362
+gbm_cellxgene_56c4912d,tumor,class,neural,8810,0.04238123872519543
+gbm_cellxgene_56c4912d,tumor,class,myeloid,2832,0.013623571858087793
+gbm_cellxgene_56c4912d,tumor,class,lymphoid,1393,0.006701142513529766
+gbm_cellxgene_56c4912d,tumor,class,vascular,529,0.002544798556825015
+gbm_cellxgene_56c4912d,tumor,cell_type,malignant cell,194311,0.934749248346362
+gbm_cellxgene_56c4912d,tumor,cell_type,oligodendrocyte precursor cell,6412,0.030845460012026458
+gbm_cellxgene_56c4912d,tumor,cell_type,microglial cell,1658,0.007975947083583885
+gbm_cellxgene_56c4912d,tumor,cell_type,mature T cell,1279,0.006152736019242333
+gbm_cellxgene_56c4912d,tumor,cell_type,neuron,1246,0.005993986770895971
+gbm_cellxgene_56c4912d,tumor,cell_type,macrophage,953,0.004584485868911605
+gbm_cellxgene_56c4912d,tumor,cell_type,oligodendrocyte,860,0.004137101623571858
+gbm_cellxgene_56c4912d,tumor,cell_type,mural cell,371,0.0017847263980757667
+gbm_cellxgene_56c4912d,tumor,cell_type,radial glial cell,201,0.0009669272399278413
+gbm_cellxgene_56c4912d,tumor,cell_type,endothelial cell,158,0.0007600721587492483
+gbm_cellxgene_56c4912d,tumor,cell_type,monocyte,144,0.0006927239927841251
+gbm_cellxgene_56c4912d,tumor,cell_type,astrocyte,91,0.0004377630787733013
+gbm_cellxgene_56c4912d,tumor,cell_type,dendritic cell,67,0.0003223090799759471
+gbm_cellxgene_56c4912d,tumor,cell_type,natural killer cell,56,0.0002693926638604931
+gbm_cellxgene_56c4912d,tumor,cell_type,B cell,42,0.0002020444978953698
+gbm_cellxgene_56c4912d,tumor,cell_type,plasma cell,16,7.696933253156945e-05
+gbm_cellxgene_56c4912d,tumor,cell_type,neutrophil,5,2.4052916416115454e-05
+gbm_cellxgene_56c4912d,tumor,cell_type,mast cell,5,2.4052916416115454e-05
+gbm_cellxgene_56c4912d,tumor,total,n_cells,207875,1.0
+gbm_cellxgene_56c4912d,immune,class,myeloid,272895,0.8045680490120348
+gbm_cellxgene_56c4912d,immune,class,lymphoid,65020,0.19169649332806576
+gbm_cellxgene_56c4912d,immune,class,malignant,1057,0.0031163210311867967
+gbm_cellxgene_56c4912d,immune,class,vascular,115,0.0003390510109616666
+gbm_cellxgene_56c4912d,immune,class,neural,95,0.000280085617750942
+gbm_cellxgene_56c4912d,immune,cell_type,macrophage,141987,0.41861596429055786
+gbm_cellxgene_56c4912d,immune,cell_type,microglial cell,104913,0.30931181489583764
+gbm_cellxgene_56c4912d,immune,cell_type,mature T cell,61431,0.18111515351640123
+gbm_cellxgene_56c4912d,immune,cell_type,monocyte,19358,0.05707260408866036
+gbm_cellxgene_56c4912d,immune,cell_type,dendritic cell,4987,0.014703020797094185
+gbm_cellxgene_56c4912d,immune,cell_type,B cell,1526,0.004499059501978289
+gbm_cellxgene_56c4912d,immune,cell_type,natural killer cell,1343,0.0039595261541001585
+gbm_cellxgene_56c4912d,immune,cell_type,neutrophil,1163,0.003428837615203637
+gbm_cellxgene_56c4912d,immune,cell_type,malignant cell,1057,0.0031163210311867967
+gbm_cellxgene_56c4912d,immune,cell_type,plasma cell,720,0.0021227541555860867
+gbm_cellxgene_56c4912d,immune,cell_type,mast cell,487,0.0014358073246811447
+gbm_cellxgene_56c4912d,immune,cell_type,endothelial cell,74,0.00021817195487968113
+gbm_cellxgene_56c4912d,immune,cell_type,oligodendrocyte,70,0.00020637887623753618
+gbm_cellxgene_56c4912d,immune,cell_type,mural cell,41,0.00012087905608198548
+gbm_cellxgene_56c4912d,immune,cell_type,radial glial cell,21,6.191366287126085e-05
+gbm_cellxgene_56c4912d,immune,cell_type,oligodendrocyte precursor cell,4,1.1793078642144926e-05
+gbm_cellxgene_56c4912d,immune,total,n_cells,339182,1.0
+gbm_cellxgene_56c4912d,nerve_glia,class,neural,23663,0.9581713637836087
+gbm_cellxgene_56c4912d,nerve_glia,class,malignant,886,0.035876255264010365
+gbm_cellxgene_56c4912d,nerve_glia,class,lymphoid,102,0.00413022351797862
+gbm_cellxgene_56c4912d,nerve_glia,class,myeloid,45,0.0018221574344023323
+gbm_cellxgene_56c4912d,nerve_glia,cell_type,oligodendrocyte,23509,0.9519355361192096
+gbm_cellxgene_56c4912d,nerve_glia,cell_type,malignant cell,886,0.035876255264010365
+gbm_cellxgene_56c4912d,nerve_glia,cell_type,oligodendrocyte precursor cell,154,0.006235827664399093
+gbm_cellxgene_56c4912d,nerve_glia,cell_type,plasma cell,99,0.004008746355685131
+gbm_cellxgene_56c4912d,nerve_glia,cell_type,macrophage,27,0.0010932944606413995
+gbm_cellxgene_56c4912d,nerve_glia,cell_type,microglial cell,13,0.0005264010366051183
+gbm_cellxgene_56c4912d,nerve_glia,cell_type,monocyte,4,0.00016196954972465177
+gbm_cellxgene_56c4912d,nerve_glia,cell_type,B cell,2,8.098477486232588e-05
+gbm_cellxgene_56c4912d,nerve_glia,cell_type,dendritic cell,1,4.049238743116294e-05
+gbm_cellxgene_56c4912d,nerve_glia,cell_type,mature T cell,1,4.049238743116294e-05
+gbm_cellxgene_56c4912d,nerve_glia,total,n_cells,24696,1.0
+gbm_cellxgene_56c4912d,nerve_neuron,class,neural,3757,0.8860849056603773
+gbm_cellxgene_56c4912d,nerve_neuron,class,malignant,432,0.1018867924528302
+gbm_cellxgene_56c4912d,nerve_neuron,class,vascular,47,0.011084905660377358
+gbm_cellxgene_56c4912d,nerve_neuron,class,myeloid,4,0.0009433962264150943
+gbm_cellxgene_56c4912d,nerve_neuron,cell_type,oligodendrocyte precursor cell,2041,0.4813679245283019
+gbm_cellxgene_56c4912d,nerve_neuron,cell_type,neuron,1710,0.4033018867924528
+gbm_cellxgene_56c4912d,nerve_neuron,cell_type,malignant cell,432,0.1018867924528302
+gbm_cellxgene_56c4912d,nerve_neuron,cell_type,mural cell,47,0.011084905660377358
+gbm_cellxgene_56c4912d,nerve_neuron,cell_type,oligodendrocyte,5,0.0011792452830188679
+gbm_cellxgene_56c4912d,nerve_neuron,cell_type,microglial cell,2,0.0004716981132075472
+gbm_cellxgene_56c4912d,nerve_neuron,cell_type,macrophage,2,0.0004716981132075472
+gbm_cellxgene_56c4912d,nerve_neuron,cell_type,astrocyte,1,0.0002358490566037736
+gbm_cellxgene_56c4912d,nerve_neuron,total,n_cells,4240,1.0

@@ -1,0 +1,11 @@
+arm,gate,observed,comparator,threshold,verdict
+gbm_cellxgene_56c4912d,nerve_neural_fraction,0.9476085153442079,>=,0.8,PASS
+gbm_cellxgene_56c4912d,tumor_malignant_fraction,0.934749248346362,>=,0.85,PASS
+gbm_cellxgene_56c4912d,malignancy_recall,0.8749791737025779,>=,0.8,PASS
+gbm_cellxgene_56c4912d,malignancy_precision,0.934749248346362,>=,0.85,PASS
+gbm_cellxgene_56c4912d,immune_purity,0.9962645423401006,>=,0.95,PASS
+gbm_cellxgene_56c4912d,max_nerve_cluster_endothelial_fraction,0.0,<=,0.2,PASS
+gbm_cellxgene_56c4912d,immune_size_fraction_of_baseline,1.9996934269560245,>=,0.85,PASS
+gbm_cellxgene_56c4912d,nerve_compartment_n_min,28936.0,>=,15000.0,PASS
+gbm_cellxgene_56c4912d,nerve_compartment_n_max,28936.0,<=,40000.0,PASS
+gbm_cellxgene_56c4912d,neuron_group_n_min,4240.0,>=,1200.0,PASS

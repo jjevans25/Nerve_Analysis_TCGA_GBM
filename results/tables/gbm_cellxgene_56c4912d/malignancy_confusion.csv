@@ -1,0 +1,27 @@
+arm,metric,value
+gbm_cellxgene_56c4912d,true_positive,194311.0
+gbm_cellxgene_56c4912d,false_positive,13564.0
+gbm_cellxgene_56c4912d,false_negative,27764.0
+gbm_cellxgene_56c4912d,true_negative,379312.0
+gbm_cellxgene_56c4912d,precision,0.934749248346362
+gbm_cellxgene_56c4912d,recall,0.8749791737025779
+gbm_cellxgene_56c4912d,f1,0.9038771950226769
+gbm_cellxgene_56c4912d,n_predicted_malignant,207875.0
+gbm_cellxgene_56c4912d,n_census_malignant,222075.0
+gbm_cellxgene_56c4912d,false_positive_is::oligodendrocyte precursor cell,6412.0
+gbm_cellxgene_56c4912d,false_positive_is::microglial cell,1658.0
+gbm_cellxgene_56c4912d,false_positive_is::mature T cell,1279.0
+gbm_cellxgene_56c4912d,false_positive_is::neuron,1246.0
+gbm_cellxgene_56c4912d,false_positive_is::macrophage,953.0
+gbm_cellxgene_56c4912d,false_positive_is::oligodendrocyte,860.0
+gbm_cellxgene_56c4912d,false_positive_is::mural cell,371.0
+gbm_cellxgene_56c4912d,false_positive_is::radial glial cell,201.0
+gbm_cellxgene_56c4912d,false_positive_is::endothelial cell,158.0
+gbm_cellxgene_56c4912d,false_positive_is::monocyte,144.0
+gbm_cellxgene_56c4912d,false_positive_is::astrocyte,91.0
+gbm_cellxgene_56c4912d,false_positive_is::dendritic cell,67.0
+gbm_cellxgene_56c4912d,false_positive_is::natural killer cell,56.0
+gbm_cellxgene_56c4912d,false_positive_is::B cell,42.0
+gbm_cellxgene_56c4912d,false_positive_is::plasma cell,16.0
+gbm_cellxgene_56c4912d,false_positive_is::neutrophil,5.0
+gbm_cellxgene_56c4912d,false_positive_is::mast cell,5.0

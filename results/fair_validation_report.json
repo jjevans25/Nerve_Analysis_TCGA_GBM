@@ -1,0 +1,188 @@
+{
+  "validated_at": "2026-09-12T00:12:02.464502+00:00",
+  "pass": true,
+  "total_provenance_records": 797,
+  "records_with_tool_versions": 778,
+  "declared_pins": 31,
+  "conda_enforcement_fix": "2026-08-05T23:46:05+00:00",
+  "n_records_predating_enforcement_fix": 30,
+  "records_predating_enforcement_fix": [
+    {
+      "record": "loom_to_h5ad_20260418T175138Z_63c53955.json",
+      "created_at": "2026-04-18T17:51:38.487349+00:00"
+    },
+    {
+      "record": "msigdb_download_provenance.json",
+      "created_at": "2026-05-09T15:48:48.922386+00:00"
+    },
+    {
+      "record": "gene_symbol_map_provenance.json",
+      "created_at": "2026-05-22T21:42:43.995005+00:00"
+    },
+    {
+      "record": "explore_gbm_notebook_provenance.json",
+      "created_at": "2026-05-23T16:40:48.847409+00:00"
+    },
+    {
+      "record": "nerve_assemble_counts_provenance.json",
+      "created_at": "2026-05-24T20:55:16.729110+00:00"
+    },
+    {
+      "record": "nerve_celltype_labels_provenance.json",
+      "created_at": "2026-05-24T20:55:56.041455+00:00"
+    },
+    {
+      "record": "nerve_tumor_exploration_notebook_provenance.json",
+      "created_at": "2026-05-24T22:02:56.950419+00:00"
+    },
+    {
+      "record": "nerve_scanvi_retrain_provenance.json",
+      "created_at": "2026-05-24T22:43:02.716149+00:00"
+    },
+    {
+      "record": "nerve_batch_qc_v2_provenance.json",
+      "created_at": "2026-05-24T22:45:41.765466+00:00"
+    },
+    {
+      "record": "nerve_clinical_association_provenance.json",
+      "created_at": "2026-05-25T19:26:37.580982+00:00"
+    },
+    {
+      "record": "nerve_tumor_interaction_provenance.json",
+      "created_at": "2026-05-25T19:29:07.527773+00:00"
+    },
+    {
+      "record": "nerve_leiden_resolution_sweep_provenance.json",
+      "created_at": "2026-05-25T19:38:27.078021+00:00"
+    },
+    {
+      "record": "heterogeneity_provenance.json",
+      "created_at": "2026-05-25T20:31:20.649099+00:00"
+    },
+    {
+      "record": "nerve_cluster_annotations_provenance.json",
+      "created_at": "2026-05-25T20:31:59.188636+00:00"
+    },
+    {
+      "record": "nerve_tumor_immune_interaction_provenance.json",
+      "created_at": "2026-07-11T18:58:19.881017+00:00"
+    },
+    {
+      "record": "gbm_cellxgene_56c4912d/gene_symbol_map_provenance.json",
+      "created_at": "2026-07-17T00:24:07.170441+00:00"
+    },
+    {
+      "record": "gbm_cellxgene_56c4912d/clinical_stub_provenance.json",
+      "created_at": "2026-07-17T00:24:53.455470+00:00"
+    },
+    {
+      "record": "gbm_cellxgene_56c4912d/scvi_integration_provenance.json",
+      "created_at": "2026-07-18T09:04:30.509337+00:00"
+    },
+    {
+      "record": "scvi_integration_provenance.json",
+      "created_at": "2026-07-21T03:02:35.353566+00:00"
+    },
+    {
+      "record": "annotation_provenance.json",
+      "created_at": "2026-07-21T23:19:05.489280+00:00"
+    },
+    {
+      "record": "malignancy_provenance.json",
+      "created_at": "2026-07-21T23:46:02.844125+00:00"
+    },
+    {
+      "record": "immune_cell_subset_provenance.json",
+      "created_at": "2026-07-21T23:46:45.263064+00:00"
+    },
+    {
+      "record": "immune_cluster_annotations_provenance.json",
+      "created_at": "2026-07-21T23:46:54.267679+00:00"
+    },
+    {
+      "record": "nerve_tumor_immune_notebook_provenance.json",
+      "created_at": "2026-07-26T15:37:47.504804+00:00"
+    },
+    {
+      "record": "tme_nerve_immune_notebook_provenance.json",
+      "created_at": "2026-07-26T15:45:46.920213+00:00"
+    },
+    {
+      "record": "gbm_cellxgene_56c4912d_full/clinical_stub_provenance.json",
+      "created_at": "2026-07-29T21:52:19.240851+00:00"
+    },
+    {
+      "record": "gbm_cellxgene_56c4912d_full/gene_symbol_map_provenance.json",
+      "created_at": "2026-07-29T21:53:22.465951+00:00"
+    },
+    {
+      "record": "gbm_cellxgene_56c4912d_full/scvi_integration_provenance.json",
+      "created_at": "2026-07-30T09:11:11.640424+00:00"
+    },
+    {
+      "record": "gene_positions_provenance.json",
+      "created_at": "2026-08-05T21:44:40.987398+00:00"
+    },
+    {
+      "record": "conda_env_smoke_test_provenance.json",
+      "created_at": "2026-08-05T22:04:26.807755+00:00"
+    }
+  ],
+  "n_version_conflicts": 0,
+  "version_conflicts": [],
+  "n_accepted_exceptions": 3,
+  "accepted_exceptions": [
+    {
+      "record": "gbm_cellxgene_56c4912d_full/scvi_integration_provenance.json",
+      "tool": "torch",
+      "observed": "2.11.0",
+      "declared": [
+        "2.12.0"
+      ],
+      "accepted_because": "torch 2.11.0 (venv) vs pinned 2.12.0. Produced 2026-07-30, before the conda-enforcement fix. This is the ONLY load-bearing artifact in either Census arm that predates it \u2014 every rule downstream (annotate, malignancy, both subsets, both interaction rules, compartment audit, scANVI, concordance) was rebuilt 2026-08-06 under the enforced env. Re-deriving it means an ~11 h scVI retrain that renumbers Leiden clusters and cascades through every table, so it is a researcher decision, not a scheduling one. Tracked in markdowns/task_conda_env_enforcement.md."
+    },
+    {
+      "record": "gene_positions_provenance.json",
+      "tool": "requests",
+      "observed": "2.33.1",
+      "declared": [
+        "2.32.3"
+      ],
+      "accepted_because": "requests 2.33.1 vs pinned 2.32.3. `download_gene_positions` fetches a static genomic coordinate table; the artifact is verified by content, not by the HTTP client that retrieved it."
+    },
+    {
+      "record": "nerve_clinical_association_provenance.json",
+      "tool": "scanpy",
+      "observed": "0.12.10",
+      "declared": [
+        "1.10.4",
+        "1.12.1"
+      ],
+      "accepted_because": "Records scanpy=0.12.10, which is anndata's version, not scanpy's: the script carried `\"scanpy\": ad.__version__` as a deliberate \"stand-in for the env\". The source bug is fixed (the key is gone), but this artifact belongs to the v1.3.0 reference cohort, which is pinned and unreproducible \u2014 data/processed/nerve_cells.h5ad was deleted \u2014 so the record cannot be regenerated. It is accepted as a known-bad historical record, NOT as evidence the right environment ran. See [[baseline-reference-pinned-do-not-regenerate]]."
+    }
+  ],
+  "n_malformed_versions": 4,
+  "malformed_versions": [
+    {
+      "record": "gbm_cellxgene_56c4912d/nerve_assemble_counts_provenance.json",
+      "tool": "scipy",
+      "observed": "scipy.sparse@n/a"
+    },
+    {
+      "record": "gbm_cellxgene_56c4912d_full/nerve_assemble_counts_provenance.json",
+      "tool": "scipy",
+      "observed": "scipy.sparse@n/a"
+    },
+    {
+      "record": "nerve_assemble_counts_provenance.json",
+      "tool": "scipy",
+      "observed": "scipy.sparse@n/a"
+    },
+    {
+      "record": "nerve_clinical_association_provenance.json",
+      "tool": "scipy",
+      "observed": "scipy.stats@1.17.1"
+    }
+  ],
+  "unreadable_records": []
+}

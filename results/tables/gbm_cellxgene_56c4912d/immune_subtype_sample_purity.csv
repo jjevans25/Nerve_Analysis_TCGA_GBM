@@ -1,0 +1,6 @@
+cluster,n_cells,dominant_sample,dominant_sample_fraction,n_contributing_samples,shannon_entropy_bits,normalised_entropy,pass_dominant,pass_diversity,pass_overall
+dendritic,6181,R5,0.0815,25,5.8228,0.7859,True,True,True
+microglia,255301,LB4038T,0.0187,44,6.7339,0.9088,True,True,True
+nk_cell,3966,R4,0.0794,26,5.5744,0.7523,True,True,True
+t_cell,59548,E99,0.0821,23,5.3918,0.7277,True,True,True
+tam,14186,R5,0.1165,25,5.4957,0.7417,True,True,True

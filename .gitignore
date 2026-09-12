@@ -31,6 +31,12 @@ skills-lock.json
 
 # ── Generated outputs ────────────────────────────────────────────────────────
 logs/
+# `results/` is generated and ignored wholesale. A curated ~49 MB slice is force-added
+# (`git add -f`) so the analysis is checkable without running the pipeline — see
+# results/README.md for what is in it and what is deliberately left out (the void
+# v1.3.0 reference tables, 740 MB of model checkpoints, the pre-fix snapshot, and the
+# per-sample QC bulk). Tracked files stay tracked, so edits to the slice still show up
+# in `git status`; genuinely new generated output stays ignored by default.
 results/
 # `provenance/*` not `provenance/`: file-level glob lets the negation below
 # take effect (git ignores everything inside an ignored *directory* even with
