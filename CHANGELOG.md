@@ -33,13 +33,13 @@ Format each entry with: date, phase, action taken, outcome, and any open issues.
 
 ```
 [STATUS]
-Phase:          Full-cohort rerun (gbm_cellxgene_56c4912d_full) — COMPLETE, all 5 targets delivered
-Last Updated:   2026-08-02
+Phase:          Pre-publication (blog). Analysis COMPLETE on both Census arms; housekeeping + write-up.
+Last Updated:   2026-09-11
 Repo:           github.com/jjevans25/GBM_Nerve_Tumor_Immune_Single_Cell_Analysis (renamed 2026-07-28; local dir intentionally still Nerve_Analysis_TCGA_GBM — see CLAUDE.md)
 Active Agent:   lead-researcher
-Current Task:   NONE — the uncapped arm `gbm_cellxgene_56c4912d_full` is COMPLETE. All 5 targets on disk; capped arm untouched; pinned v1.3.0 re-verified 37/37 (2026-08-02T22:19Z). Took 3 attempts: Option A venv patch (5 packages), then two SIGSEGVs in `sc.pp.neighbors` traced by controlled experiment to numba's OpenMP layer colliding with torch's libomp, fixed via `NUMBA_THREADING_LAYER=workqueue` + stage-1 checkpoint reuse. **Arm comparison DELIVERED** — full: Jaccard 0.4529 / ρ 0.6083 vs capped 0.4691 / 0.6249 (recall +2.4 pp, precision −3.4 pp).
-Blocked On:     Nothing. **[FAIR-ALERT]** every `script:`-rule artifact in this arm was produced by the `claude_science` venv, NOT the declared `scrna.yaml` conda env — not reproducible from the declared spec. Defect 1 (conda-env shadowing) is OPEN and tracked at `markdowns/task_conda_env_enforcement.md`.
-Next Action:    (1) **Researcher scientific call:** are the full arm's 371 extra non-reference LR pairs depth-limited discoveries or higher-power false positives? Note the reference is the 17-sample v1.3.0 baseline, so "absent from reference" is weak evidence against a 170-sample cohort. (2) Researcher decision on `markdowns/task_conda_env_enforcement.md` (Option B) — may shift Leiden cluster IDs, so it needs sign-off, not just scheduling; pin `numba` when actioned (currently unpinned, and it caused the two segfaults). (3) Review 16/43 failing purity_v2 clusters in the full arm (capped: 9/33). (4) Carried over: 30/40 curated-axis replication review; `markdowns/blocker_census_annotation_scoring.md` (open); the 9 flagged micro-clusters from 2026-07-25. Note `marimo` on PATH has a broken matplotlib; run notebooks via the snakemake notebooks env or `claude_science/bin/python -m marimo`.
+Current Task:   NONE. Both Census arms are COMPLETE and pass 10/10 enforcing compartment gates (nerve 95.39%/94.76% neural, tumor 92.96%/93.47% malignant, immune purity 99.63%, malignancy F1 0.911). Cross-arm lead-axes shortlist delivered: 183 rows / 144 unique axes, tiers 34/18/57/57/17, now carrying per-row `selection_arm` + `qc_filter_applied`. Four Census notebooks render on both arms. Project is in **pre-publication write-up**: engineering post drafted at `markdowns/GBM_TME_Crosstalk_Analysis.md`, science post at `markdowns/blog_01_science_nerve_immune_crosstalk.md`. Dashboard hosting is the researcher's, out of scope here.
+Blocked On:     Nothing computational. **[FAIR-ALERT] unchanged:** every `script:`-rule artifact in these arms was produced by the `claude_science` venv, NOT the declared `scrna.yaml` conda env — not reproducible from the declared spec. Defect 1 is OPEN at `markdowns/task_conda_env_enforcement.md`. This is now a *publication* blocker too: the engineering post argues reproducibility discipline, so it must be fixed or stated in print.
+Next Action:    (1) **Researcher decision — Defect 1 / Option B.** May shift Leiden cluster IDs and cascade, so it needs sign-off, not scheduling; pin `numba` when actioned (unpinned, and it caused two segfaults). (2) **Researcher decision — make the repo linkable.** `results/` is 100% gitignored (0 tracked files); a reader following either post can obtain no table. Zenodo deposit (already earmarked, and the only off-machine copy of the 26 MB v1.3.0 archive + the 1.4 GB unreproducible `nerve_cells_counts.h5ad`) or a committed slice. (3) Push `docs/blog-prep-2026-09` and `chore/disk-reclamation-2026-08` — both unpushed, on the single disk flagged as un-backed-up. (4) Review purity_v2 failing clusters (16/43 full, 9/33 capped). (5) The five recommended analyses in `markdowns/post_compartment_fix_next_steps.md` §3.1–3.5, none executed. Note `marimo` on PATH has a broken matplotlib; run notebooks via the snakemake notebooks env. **Invocation: always `scripts/run_snakemake.sh`, targets first, and pin `--allowed-rules` — `--forcerun` alone pulled the network-only `refresh_drug_annotation` into the DAG on 2026-09-11.**
 ```
 
 Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLETE; freeze insulator retained; cluster set {0-14, 16-27}.
@@ -48,6 +48,82 @@ Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLE
 ---
 
 ## Session Log
+
+---
+
+### [2026-09-11] | Phase: Pre-publication fact-lock (blog) | Status: COMPLETE
+
+**Action:** Researcher asked whether the project is ready for a blog post ending in the
+interactive marimo dashboard. Assessed state, then locked down the factual items that a
+reader checking the repo would find. Scope agreed: full arm, two posts (science +
+engineering), dashboard hosting handled by the researcher.
+
+**Outcome:**
+
+1. **`rule nerve_immune_lead_axes` now emits its own selection rule.** The shortlist is two
+   halves under genuinely different rules (oligodendrocyte = full arm, batch QC required;
+   neuron = capped arm, no QC filter). The rule/module docstrings said so, the emitted row
+   did not — `compartment_side` was the only hint. Added per-row `selection_arm` and
+   `qc_filter_applied`, surfaced in notebook 05 Panel E, recorded in provenance as
+   `selection_rule_counts`. **183 rows before and after, every pre-existing column
+   byte-identical**, only the two columns added (full/qc=True 128, capped/qc=False 55).
+   Panel E, which recomputes the shortlist independently, still asserts 183/183 on both arms.
+
+2. **`markdowns/blocker_census_annotation_scoring.md` was stale by five weeks and is now
+   closed.** It was fixed 2026-08-05 by `c9874d4` as defects D1/D2/D3 of the compartment
+   work, which absorbed it under a different filename, so its status line was never updated.
+   All three evidence strands verified dead: the cohort resolves **19** cell types, not 5
+   (opc 53,805 / ependymal 37,760 / endothelial 4,375); the `mean_confidence` comparison is
+   invalid post-fix because the column is now a **z-score margin**, not a raw `score_genes`
+   margin, so it is not comparable to the reference's 0.11–0.73; and the T-cell exclusion is
+   gone (`source_label` str -> `source_labels` list of 6, immune compartment 1.80x).
+   What survives: the two arms disagree on the annotation — capped has **zero** endothelial
+   and 61,717 `ambiguous` vs the full arm's 4,375 / 7,172, and `tumor_gbm` differs 10x on a
+   1.6x cell-count difference. Documented as a real limit.
+
+3. **Two corrections + one new caveat in the engineering draft.** "9 of 24 nerve groups" fail
+   batch QC matched neither arm (actual: 8 of 20 full, 7 of 21 capped); the interface split
+   30,622/11,280/2,237 read as though it described the 2,673 significant rows when it
+   describes all 44,139 (significant split: 2,118/459/96). New section-9 caveat: five of 23
+   nerve clusters sit below the 0.80 neural bar (1,677 cells, 4.4%), four reach the
+   interaction tables carrying 12.8% of rows, and **cl12 — 83.5% malignant against the
+   oracle — passes `batch_qc_pass`**, because 7 donors at 0.4368 dominant is a healthy donor
+   spread. Purity and donor diversity are independent failure modes and only one has a flag.
+   Exposure bounded: 27 of 144 axes draw some support from a purity-failing cluster, 3 rest
+   on one entirely (`APOE|SCARB1`, `BCAN|EGFR`, `IGSF11|VSIR`, all cl12); `BCAN|EGFR` reaches
+   tier 1 on a single LR row.
+
+4. **Science post drafted** — `markdowns/blog_01_science_nerve_immune_crosstalk.md`.
+
+**Incident (recovered, no data loss):** the first re-run used `--forcerun nerve_immune_lead_axes`
+*without* `--allowed-rules`, which pulled the opt-in, network-dependent `refresh_drug_annotation`
+into the DAG — it would have overwritten the adopted 2026-08-19 snapshot that `config.lead_axes.
+drug_annotation` pins. Killed mid-run; Snakemake then deleted that rule's outputs per its usual
+behaviour. Both files were tracked and restored via `git checkout`; the restored
+`nerve_immune_axis_drug_annotation_refreshed_2026-08-19.csv` hashes to
+`0280e1f82a9bd7a4d02774003de7c2830f193ebb88243ea0ad5747da1981c726`, matching `MANIFEST.json`.
+`nerve_immune_lead_axes_postfix.csv` was verified byte-identical to a pre-run copy. **The
+documented invocation pins `--allowed-rules` for exactly this reason; `--forcerun` alone is not
+a safe substitute.**
+
+**Artifacts:** `results/tables/nerve_immune_lead_axes_postfix.csv` (+2 cols),
+`provenance/nerve_immune_lead_axes_provenance.json`,
+`results/figures/{gbm_cellxgene_56c4912d,gbm_cellxgene_56c4912d_full}/05_census_nerve_immune_explorer.html`,
+`workflow/scripts/nerve_immune_lead_axes.py`, `notebooks/05_census_nerve_immune_explorer.py`,
+`markdowns/GBM_TME_Crosstalk_Analysis.md`, `markdowns/blog_01_science_nerve_immune_crosstalk.md`,
+`markdowns/blocker_census_annotation_scoring.md` (untracked by design).
+
+**Tool Versions:** marimo 0.23.1, pandas 2.3.3, liana 1.7.1 (artifacts unchanged), flake8 clean.
+
+**Open Issues:** Defect 1 (conda-env shadowing) still OPEN and still the blocker for claiming
+reproducibility in print — the engineering post's thesis is reproducibility discipline, so it
+must be fixed or stated. `results/` is 100% gitignored (0 tracked files), so neither post is
+linkable yet; Zenodo deposit or a committed slice is a researcher decision. Branch
+`docs/blog-prep-2026-09` is unpushed, as is `chore/disk-reclamation-2026-08` before it.
+
+**FAIR Notes:** The shortlist is now self-describing at row level — a consumer no longer needs
+the generator source to know how a row was selected. The standing **[FAIR-ALERT]** on conda-env
+shadowing is unchanged and unaddressed.
 
 ---
 
