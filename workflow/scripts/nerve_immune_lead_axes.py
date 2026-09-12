@@ -96,9 +96,18 @@ DRUG_COLS = ["tier_v2", "agents_flagged", "glioma_trials", "withdrawn"]
 # row saying which. Both are replaced by arm-labelled columns, all four fully populated
 # (every axis in each half is a cross-arm intersection, so its counterpart always
 # exists). The generator's `qc_pass` is dropped — it existed in neither half.
+#
+# `selection_arm` / `qc_filter_applied` were added 2026-09-11. The two halves are
+# built under genuinely different selection rules (see the module docstring), and
+# until now `compartment_side` was the only thing in the row that implied which --
+# it takes reading the generator to learn that "oligodendrocyte (QC-passing)" means
+# full-arm-with-QC while "neuron(pooled)" means capped-arm-without. A reader
+# filtering the CSV or the notebook table could not see it at all. These two make
+# the row state its own provenance.
 COLS = ["rank_full", "rank_capped", "axis", "tier_v2", "interfaces", "nerve_side",
         "immune", "full_best_mag", "capped_best_mag", "full_n_rows", "capped_n_rows",
-        "min_pval", "agents_flagged", "glioma_trials", "withdrawn"]
+        "min_pval", "agents_flagged", "glioma_trials", "withdrawn",
+        "selection_arm", "qc_filter_applied"]
 
 
 def _prep(df: pd.DataFrame, ann: pd.DataFrame) -> pd.DataFrame:
@@ -188,10 +197,18 @@ def _join_drug_annotation(df: pd.DataFrame, drug: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _select(df: pd.DataFrame, side: str, sort_rank: str) -> pd.DataFrame:
-    """Project to the emitted column order and sort within the compartment side."""
+def _select(df: pd.DataFrame, side: str, sort_rank: str,
+            selection_arm: str, qc_filter_applied: bool) -> pd.DataFrame:
+    """Project to the emitted column order and sort within the compartment side.
+
+    `selection_arm` / `qc_filter_applied` record which arm supplied this half's rows
+    and whether batch QC gated them, so the asymmetry between the halves is readable
+    from the row rather than only from this generator.
+    """
     df = df.copy()
     df["compartment_side"] = side
+    df["selection_arm"] = selection_arm
+    df["qc_filter_applied"] = qc_filter_applied
     keep = [c for c in COLS if c in df.columns] + ["compartment_side"]
     return df[keep].sort_values(["tier_v2", sort_rank])
 
@@ -246,7 +263,8 @@ neu = _join_drug_annotation(neu, drug)
 
 # --- Emit ---------------------------------------------------------------------
 leads = pd.concat(
-    [_select(lead, SIDE_OLIGO, "rank_full"), _select(neu, SIDE_NEURON, "rank_capped")],
+    [_select(lead, SIDE_OLIGO, "rank_full", "full", True),
+     _select(neu, SIDE_NEURON, "rank_capped", "capped", False)],
     ignore_index=True,
 )
 Path(snakemake.output.table).parent.mkdir(parents=True, exist_ok=True)  # type: ignore[name-defined]
@@ -272,6 +290,18 @@ summary = {
         "QC-passing all-cluster; neuron = no-QC pooled-neuron), so these columns are "
         "comparable within a compartment side, not across the two."
     ),
+    "selection_rule_is_row_level": True,
+    "selection_rule_note": (
+        "selection_arm and qc_filter_applied state, per row, which arm supplied it "
+        "and whether batch QC gated its selection. Added 2026-09-11: the asymmetry "
+        "was previously legible only from compartment_side plus the generator "
+        "source, so any consumer reading the CSV or the notebook table on its own "
+        "could not tell that the two halves are selected under different rules."
+    ),
+    "selection_rule_counts": {
+        f"{arm}/qc={qc}": int(n) for (arm, qc), n in
+        leads.groupby(["selection_arm", "qc_filter_applied"]).size().items()
+    },
 }
 log_transformation(log, RULE,
                    f"{len(leads)} axes ({summary['n_oligodendrocyte_side']} oligodendrocyte-side, "

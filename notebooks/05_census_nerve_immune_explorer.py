@@ -929,8 +929,16 @@ def _lead_axes_view(
     _n_lrp1 = int(lead_axes_df["axis"].str.contains("LRP1", na=False).sum())
     _n_s1pr1 = int(lead_axes_df["axis"].str.contains("S1PR1", na=False).sum())
 
+    # selection_arm / qc_filter_applied are load-bearing, not decoration: the two
+    # halves of this shortlist are selected under different rules (oligodendrocyte
+    # side = full arm with batch QC required; neuron side = capped arm with no QC
+    # filter, because the pooled neuron group fails donor QC in the full arm). Until
+    # the generator emitted these on 2026-09-11 the only hint in the row was the
+    # wording of `compartment_side`, so a reader filtering this table could compare
+    # two rows selected under different rules without any way to notice.
     _cols = [
         "rank_active", f"rank_{other_arm}", "axis", "nerve_side", "tier_v2",
+        "selection_arm", "qc_filter_applied",
         "curated_best_mag", "live_best_mag", "mag_agrees",
         "curated_n_rows", "live_n_rows", "n_rows_agrees",
         "interfaces", "immune", "agents_flagged", "glioma_trials", "withdrawn",
