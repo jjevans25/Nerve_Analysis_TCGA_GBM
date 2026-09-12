@@ -146,6 +146,31 @@ statistics alone.
 That's a positive control I didn't design and couldn't have gamed, and it is the
 main reason I believe the unfamiliar results sitting next to them.
 
+It gets more pointed if you look at the nerve↔tumor interface on its own. Of the
+11,280 interactions tested there, the **top 25 by effect size collapse onto just
+nine distinct axes — and 19 of those 25 rows share a single receptor: PTPRZ1.**
+Four different ligands are hitting it: `NCAM1`, `PTN`, `CNTN1` and `MDK`. All four
+survive in both cohort arms.
+
+![Top 25 nerve↔tumor ligand–receptor pairs. Each panel is one signalling source;
+dot size is specificity, colour is effect
+magnitude.](../results/figures/gbm_cellxgene_56c4912d_full/nerve_tumor_dotplot.png)
+
+*The convergence, drawn. Each panel is a source — the leftmost is the malignant
+compartment, the rest are individual nerve clusters and the pooled neuron group.
+Read along the `NCAM1 -> PTPRZ1` row: **eleven separate nerve clusters** carry it,
+and every one of them points at the same target, `malignant`. `PTN -> PTPRZ1`
+accounts for six more rows. Eighteen of the 25 run nerve→tumor; the seven in the
+leftmost panel are the tumor answering back.*
+
+PTPRZ1 is the receptor tyrosine phosphatase that marks glioma stem-like cells, and
+a funnel this narrow is the kind of thing that is either a real feature of the
+tissue or an artifact of how the question was asked. I lean toward real, for one
+reason: the eleven clusters carrying `NCAM1 -> PTPRZ1` were clustered
+independently, and nothing in the pipeline encourages them to agree on a target.
+But it is a hypothesis the data generated, not one it tested, and it is the
+first thing I would want a wet-lab collaborator to push back on.
+
 ### What's next to them
 
 The glial side — better powered, and where the novel material is — is topped by
