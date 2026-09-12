@@ -38,8 +38,8 @@ Last Updated:   2026-09-11
 Repo:           github.com/jjevans25/GBM_Nerve_Tumor_Immune_Single_Cell_Analysis (renamed 2026-07-28; local dir intentionally still Nerve_Analysis_TCGA_GBM — see CLAUDE.md)
 Active Agent:   lead-researcher
 Current Task:   NONE. Both Census arms are COMPLETE and pass 10/10 enforcing compartment gates (nerve 95.39%/94.76% neural, tumor 92.96%/93.47% malignant, immune purity 99.63%, malignancy F1 0.911). Cross-arm lead-axes shortlist delivered: 183 rows / 144 unique axes, tiers 34/18/57/57/17, now carrying per-row `selection_arm` + `qc_filter_applied`. Four Census notebooks render on both arms. Project is in **pre-publication write-up**: engineering post drafted at `markdowns/GBM_TME_Crosstalk_Analysis.md`, science post at `markdowns/blog_01_science_nerve_immune_crosstalk.md`. Dashboard hosting is the researcher's, out of scope here.
-Blocked On:     Nothing. **Defect 1 CLOSED 2026-09-11** — `--use-conda` is enforced (`scripts/run_snakemake.sh`, smoke test 14/14) and `fair_validate_metadata` now checks all 797 provenance records against the declared pins and fails the build on any unreasoned conflict. The former blanket [FAIR-ALERT] is replaced by ONE named exception: the full arm's scvi_integration ran under torch 2.11.0 vs the pinned 2.12.0 (2026-07-30). The capped arm is pin-clean, so cross-arm replication does not rest on it. Re-deriving it = ~11 h scVI retrain + Leiden renumber = researcher call.
-Next Action:    (1) **Researcher decision — Defect 1 / Option B.** May shift Leiden cluster IDs and cascade, so it needs sign-off, not scheduling; pin `numba` when actioned (unpinned, and it caused two segfaults). (2) **Researcher decision — make the repo linkable.** `results/` is 100% gitignored (0 tracked files); a reader following either post can obtain no table. Zenodo deposit (already earmarked, and the only off-machine copy of the 26 MB v1.3.0 archive + the 1.4 GB unreproducible `nerve_cells_counts.h5ad`) or a committed slice. (3) Push `docs/blog-prep-2026-09` and `chore/disk-reclamation-2026-08` — both unpushed, on the single disk flagged as un-backed-up. (4) Review purity_v2 failing clusters (16/43 full, 9/33 capped). (5) The five recommended analyses in `markdowns/post_compartment_fix_next_steps.md` §3.1–3.5, none executed. Note `marimo` on PATH has a broken matplotlib; run notebooks via the snakemake notebooks env. **Invocation: always `scripts/run_snakemake.sh`, targets first, and pin `--allowed-rules` — `--forcerun` alone pulled the network-only `refresh_drug_annotation` into the DAG on 2026-09-11.**
+Blocked On:     Nothing. **Defect 1 CLOSED 2026-09-11, fully.** `--use-conda` is enforced (`scripts/run_snakemake.sh`, smoke test 14/14) and `fair_validate_metadata` parses all 797 provenance records against the declared pins, failing the build on any unreasoned conflict. The former blanket [FAIR-ALERT] is now ONE named, reasoned exception: the full arm's scvi_integration ran under torch 2.11.0 vs the pinned 2.12.0 (2026-07-30). **Researcher decided 2026-09-11 to RETAIN it — no re-derivation** — and the pin deliberately stays 2.12.0, the env all 15 post-fix artifacts were built under. Capped arm is pin-clean, so cross-arm replication does not rest on it.
+Next Action:    (1) ~~Defect 1 / Option B~~ — **DONE 2026-09-11** (closed; latent retained by decision). (2) ~~Make the repo linkable~~ — **DONE**: 92-file / 49 MB results slice committed and pushed on `docs/blog-prep-2026-09`. Remaining: `results/` is 100% gitignored (0 tracked files); a reader following either post can obtain no table. Zenodo deposit (already earmarked, and the only off-machine copy of the 26 MB v1.3.0 archive + the 1.4 GB unreproducible `nerve_cells_counts.h5ad`) or a committed slice. (3) Push `docs/blog-prep-2026-09` and `chore/disk-reclamation-2026-08` — both unpushed, on the single disk flagged as un-backed-up. (4) Review purity_v2 failing clusters (16/43 full, 9/33 capped). (5) The five recommended analyses in `markdowns/post_compartment_fix_next_steps.md` §3.1–3.5, none executed. Note `marimo` on PATH has a broken matplotlib; run notebooks via the snakemake notebooks env. **Invocation: always `scripts/run_snakemake.sh`, targets first, and pin `--allowed-rules` — `--forcerun` alone pulled the network-only `refresh_drug_annotation` into the DAG on 2026-09-11.**
 ```
 
 Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLETE; freeze insulator retained; cluster set {0-14, 16-27}.
@@ -48,6 +48,56 @@ Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLE
 ---
 
 ## Session Log
+
+---
+
+### [2026-09-11] | Phase: Researcher decision — retain the torch 2.11.0 latent | Status: COMPLETE
+
+**Action:** Researcher decision on the last open item from the Defect 1 closure: whether to
+re-derive `data/processed/gbm_cellxgene_56c4912d_full/integrated_latent.h5ad`, the one artifact in
+797 provenance records that ran under an unpinned dependency (torch 2.11.0 vs pinned 2.12.0).
+
+**Outcome: RETAIN. No re-derivation.** Recorded as a decision in three places — the
+`ACCEPTED_VERSION_EXCEPTIONS` entry in `fair_validate_metadata.py`, §0 of
+`markdowns/task_conda_env_enforcement.md`, and the engineering blog draft.
+
+**The pin stays at `torch==2.12.0`.** This was the non-obvious half of the decision and is
+deliberate: 2.12.0 is the environment all fifteen post-fix artifacts were built under, so
+downgrading the pin to match this one historical file would make those fifteen newly
+non-conformant — inverting the defect rather than closing it. The accepted exception covers **one
+historical artifact, not a go-forward environment choice.** A future re-run of
+`ds_scrna_integration` will record 2.12.0 and stop matching the exception on its own; there is no
+hand-maintained suppression to un-stick.
+
+**What stays unknown, and should be stated rather than glossed in any write-up:** whether scVI
+under torch 2.11.0 produced a materially different embedding than 2.12.0 would have. The only way
+to establish that is the retrain that was just declined. Mitigating evidence: the capped arm's own
+integration ran under 2.12.0 and is pin-clean, and this project's replication claim is cross-arm
+agreement — so the headline result does not rest on the drifted file alone.
+
+**Cost avoided:** a multi-hour scVI retrain on 1,006,344 cells which would renumber every Leiden
+cluster and thereby invalidate every per-cluster table keyed on `nerve_c{N}` — annotation, purity,
+compartment audit, both interaction tables and the lead-axes shortlist. (Correction to an earlier
+note in this session: the "~11 h" figure quoted for this job was carried over from a `rule all`
+comment describing the **17-sample v1.3.0 reference** retrain, not the 170-donor full arm. The full
+arm's scVI time has never been measured in isolation; the 2026-08-02 full-cohort run was ~31 h
+total with scVI named as the long pole.)
+
+**Artifacts:** `workflow/scripts/fair_validate_metadata.py`,
+`markdowns/task_conda_env_enforcement.md` (untracked by design),
+`markdowns/GBM_TME_Crosstalk_Analysis.md`, `results/fair_validation_report.json`.
+
+**Outcome verification:** `fair_validate_metadata` re-run, exit 0, `pass: true`, 797 records, 0
+unaccepted conflicts, 3 accepted exceptions. flake8 clean.
+
+**Open Issues:** None on Defect 1 — it is fully closed. Remaining project items are unchanged:
+Zenodo deposit (still the only off-machine plan for 740 MB of models and the 1.4 GB unreproducible
+`nerve_cells_counts.h5ad`); `rule all` schedules 365 jobs rather than a no-op since the Tier-3
+reclamation; 4 malformed `tool_versions` strings remain as non-blocking warnings.
+
+**FAIR Notes:** The project's environment story is now precisely stateable: one artifact of 797 is
+reproducible from a *recorded* version rather than a *declared* one, the gate names it, and
+retaining it was an on-the-record decision rather than an unexamined fact.
 
 ---
 

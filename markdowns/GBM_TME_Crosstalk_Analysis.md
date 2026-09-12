@@ -233,6 +233,18 @@ agreement, so the result does not rest on the drifted file. Everything downstrea
 annotation, malignancy, both subsets, both interaction rules, the audit — was rebuilt
 after the fix with versions matching the pins.
 
+That one file has been **kept, deliberately**. Re-deriving it is a multi-hour retrain on
+a million cells that renumbers every Leiden cluster and so invalidates every per-cluster
+table in this post, and the thing it would buy is unknown rather than clearly positive:
+nobody knows whether scVI under 2.11.0 produced a materially different embedding than
+2.12.0 would have, and the only way to find out is to run it. The pin stays at 2.12.0,
+because that is what everything else was built under. So the honest description of this
+project's environment story is not "fully reproducible" — it is that one artifact out of
+797 is reproducible only from a recorded version rather than a declared one, that the
+gate names it, and that keeping it was a decision someone made on the record instead of
+a fact nobody checked. Those are very different states to be in, and only the second one
+is dangerous.
+
 It also caught two provenance records that were quietly lying. One recorded
 `"scanpy": ad.__version__` — anndata's version, filed under scanpy, with a comment
 calling it a "stand-in for the env." The other recorded the literal string
