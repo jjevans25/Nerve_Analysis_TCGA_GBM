@@ -110,6 +110,12 @@ rule all:
         # Test Oracle: compartment masks vs Census author annotation. Gates the
         # scientific validity of every interaction table above.
         *[p(config["dirs"]["tables"], d, "compartment_audit_gates.csv") for d in DATASETS],
+        # LR dotplot. Explicit because it was split out of
+        # ds_nerve_tumor_immune_interaction on 2026-09-11 — it is no longer an
+        # output of that rule, so nothing pulls it transitively any more and it
+        # would silently never build if it were not named here.
+        *[p(config["dirs"]["figures"], d, "nerve_tumor_immune_dotplot.png") for d in DATASETS],
+        *[p(config["dirs"]["figures"], d, "nerve_tumor_dotplot.png") for d in DATASETS],
         # scANVI-v2 nerve branch (full parity; side-branch not pulled by concordance).
         *[p(config["dirs"]["tables"],  d, "nerve_cluster_sample_purity_v2.csv") for d in DATASETS],
         *[p(config["dirs"]["tables"],  d, "nerve_celltype_label_summary.csv")   for d in DATASETS],

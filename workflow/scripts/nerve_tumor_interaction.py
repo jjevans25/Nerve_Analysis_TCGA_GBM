@@ -354,51 +354,13 @@ log_transformation(
     f"{len(nerve_groups)} clusters",
 )
 
-# --- LIANA dotplot of top consensus interactions -----------------------------
-# Plot top global magnitude-ranked LR pairs across all nerve clusters in one
-# figure (LIANA's built-in dotplot expects the in-place uns dict).
-n_pairs_for_plot = min(25, len(lr_full))
-# Globally rank by magnitude for the dotplot (the on-disk CSV is sorted by
-# cluster for readability; the plot wants a single cohort-wide top list).
-lr_global_top = lr_full.sort_values("magnitude_rank").head(n_pairs_for_plot).copy()
-try:
-    plot_df = lr_global_top
-    fig = li.pl.dotplot(
-        liana_res=plot_df,
-        colour="magnitude_rank",
-        size="specificity_rank",
-        inverse_colour=True,
-        inverse_size=True,
-        top_n=n_pairs_for_plot,
-        orderby="magnitude_rank",
-        orderby_ascending=True,
-        figure_size=(max(8, 0.4 * len(nerve_groups)), 0.4 * n_pairs_for_plot + 2),
-    )
-    fig.save(snakemake.output.dotplot, dpi=150, bbox_inches="tight")  # type: ignore[name-defined]
-except Exception as exc:  # plotnine API differences across versions
-    log_transformation(
-        log,
-        "nerve_tumor_interaction",
-        f"WARNING: LIANA dotplot failed ({exc}); writing fallback bar chart",
-        status="WARNING",
-    )
-    fig, ax = plt.subplots(figsize=(8, 0.35 * n_pairs_for_plot + 2))
-    plot_df = lr_global_top.iloc[::-1]
-    label = (
-        plot_df["source"].astype(str)
-        + " → "
-        + plot_df["target"].astype(str)
-        + " | "
-        + plot_df["ligand_complex"].astype(str)
-        + "→"
-        + plot_df["receptor_complex"].astype(str)
-    )
-    ax.barh(label.values, -np.log10(plot_df["magnitude_rank"].clip(lower=1e-6).values))
-    ax.set_xlabel("-log10(magnitude_rank)")
-    ax.set_title(f"Top {n_pairs_for_plot} tumor↔nerve LR pairs (LIANA+ consensus)")
-    fig.tight_layout()
-    fig.savefig(snakemake.output.dotplot, dpi=150, bbox_inches="tight")  # type: ignore[name-defined]
-    plt.close(fig)
+# --- LIANA dotplot: MOVED OUT 2026-09-11 -------------------------------------
+# Same change as the three-way rule: the figure was an output here, so the only way
+# to fix the plot was to re-run the inference and rewrite the interaction table. It
+# now has its own rule reading this rule's CSV back from disk — see
+# workflow/scripts/render_lr_dotplot.py. The old sizing here
+# (`0.4 * len(nerve_groups)`) had the same defect, and produced strip labels that
+# collided into "maligrerveerverververve..." across 15 facets.
 
 log_transformation(
     log,
@@ -443,7 +405,6 @@ log_transformation(
         snakemake.output.lr_table,  # type: ignore[name-defined]
         snakemake.output.top_pairs,  # type: ignore[name-defined]
         snakemake.output.heatmap,  # type: ignore[name-defined]
-        snakemake.output.dotplot,  # type: ignore[name-defined]
         snakemake.output.provenance,  # type: ignore[name-defined]
     ],
 )

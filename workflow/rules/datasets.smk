@@ -403,7 +403,6 @@ rule ds_nerve_tumor_interaction:
         lr_table   = _tb("nerve_tumor_interactions.csv"),
         top_pairs  = _tb("nerve_tumor_top_pairs.csv"),
         heatmap    = _fg("nerve_tumor_sig_heatmap.png"),
-        dotplot    = _fg("nerve_tumor_dotplot.png"),
         provenance = _pv("nerve_tumor_interaction_provenance.json"),
     log:
         os.path.join(config["dirs"]["logs"], "{dataset}_nerve_tumor_interaction.log"),
@@ -488,7 +487,6 @@ rule ds_nerve_tumor_immune_interaction:
         lr_table   = _tb("nerve_tumor_immune_interactions.csv"),
         top_pairs  = _tb("nerve_tumor_immune_top_pairs.csv"),
         heatmap    = _fg("nerve_tumor_immune_sig_heatmap.png"),
-        dotplot    = _fg("nerve_tumor_immune_dotplot.png"),
         provenance = _pv("nerve_tumor_immune_interaction_provenance.json"),
     log:
         os.path.join(config["dirs"]["logs"], "{dataset}_nerve_tumor_immune_interaction.log"),
@@ -507,6 +505,57 @@ rule ds_nerve_tumor_immune_interaction:
         max_cells_per_group = config["liana"]["max_cells_per_group"],
     script:
         "../scripts/nerve_tumor_immune_interaction.py"
+
+
+rule ds_nerve_tumor_dotplot:
+    """Ligand-receptor dotplot for the two-way nerve-tumor interactions.
+
+    Same split, same reason, same renderer as `ds_nerve_tumor_immune_dotplot`.
+    """
+    input:
+        lr_table = _tb("nerve_tumor_interactions.csv"),
+    output:
+        dotplot    = _fg("nerve_tumor_dotplot.png"),
+        provenance = _pv("nerve_tumor_dotplot_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "{dataset}_nerve_tumor_dotplot.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = 4000,
+        threads = 1,
+    params:
+        top_n = 25,
+    script:
+        "../scripts/render_lr_dotplot.py"
+
+
+rule ds_nerve_tumor_immune_dotplot:
+    """Ligand-receptor dotplot for the three-way interactions, rendered from the CSV.
+
+    Separate from `ds_nerve_tumor_immune_interaction` on purpose. That rule runs a
+    seeded 1000-permutation LIANA test over ~950k cells and writes the headline
+    interaction tables; having the figure as one of its outputs meant a cosmetic plot
+    change could only be made by re-running the inference and rewriting the data. This
+    reads the finished table back and renders in seconds, so the figure can be iterated
+    on — for a write-up, say — with no possibility of perturbing the numbers.
+    """
+    input:
+        lr_table = _tb("nerve_tumor_immune_interactions.csv"),
+    output:
+        dotplot    = _fg("nerve_tumor_immune_dotplot.png"),
+        provenance = _pv("nerve_tumor_immune_dotplot_provenance.json"),
+    log:
+        os.path.join(config["dirs"]["logs"], "{dataset}_nerve_tumor_immune_dotplot.log"),
+    conda:
+        "../envs/scrna.yaml",
+    resources:
+        mem_mb  = 4000,
+        threads = 1,
+    params:
+        top_n = 25,
+    script:
+        "../scripts/render_lr_dotplot.py"
 
 
 rule ds_annotate_cluster_qc:

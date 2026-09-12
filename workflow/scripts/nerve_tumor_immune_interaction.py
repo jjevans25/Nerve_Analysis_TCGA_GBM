@@ -23,7 +23,8 @@ Approach
    e.g. nerve_c1↔nerve_c2, are excluded — they are not the question here).
 4. Persist the full LR table (tagged with ``compartment_pair`` and ``direction``),
    the top-N magnitude-ranked pairs per directional pairing, a compartment-pair
-   significance heatmap, and a LIANA dotplot of the top consensus interactions.
+   significance heatmap. The LIANA dotplot is rendered by a separate rule
+   (``render_lr_dotplot.py``) from this rule's CSV.
 """
 
 import os
@@ -422,52 +423,13 @@ log_transformation(
     f"Wrote significance heatmap with {int(sig_counts.values.sum())} total sig pairs",
 )
 
-# --- LIANA dotplot of top consensus interactions -----------------------------
-n_pairs_for_plot = min(25, len(lr_full))
-lr_global_top = lr_full.sort_values("magnitude_rank").head(n_pairs_for_plot).copy()
-try:
-    fig = li.pl.dotplot(
-        liana_res=lr_global_top,
-        colour="magnitude_rank",
-        size="specificity_rank",
-        inverse_colour=True,
-        inverse_size=True,
-        top_n=n_pairs_for_plot,
-        orderby="magnitude_rank",
-        orderby_ascending=True,
-        figure_size=(max(8, 0.5 * combined.obs["cell_label"].nunique()), 0.4 * n_pairs_for_plot + 2),
-    )
-    fig.save(snakemake.output.dotplot, dpi=150, bbox_inches="tight")  # type: ignore[name-defined]
-except Exception as exc:  # plotnine API differences across versions
-    log_transformation(
-        log,
-        "nerve_tumor_immune_interaction",
-        f"WARNING: LIANA dotplot failed ({exc}); writing fallback bar chart",
-        status="WARNING",
-    )
-    fig, ax = plt.subplots(figsize=(9, 0.35 * n_pairs_for_plot + 2))
-    plot_df = lr_global_top.iloc[::-1]
-    label = (
-        plot_df["source"].astype(str)
-        + " → "
-        + plot_df["target"].astype(str)
-        + " | "
-        + plot_df["ligand_complex"].astype(str)
-        + "→"
-        + plot_df["receptor_complex"].astype(str)
-    )
-    ax.barh(label.values, -np.log10(plot_df["magnitude_rank"].clip(lower=1e-6).values))
-    ax.set_xlabel("-log10(magnitude_rank)")
-    ax.set_title(f"Top {n_pairs_for_plot} nerve↔tumor↔immune LR pairs (LIANA+ consensus)")
-    fig.tight_layout()
-    fig.savefig(snakemake.output.dotplot, dpi=150, bbox_inches="tight")  # type: ignore[name-defined]
-    plt.close(fig)
-log_transformation(
-    log,
-    "nerve_tumor_immune_interaction",
-    f"Wrote dotplot with top-{n_pairs_for_plot} interactions",
-)
-
+# --- LIANA dotplot: MOVED OUT 2026-09-11 -------------------------------------
+# The dotplot used to be rendered here and declared as an output of this rule,
+# which coupled a cosmetic figure to a seeded 1000-permutation test over ~950k
+# cells: fixing the plot meant re-running the inference and rewriting the headline
+# interaction tables. It now has its own rule, reading this rule's CSV back from
+# disk — see workflow/scripts/render_lr_dotplot.py, which also documents and fixes
+# the facet-label overlap the old sizing produced.
 # --- FAIR provenance ---------------------------------------------------------
 verify_artifact(snakemake.output.lr_table)  # type: ignore[name-defined]
 prov = stamp_artifact(
@@ -509,7 +471,6 @@ log_transformation(
         snakemake.output.lr_table,  # type: ignore[name-defined]
         snakemake.output.top_pairs,  # type: ignore[name-defined]
         snakemake.output.heatmap,  # type: ignore[name-defined]
-        snakemake.output.dotplot,  # type: ignore[name-defined]
         snakemake.output.provenance,  # type: ignore[name-defined]
     ],
 )
