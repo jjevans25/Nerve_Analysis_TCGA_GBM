@@ -105,6 +105,17 @@ corrected independently, and each landed within 1–4% of **its own** oracle cou
 sequencing depth converging separately on their own ground truth is a much harder
 thing to fake than one arm clearing a threshold.
 
+![The corrected nerve compartment: 37,945 cells in 23 Leiden clusters (left), and
+what they are (right).](../results/figures/gbm_cellxgene_56c4912d_full/nerve_cells_umap.png)
+
+*The corrected nerve compartment — and a preview of its central limitation. Left:
+37,945 cells, 23 clusters. Right: what they actually are. The green mass is
+oligodendrocytes; the two small islands are excitatory and inhibitory neurons,
+sitting cleanly apart from the glia rather than smeared into them, which is what a
+compartment looks like when the labels are right. It also shows the asymmetry that
+governs everything below — the glial side is an ocean and the neuron side is two
+islands.*
+
 ---
 
 ## The pipeline re-derives biology it was never told about
@@ -152,6 +163,16 @@ druggable axes:
 independently. The immune–nerve interface both dominates the tested space (30,622
 of 44,139 tested pairs) and survives it at the highest rate (2,118 of 2,673
 significant).
+
+![Significant ligand–receptor pairs per compartment pair and
+direction.](../results/figures/gbm_cellxgene_56c4912d_full/nerve_tumor_immune_sig_heatmap.png)
+
+*Where the crosstalk actually is. Each cell counts significant LR pairs
+(`magnitude_rank < 0.05`) for one compartment pair in one direction. The
+nerve↔immune axis carries 2,118 of the 2,673 significant pairs — 1,170 nerve→immune
+and 948 immune→nerve — against 459 for nerve↔tumor and 96 for immune↔tumor. The
+question this project set out to ask turned out to be the one the data had the most
+to say about, which is not something you get to count on.*
 
 ---
 
@@ -209,12 +230,50 @@ version of it.
 
 → **[explore the nerve–immune crosstalk dashboard]** *(link to be added)*
 
-Start with the tier-1 filter, then turn **off** "hide QC-failing rows" and watch
-what changes. That difference is the honest width of the result.
+Three things worth doing once you're in there, in order:
+
+1. **Filter to tier 1, then turn *off* "hide QC-failing rows."** The difference
+   between those two views is the honest width of the result. Everything this post
+   claims survives that toggle; not everything in the table does.
+2. **Find `BCAN|EGFR`.** It sits in tier 1 — approved-drug-available, on EGFR's long
+   agent list — on the strength of a single interaction row, from a cluster the
+   external annotation calls 83.5% malignant. It is the cleanest example I have of
+   why a druggability tier is a starting point for a conversation and not a result.
+3. **Compare the two arms.** An axis present in one and absent in the other is not
+   a finding. Cross-arm agreement is the only replication evidence here.
 
 ---
 
-*Cohort: CELLxGENE Census GBM 10x, dataset `56c4912d`, 170 donors, 1,006,344
-post-QC cells. Pipeline: Snakemake + scvi-tools + scanpy + LIANA + marimo, on an
-Apple M4 Max. The engineering companion post covers how it was built, and what
-broke. Open items and known limits: `markdowns/post_compartment_fix_next_steps.md`.*
+## The data
+
+The analysis tables are in the repository — 92 files, both cohort arms: every
+tested interaction with its QC flags, the compartment audit gates, per-cluster
+purity, the lead-axes shortlist, and the rendered notebooks. `results/README.md`
+documents what each file is and the four ways these tables are easy to misread.
+
+Two things are deliberately **not** published. The retired v1.3.0 reference
+cohort's tables are withheld: that cohort's nerve compartment measured 11% neural,
+its nerve claims are void, and it can't be corrected, so putting it next to the
+corrected tables with nothing in the filename to warn anyone seemed worse than
+leaving it out. And the model checkpoints are too large for git.
+
+One caveat on reproducibility, stated because the alternative is letting you
+discover it: of 797 provenance records, **one** artifact — the full cohort's scVI
+latent — was built under a torch version the environment spec doesn't pin (2.11.0
+against a pinned 2.12.0), because for a period the declared conda environments
+weren't the ones that actually executed. That's fixed, and a build gate now checks
+every record against every pin. The one artifact was kept rather than rebuilt, as a
+decision on the record: re-deriving it means retraining on a million cells and
+renumbering every cluster in this post, and nobody knows whether it would change
+anything. The second arm's latent is clean, and since the replication claim here is
+cross-arm agreement, the result doesn't rest on that file. The engineering companion
+post tells that story properly.
+
+---
+
+*Cohort: CELLxGENE Census GBM 10x, dataset `56c4912d`, 170 donors, 1,020,902 cells
+ingested, 1,006,344 post-QC. Pipeline: Snakemake + scvi-tools + scanpy + LIANA +
+marimo, on an Apple M4 Max. Compartment labels audited against the Census author
+annotation, held back from the pipeline and used only as an oracle. The engineering
+companion post covers how it was built and what broke along the way. Remaining open
+items: `markdowns/post_compartment_fix_next_steps.md`.*
