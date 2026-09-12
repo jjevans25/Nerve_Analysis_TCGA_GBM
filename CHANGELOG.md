@@ -38,7 +38,7 @@ Last Updated:   2026-09-11
 Repo:           github.com/jjevans25/GBM_Nerve_Tumor_Immune_Single_Cell_Analysis (renamed 2026-07-28; local dir intentionally still Nerve_Analysis_TCGA_GBM — see CLAUDE.md)
 Active Agent:   lead-researcher
 Current Task:   NONE. Both Census arms are COMPLETE and pass 10/10 enforcing compartment gates (nerve 95.39%/94.76% neural, tumor 92.96%/93.47% malignant, immune purity 99.63%, malignancy F1 0.911). Cross-arm lead-axes shortlist delivered: 183 rows / 144 unique axes, tiers 34/18/57/57/17, now carrying per-row `selection_arm` + `qc_filter_applied`. Four Census notebooks render on both arms. Project is in **pre-publication write-up**: engineering post drafted at `markdowns/GBM_TME_Crosstalk_Analysis.md`, science post at `markdowns/blog_01_science_nerve_immune_crosstalk.md`. Dashboard hosting is the researcher's, out of scope here.
-Blocked On:     Nothing computational. **[FAIR-ALERT] unchanged:** every `script:`-rule artifact in these arms was produced by the `claude_science` venv, NOT the declared `scrna.yaml` conda env — not reproducible from the declared spec. Defect 1 is OPEN at `markdowns/task_conda_env_enforcement.md`. This is now a *publication* blocker too: the engineering post argues reproducibility discipline, so it must be fixed or stated in print.
+Blocked On:     Nothing. **Defect 1 CLOSED 2026-09-11** — `--use-conda` is enforced (`scripts/run_snakemake.sh`, smoke test 14/14) and `fair_validate_metadata` now checks all 797 provenance records against the declared pins and fails the build on any unreasoned conflict. The former blanket [FAIR-ALERT] is replaced by ONE named exception: the full arm's scvi_integration ran under torch 2.11.0 vs the pinned 2.12.0 (2026-07-30). The capped arm is pin-clean, so cross-arm replication does not rest on it. Re-deriving it = ~11 h scVI retrain + Leiden renumber = researcher call.
 Next Action:    (1) **Researcher decision — Defect 1 / Option B.** May shift Leiden cluster IDs and cascade, so it needs sign-off, not scheduling; pin `numba` when actioned (unpinned, and it caused two segfaults). (2) **Researcher decision — make the repo linkable.** `results/` is 100% gitignored (0 tracked files); a reader following either post can obtain no table. Zenodo deposit (already earmarked, and the only off-machine copy of the 26 MB v1.3.0 archive + the 1.4 GB unreproducible `nerve_cells_counts.h5ad`) or a committed slice. (3) Push `docs/blog-prep-2026-09` and `chore/disk-reclamation-2026-08` — both unpushed, on the single disk flagged as un-backed-up. (4) Review purity_v2 failing clusters (16/43 full, 9/33 capped). (5) The five recommended analyses in `markdowns/post_compartment_fix_next_steps.md` §3.1–3.5, none executed. Note `marimo` on PATH has a broken matplotlib; run notebooks via the snakemake notebooks env. **Invocation: always `scripts/run_snakemake.sh`, targets first, and pin `--allowed-rules` — `--forcerun` alone pulled the network-only `refresh_drug_annotation` into the DAG on 2026-09-11.**
 ```
 
@@ -48,6 +48,83 @@ Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLE
 ---
 
 ## Session Log
+
+---
+
+### [2026-09-11] | Phase: Defect 1 closure + results publication | Status: COMPLETE
+
+**Action:** Researcher directed: fix Defect 1 (conda-env shadowing), and publish `results/` if
+the size is manageable.
+
+**Outcome — Defect 1 is CLOSED.**
+
+The *remediation* shipped 2026-08-05 in `a375811` (`scripts/run_snakemake.sh`); the task doc's
+`OPEN — not started` status line was simply never updated, and `conda_env_smoke_test` has passed
+14/14 against its own acceptance criteria ever since. Neither candidate approach in the doc was
+needed — Snakemake was not reinstalled, the venv was not rebuilt.
+
+What was genuinely missing was any *check that the pins stay enforced*, and any measurement of how
+far the original defect reached. `fair_validate_metadata` globbed `provenance/*.json`, counted the
+files and wrote the count. It never opened one, and never saw the ~650 records under
+`provenance/<dataset>/` — so it reported on the retired v1.3.0 reference while the live Census arms
+went unaudited. It now recurses (**70 -> 797 records**), compares every recorded `tool_versions`
+entry against every `pkg==version` pin in `workflow/envs/*.yaml`, and **fails the build with
+`[FAIR-ALERT]`** on any conflict not in a reasoned `ACCEPTED_VERSION_EXCEPTIONS` entry.
+
+**Measured blast radius.** The task doc claimed "every `script:`-rule artifact this repo has ever
+produced". Across 797 records there is **exactly one**: the full arm's `scvi_integration`,
+2026-07-30, **torch 2.11.0** against the pinned 2.12.0. The capped arm's own integration recorded
+**2.12.0** and is clean — so, since the replication evidence here is cross-arm agreement, the
+result does not rest on the drifted artifact. Every load-bearing rule downstream (annotate,
+malignancy, both subsets, both interaction rules, compartment audit, scANVI, concordance) was
+rebuilt **2026-08-06** with versions matching the pins. Re-deriving that one file is an ~11 h scVI
+retrain that renumbers Leiden clusters, so per the doc's own Risk section it stays a **researcher
+decision** and is recorded as an explicit accepted exception, not a silent pass.
+
+**The new gate caught two lying provenance records on its first run**, both fixed at source:
+`nerve_clinical_association.py` recorded `"scanpy": ad.__version__` — anndata's version filed under
+scanpy's key, with a comment calling it a "stand-in for the env" — and `nerve_assemble_counts.py`
+recorded the literal string `"scipy.sparse@n/a"`, a version field naming no version. Their
+reference-cohort artifacts cannot be regenerated (reference pinned, `nerve_cells.h5ad` deleted), so
+those are allowlisted as known-bad historical records with the reason stated.
+
+**Outcome — `results/` is published and pushed.** 92 files / 49 MB (~22 MB packed), force-added
+past the wholesale `results/` ignore; repo 13 MB -> 37 MB. Both arms' analysis tables, figures and
+the 8 notebook HTMLs, the lead-axes shortlist, the audit gates/snapshots, and the FAIR +
+smoke-test reports. `results/README.md` documents the slice, the four ways these tables are easy to
+misread, and the invocation rules.
+
+**Excluded by researcher decision:** the ~40 root-level v1.3.0 reference tables. That cohort's
+nerve compartment was 11% neural / 59% malignant; its nerve claims are void and uncorrectable, and
+publishing them beside the corrected tables with nothing in the filename to warn a reader would
+hand out void numbers. Also excluded: `results/models/` (740 MB) and the pre-fix snapshot (153 MB),
+both Zenodo material; 680 per-sample QC/gene-presence CSVs (51 MB); the pre-QC-join duplicates
+(verified strictly redundant — same 44,140 rows, 19 cols -> 28); and four 170-panel UMAP contact
+sheets (26 MB).
+
+**Pushed:** `docs/blog-prep-2026-09` -> origin, carrying 10 commits, including the four
+disk-reclamation commits that had been local-only on a single un-backed-up disk.
+
+**Artifacts:** `workflow/scripts/fair_validate_metadata.py` (rewritten),
+`workflow/scripts/nerve_clinical_association.py`, `workflow/scripts/nerve_assemble_counts.py`,
+`results/README.md`, `.gitignore`, `markdowns/task_conda_env_enforcement.md` (closed, untracked by
+design), `markdowns/GBM_TME_Crosstalk_Analysis.md`, `results/fair_validation_report.json`.
+
+**Tool Versions:** validated against 31 declared pins across `workflow/envs/*.yaml`. flake8 clean
+on all three scripts (also fixed a pre-existing E501 in `nerve_clinical_association.py`).
+
+**Open Issues:** (1) The one accepted exception — re-deriving the full arm's scVI latent under
+torch 2.12.0 — remains a researcher call. (2) **`rule all` is no longer a no-op:** the Tier-3 disk
+reclamation removed the per-sample intermediates under `data/processed/<arm>/`, so a dry run now
+schedules **365 jobs** (169 ingest + 170 QC + the downstream chain), not the 7 recorded on
+2026-08-27. Terminal artifacts are all present; this only matters if someone runs a bare `rule all`
+expecting a cheap check. (3) Zenodo deposit still the only off-machine plan for the 740 MB of
+models and the 1.4 GB unreproducible `nerve_cells_counts.h5ad`. (4) 4 malformed `tool_versions`
+strings remain as warnings in the FAIR report.
+
+**FAIR Notes:** The standing `[FAIR-ALERT]` is retired as a blanket claim and replaced by a named,
+reasoned, machine-checked exception. Provenance records are now parsed rather than counted — the
+project's Reusable claim is enforced by a rule that can fail, which is what it always asserted.
 
 ---
 
