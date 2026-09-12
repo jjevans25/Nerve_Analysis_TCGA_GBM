@@ -204,7 +204,10 @@ prov = stamp_artifact(
     tool_versions={
         "anndata": ad.__version__,
         "numpy": np.__version__,
-        "scipy": sp.__name__ + "@" + getattr(sp, "__version__", "n/a"),
+        # `sp` is scipy.sparse, a submodule with no __version__ — this recorded the
+        # literal string "scipy.sparse@n/a", i.e. a provenance record that names no
+        # version at all. fair_validate_metadata now flags that shape.
+        "scipy": getattr(__import__("scipy"), "__version__", "unknown"),
     },
     parameters={
         "n_cells": int(adata.n_obs),

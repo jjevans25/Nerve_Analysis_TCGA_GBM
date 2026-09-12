@@ -201,8 +201,44 @@ an input rather than a computed artifact — see §8.
 
 Each rule declares its own conda environment, `resources`, and `threads`, and
 writes a `provenance/<dataset>/<rule>_provenance.json` carrying a UUID5, input and
-output SHA-256s, tool versions, and every parameter. That is the FAIR reusability
-requirement made mechanical rather than aspirational.
+output SHA-256s, tool versions, and every parameter.
+
+I used to describe that as "the FAIR reusability requirement made mechanical rather
+than aspirational," and for most of this project's life that was a bigger claim than
+the code supported. Two things were wrong at once. The declared environments **were
+not the environments that ran**: `claude_science` is a venv whose `bin/python` is a
+symlink into Anaconda, and while it is active in the calling shell an exported
+`VIRTUAL_ENV` re-shadows conda activation for every child process — so each rule
+reported the conda env it had activated and then executed against the venv's
+packages. The pins in `workflow/envs/*.yaml` were decorative. And the FAIR validator
+that was supposed to notice globbed `provenance/*.json`, counted the files, and wrote
+the count to a report. It never opened one. It never even saw the ~650 records under
+`provenance/<dataset>/`, so it was reporting on a retired cohort while the live arms
+went unaudited.
+
+Both are fixed. `scripts/run_snakemake.sh` unsets `VIRTUAL_ENV` and strips the venv
+from `PATH` before exec'ing Snakemake, which is enough — the interpreter never needed
+rebuilding. `rule conda_env_smoke_test` then asserts from *inside* a rule that
+`sys.executable` is the conda env's, that `igraph` is 0.11.8 and `torch` 2.12.0, and
+that the env hashes did not change. And `fair_validate_metadata` now reads every one
+of the 797 records and compares each recorded version against the declared pins,
+failing the build on any conflict that is not an explicitly reasoned exception.
+
+The useful part is what that check found when it was first pointed at its own history.
+Across 797 records: **one** artifact in the entire project demonstrably ran under an
+unpinned dependency — the full arm's scVI integration, recorded 2026-07-30 with torch
+2.11.0 against the pinned 2.12.0. The capped arm's own integration recorded 2.12.0 and
+is clean, which matters more than it sounds: the replication evidence here is cross-arm
+agreement, so the result does not rest on the drifted file. Everything downstream —
+annotation, malignancy, both subsets, both interaction rules, the audit — was rebuilt
+after the fix with versions matching the pins.
+
+It also caught two provenance records that were quietly lying. One recorded
+`"scanpy": ad.__version__` — anndata's version, filed under scanpy, with a comment
+calling it a "stand-in for the env." The other recorded the literal string
+`"scipy.sparse@n/a"`, a version field naming no version at all. Neither would ever
+have surfaced, because nothing read these files; they were written, counted, and
+trusted. A provenance record nobody parses is decoration with a checksum on it.
 
 One hard-won operational note: `resources: mem_mb` in Snakemake is **a scheduler
 gate, not a memory cap**. It cannot bound a single process's RAM on a local run.

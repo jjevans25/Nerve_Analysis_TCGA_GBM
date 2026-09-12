@@ -366,9 +366,11 @@ if testable_cats and sig_clusters:
             ax.set_ylabel(f"c{cluster}" if j == 0 else "")
             ax.tick_params(axis="x", labelsize=8, rotation=30)
             ax.tick_params(axis="y", labelsize=8)
+    _any_sig = any(stats_df["padj"].dropna() < SIG_THRESHOLD)
+    _basis = (f"sig (padj<{SIG_THRESHOLD:.2f})" if _any_sig
+              else f"top-{TOP_N_FALLBACK} ranked by padj")
     fig.suptitle(
-        f"Per-sample nerve-cluster proportions by covariate "
-        f"({'sig (padj<{:.2f})'.format(SIG_THRESHOLD) if any(stats_df['padj'].dropna() < SIG_THRESHOLD) else f'top-{TOP_N_FALLBACK} ranked by padj'})",
+        f"Per-sample nerve-cluster proportions by covariate ({_basis})",
         fontsize=11,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.97])
@@ -396,11 +398,16 @@ prov = stamp_artifact(
     output_path=snakemake.output.stats,  # type: ignore[name-defined]
     rule_name="nerve_clinical_association",
     input_paths=[snakemake.input.h5ad, snakemake.input.clinical],  # type: ignore[name-defined]
+    # Record only versions this script can actually observe. The `scanpy` key used
+    # to carry `ad.__version__` as a "stand-in for the env" — that made the record
+    # assert a scanpy version that was never loaded here (0.12.10 is anndata's), and
+    # `fair_validate_metadata` now rejects exactly that: a provenance record whose
+    # tool version no declared pin allows is indistinguishable from the wrong
+    # environment having run. `scipy` likewise recorded a module path, not a version.
     tool_versions={
-        "scanpy": ad.__version__,  # anndata version stand-in for the env
         "anndata": ad.__version__,
         "pandas": pd.__version__,
-        "scipy": stats.__name__ + "@" + getattr(__import__("scipy"), "__version__", "?"),
+        "scipy": getattr(__import__("scipy"), "__version__", "unknown"),
     },
     parameters={
         "n_clusters": int(len(clusters)),
