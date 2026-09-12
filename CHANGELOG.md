@@ -37,7 +37,7 @@ Phase:          Pre-publication (blog). Analysis COMPLETE on both Census arms; h
 Last Updated:   2026-09-11
 Repo:           github.com/jjevans25/GBM_Nerve_Tumor_Immune_Single_Cell_Analysis (renamed 2026-07-28; local dir intentionally still Nerve_Analysis_TCGA_GBM — see CLAUDE.md)
 Active Agent:   lead-researcher
-Current Task:   NONE. Both Census arms are COMPLETE and pass 10/10 enforcing compartment gates (nerve 95.39%/94.76% neural, tumor 92.96%/93.47% malignant, immune purity 99.63%, malignancy F1 0.911). Cross-arm lead-axes shortlist delivered: 183 rows / 144 unique axes, tiers 34/18/57/57/17, now carrying per-row `selection_arm` + `qc_filter_applied`. Four Census notebooks render on both arms. Project is in **pre-publication write-up**: engineering post drafted at `markdowns/GBM_TME_Crosstalk_Analysis.md`, science post at `markdowns/blog_01_science_nerve_immune_crosstalk.md`. Dashboard hosting is the researcher's, out of scope here.
+Current Task:   NONE. Both Census arms are COMPLETE and pass 10/10 enforcing compartment gates (nerve 95.39%/94.76% neural, tumor 92.96%/93.47% malignant, immune purity 99.63%, malignancy F1 0.911). Cross-arm lead-axes shortlist delivered: 183 rows / 144 unique axes, tiers 34/18/57/57/17, now carrying per-row `selection_arm` + `qc_filter_applied`. Four Census notebooks render on both arms. Project is in **pre-publication write-up**: engineering post drafted at `markdowns/blog_02_engineering_crosstalk_pipeline.md` (renamed 2026-09-11 from `GBM_TME_Crosstalk_Analysis.md`; earlier entries below use the old name), science post at `markdowns/blog_01_science_nerve_immune_crosstalk.md`. Dashboard hosting is the researcher's, out of scope here.
 Blocked On:     Nothing. **Defect 1 CLOSED 2026-09-11, fully.** `--use-conda` is enforced (`scripts/run_snakemake.sh`, smoke test 14/14) and `fair_validate_metadata` parses all 797 provenance records against the declared pins, failing the build on any unreasoned conflict. The former blanket [FAIR-ALERT] is now ONE named, reasoned exception: the full arm's scvi_integration ran under torch 2.11.0 vs the pinned 2.12.0 (2026-07-30). **Researcher decided 2026-09-11 to RETAIN it — no re-derivation** — and the pin deliberately stays 2.12.0, the env all 15 post-fix artifacts were built under. Capped arm is pin-clean, so cross-arm replication does not rest on it.
 Next Action:    (1) ~~Defect 1 / Option B~~ — **DONE 2026-09-11** (closed; latent retained by decision). (2) ~~Make the repo linkable~~ — **DONE**: 92-file / 49 MB results slice committed and pushed on `docs/blog-prep-2026-09`. Remaining: `results/` is 100% gitignored (0 tracked files); a reader following either post can obtain no table. Zenodo deposit (already earmarked, and the only off-machine copy of the 26 MB v1.3.0 archive + the 1.4 GB unreproducible `nerve_cells_counts.h5ad`) or a committed slice. (3) Push `docs/blog-prep-2026-09` and `chore/disk-reclamation-2026-08` — both unpushed, on the single disk flagged as un-backed-up. (4) Review purity_v2 failing clusters (16/43 full, 9/33 capped). (5) The five recommended analyses in `markdowns/post_compartment_fix_next_steps.md` §3.1–3.5, none executed. Note `marimo` on PATH has a broken matplotlib; run notebooks via the snakemake notebooks env. **Invocation: always `scripts/run_snakemake.sh`, targets first, and pin `--allowed-rules` — `--forcerun` alone pulled the network-only `refresh_drug_annotation` into the DAG on 2026-09-11.**
 ```
@@ -48,6 +48,39 @@ Prior status (v1.3.0 baseline, retained): cl15 surgical sub-cluster split COMPLE
 ---
 
 ## Session Log
+
+---
+
+### [2026-09-11] | Phase: Blog drafts — rename for symmetry | Status: COMPLETE
+
+**Action:** Rename the engineering post so the two drafts read as a pair.
+
+**Outcome:** `markdowns/GBM_TME_Crosstalk_Analysis.md` ->
+`markdowns/blog_02_engineering_crosstalk_pipeline.md`, via `git mv` so `--follow` keeps its
+history. The pair is now:
+
+| | file |
+|---|---|
+| Science | `markdowns/blog_01_science_nerve_immune_crosstalk.md` |
+| Engineering | `markdowns/blog_02_engineering_crosstalk_pipeline.md` |
+
+**Live pointers updated:** the science post's header, and the `[STATUS]` block above. The two
+drafts now link to each other reciprocally.
+
+**Deliberately NOT updated: every historical CHANGELOG entry below.** Nine earlier entries
+(and `.claude/plans/close_lead_axes_generator_gap.md`) still say
+`markdowns/GBM_TME_Crosstalk_Analysis.md`, because at the time they were written that is what
+the file was called. Rewriting them would make the lab notebook assert a filename that did not
+exist on those dates — the same reasoning `CLAUDE.md` applies to `provenance/*.json`. This entry
+is the forwarding address: **any reference to `GBM_TME_Crosstalk_Analysis.md` dated before
+2026-09-11 means `blog_02_engineering_crosstalk_pipeline.md`.**
+
+**Artifacts:** `markdowns/blog_02_engineering_crosstalk_pipeline.md` (renamed),
+`markdowns/blog_01_science_nerve_immune_crosstalk.md`, `CHANGELOG.md`.
+
+**Open Issues:** None. Nothing in the workflow references either draft — no rule, script or
+notebook reads them — so the rename has no build impact. Verified by grep across `Snakefile`,
+`workflow/` and `notebooks/`.
 
 ---
 

@@ -7,6 +7,12 @@
 an artifact on disk under `results/tables/gbm_cellxgene_56c4912d_full/` or
 `provenance/gbm_cellxgene_56c4912d_full/`.
 
+*Second of two. The companion science post —
+`blog_01_science_nerve_immune_crosstalk.md` — covers what the cohort actually says;
+this one covers how it was built and what broke. (This file was named
+`GBM_TME_Crosstalk_Analysis.md` until 2026-09-11; CHANGELOG entries before that
+date refer to it by the old name.)*
+
 ---
 
 ## The question

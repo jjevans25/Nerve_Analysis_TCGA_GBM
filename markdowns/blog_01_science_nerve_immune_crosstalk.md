@@ -4,7 +4,7 @@
 the question I started with.*
 
 **Draft — science blog post, written 2026-09-11.** Companion to the technical
-walkthrough in `GBM_TME_Crosstalk_Analysis.md`. Every number here resolves to an
+walkthrough in `blog_02_engineering_crosstalk_pipeline.md`. Every number here resolves to an
 artifact under `results/tables/gbm_cellxgene_56c4912d_full/`.
 
 ---
